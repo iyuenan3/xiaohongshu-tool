@@ -1,0 +1,58 @@
+# Sensitive infrastructure files
+INFRA.md
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+dist/
+out/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+.yarn/
+
+# Electron build outputs
+release/
+build/
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.snap
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# OS
+._*
+.Spotlight-V100
+.Trashes
+
+# Cookies / runtime state
+cookies.json
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-journal
+
+# Cloudflare Workers
+license-worker/.wrangler/
+license-worker/.dev.vars
+
+# Go test binaries
+*.test
+*.out
+
+# 外部参考仓库（保留各自 .git，不纳入顶层版本控制）
+# 注: xiaohongshu-mcp 我们 D3+ 要改造,届时会决定是否拆 .git 纳入跟踪
+x-mcp/
+xiaohongshu-mcp/

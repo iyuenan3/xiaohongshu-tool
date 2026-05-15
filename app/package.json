@@ -1,0 +1,36 @@
+{
+  "name": "xhs-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "小红书自运营系统 - Electron 客户端 (M1 PoC)",
+  "main": "./out/main/index.js",
+  "author": "TBD",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:win": "npm run build && electron-builder --win",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "electron-log": "^5.2.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@types/node": "^22.5.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^32.0.1",
+    "electron-builder": "^25.0.5",
+    "electron-vite": "^2.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "zustand": "^4.5.5"
+  }
+}

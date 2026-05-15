@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小红书自运营系统 · 技术规格说明书 v0.1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700;9..144,800;9..144,900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600;700;900&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --paper:      #faf7f0;
+  --paper-2:    #f3ede0;
+  --paper-3:    #ece4d2;
+  --surface:    #ffffff;
+  --ink:        #1a1612;
+  --ink-soft:   #4a4239;
+  --ink-mute:   #8a8175;
+  --rule:       #d8cfba;
+  --rule-soft:  #e7dfca;
+  --accent:     #b8412e;
+  --accent-2:   #d65a3f;
+  --accent-soft:#f4d8d0;
+  --green:      #1f4d3a;
+  --green-soft: #d8e5dc;
+  --gold:       #a17829;
+  --gold-soft:  #f0e2c0;
+  --red-deep:   #8b1f15;
+  --blue:       #2c4a6e;
+  --blue-soft:  #d8e0ec;
+  --shadow-1:   0 1px 2px rgba(26,22,18,.05);
+  --shadow-2:   0 4px 24px rgba(26,22,18,.08);
+  --shadow-stamp: 0 4px 12px rgba(184,65,46,.18), 0 0 0 2px rgba(184,65,46,.08);
+}
+html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
+body {
+  font-family: 'IBM Plex Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--paper); color: var(--ink);
+  font-size: 15px; line-height: 1.7; letter-spacing: 0.005em;
+  min-height: 100vh; position: relative;
+}
+body::before {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(26,22,18,0.025) 1px, transparent 0);
+  background-size: 24px 24px; opacity: 0.6;
+}
+.progress-bar { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: transparent; z-index: 1000; }
+.progress-bar__fill { height: 100%; background: var(--accent); width: 0%; transition: width .15s ease; }
+
+.top-banner {
+  position: fixed; top: 0; left: 0; right: 0;
+  padding: 14px 32px; background: rgba(250,247,240,.85);
+  backdrop-filter: blur(12px) saturate(180%); -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border-bottom: 1px solid var(--rule-soft); z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.top-banner__brand {
+  display: flex; align-items: center; gap: 10px;
+  font-family: 'Fraunces', 'Noto Serif SC', serif;
+  font-weight: 600; font-size: 14px; text-transform: none; letter-spacing: 0;
+}
+.top-banner__brand::before {
+  content: ''; width: 10px; height: 10px;
+  background: var(--accent); display: inline-block; transform: rotate(45deg);
+}
+.top-banner__brand small {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 400; color: var(--ink-mute); font-size: 11px; margin-left: 8px;
+  letter-spacing: 0.05em;
+}
+.top-banner__meta {
+  display: flex; gap: 24px; color: var(--ink-mute);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.06em;
+}
+.top-banner__meta span strong { color: var(--ink); font-weight: 600; margin-left: 6px; }
+.top-banner__nav-doc {
+  display: flex; gap: 10px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.1em;
+}
+.top-banner__nav-doc a {
+  color: var(--ink-mute); text-decoration: none; padding: 4px 8px; border: 1px solid var(--rule);
+  border-radius: 2px; transition: all .15s;
+}
+.top-banner__nav-doc a:hover { color: var(--ink); border-color: var(--ink-soft); }
+.top-banner__nav-doc a.current { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+.menu-toggle {
+  display: none; background: var(--ink); color: var(--paper);
+  border: none; padding: 8px 14px; font: inherit; font-size: 12px; cursor: pointer; letter-spacing: 0.08em;
+}
+
+.layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); max-width: 1440px; margin: 0 auto; position: relative; padding-top: 50px; }
+
+.sidebar {
+  position: sticky; top: 50px; align-self: start; height: calc(100vh - 50px);
+  overflow-y: auto; padding: 40px 28px 60px 32px;
+  border-right: 1px solid var(--rule-soft);
+  scrollbar-width: thin; scrollbar-color: var(--rule) transparent;
+}
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 2px; }
+.sidebar__label {
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-mute);
+  margin-bottom: 16px; padding-left: 4px;
+}
+.toc { list-style: none; }
+.toc li { position: relative; }
+.toc a {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 8px 4px 8px 0; color: var(--ink-soft); text-decoration: none;
+  font-size: 13.5px; border-left: 2px solid transparent; padding-left: 14px;
+  transition: all .2s ease; font-weight: 400;
+}
+.toc a:hover { color: var(--ink); background: var(--paper-2); }
+.toc a.active {
+  color: var(--accent); border-left-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft) 0%, transparent 100%);
+  font-weight: 500;
+}
+.toc__num {
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 500;
+  color: var(--ink-mute); letter-spacing: 0.04em; flex-shrink: 0; width: 22px;
+}
+.toc a.active .toc__num { color: var(--accent); }
+
+.sidebar__footer {
+  margin-top: 40px; padding-top: 24px; border-top: 1px dashed var(--rule);
+  font-size: 11.5px; color: var(--ink-mute); line-height: 1.7;
+}
+.sidebar__footer kbd {
+  font-family: 'JetBrains Mono', monospace; background: var(--paper-2); border: 1px solid var(--rule);
+  padding: 1px 6px; border-radius: 3px; font-size: 10.5px; color: var(--ink-soft);
+}
+
+main { padding: 0 64px 120px 64px; max-width: 940px; position: relative; z-index: 1; }
+
+.hero { padding: 80px 0 60px 0; position: relative; border-bottom: 1px solid var(--rule); margin-bottom: 50px; }
+.hero__eyebrow {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--ink-mute); margin-bottom: 28px;
+  display: flex; align-items: center; gap: 14px;
+}
+.hero__eyebrow::after { content: ''; flex: 1; height: 1px; background: var(--rule); }
+.hero__title {
+  font-family: 'Fraunces', 'Noto Serif SC', serif; font-weight: 500;
+  font-size: clamp(40px, 6vw, 76px); line-height: 1.02; letter-spacing: -0.025em;
+  color: var(--ink); font-variation-settings: "opsz" 144, "SOFT" 30; margin-bottom: 36px;
+}
+.hero__title em {
+  font-style: italic; font-variation-settings: "opsz" 144, "SOFT" 100;
+  color: var(--accent); font-weight: 400;
+}
+.hero__lede {
+  font-family: 'Fraunces', 'Noto Serif SC', serif;
+  font-size: clamp(17px, 1.8vw, 20px); line-height: 1.6; color: var(--ink-soft);
+  font-weight: 400; max-width: 760px; margin-bottom: 40px;
+  font-variation-settings: "opsz" 30;
+}
+.hero__lede strong { color: var(--ink); font-weight: 600; }
+
+.stamp {
+  position: absolute; top: 90px; right: 0; width: 128px; height: 128px;
+  border: 2px solid var(--blue); border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transform: rotate(-8deg); background: var(--paper);
+  box-shadow: 0 4px 12px rgba(44,74,110,.18), 0 0 0 2px rgba(44,74,110,.08);
+  text-align: center; padding: 8px;
+}
+.stamp::before {
+  content: ''; position: absolute; inset: 6px; border: 1px dashed var(--blue);
+  border-radius: 50%; opacity: 0.5;
+}
+.stamp__label {
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.18em;
+  color: var(--blue); text-transform: uppercase; margin-bottom: 2px;
+}
+.stamp__title { font-family: 'Fraunces', serif; font-size: 28px; font-weight: 700; color: var(--blue); line-height: 1; font-variation-settings: "opsz" 144; }
+.stamp__sub {
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--blue); margin-top: 6px; letter-spacing: 0.1em;
+}
+
+.doc-meta {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule-soft); margin-bottom: 0;
+}
+.doc-meta__item { background: var(--paper); padding: 22px 18px; display: flex; flex-direction: column; gap: 6px; }
+.doc-meta__label {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-mute);
+}
+.doc-meta__value {
+  font-family: 'Fraunces', 'Noto Serif SC', serif; font-size: 19px; font-weight: 600;
+  color: var(--ink); letter-spacing: -0.01em; font-variation-settings: "opsz" 96;
+}
+
+section.section { padding: 24px 0 60px 0; border-bottom: 1px solid var(--rule-soft); scroll-margin-top: 70px; }
+section.section:last-of-type { border-bottom: none; }
+.section__header { display: flex; align-items: baseline; gap: 24px; margin-bottom: 36px; cursor: pointer; user-select: none; position: relative; }
+.section__num {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.14em;
+  color: var(--ink-mute); font-weight: 500; padding-top: 12px; flex-shrink: 0;
+}
+.section__title {
+  font-family: 'Fraunces', 'Noto Serif SC', serif; font-size: 36px; font-weight: 500;
+  letter-spacing: -0.022em; line-height: 1.1; font-variation-settings: "opsz" 144, "SOFT" 30;
+  color: var(--ink); flex: 1;
+}
+.section__toggle {
+  width: 32px; height: 32px; border: 1px solid var(--rule); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: var(--ink-soft);
+  transition: all .2s ease; flex-shrink: 0; align-self: center; background: var(--paper);
+}
+.section__toggle:hover { border-color: var(--accent); color: var(--accent); }
+.section__toggle svg { width: 14px; height: 14px; transition: transform .3s ease; }
+.section.collapsed .section__toggle svg { transform: rotate(-90deg); }
+.section__body { overflow: hidden; transition: max-height .4s ease; max-height: 50000px; }
+.section.collapsed .section__body { max-height: 0 !important; margin-bottom: 0; }
+
+h3.subhead {
+  font-family: 'Fraunces', 'Noto Serif SC', serif; font-size: 22px; font-weight: 600;
+  margin: 36px 0 16px 0; letter-spacing: -0.012em;
+  display: flex; align-items: baseline; gap: 14px;
+}
+h3.subhead::before { content: '§'; color: var(--accent); font-style: italic; font-weight: 400; font-size: 24px; }
+h4.subhead2 {
+  font-family: 'Fraunces', 'Noto Serif SC', serif; font-size: 17px; font-weight: 600;
+  margin: 24px 0 10px 0; color: var(--ink);
+}
+h5.subhead3 {
+  font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-soft);
+  margin: 20px 0 8px 0;
+}
+
+.content p { margin-bottom: 14px; max-width: 720px; }
+.content p strong { color: var(--ink); font-weight: 600; }
+.content ul, .content ol { margin: 0 0 18px 0; padding-left: 26px; max-width: 720px; }
+.content li { margin-bottom: 6px; }
+.content li::marker { color: var(--ink-mute); }
+.content ul ul, .content ol ol { margin-top: 6px; margin-bottom: 6px; }
+
+code {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.86em;
+  background: var(--paper-2); border: 1px solid var(--rule-soft);
+  padding: 1px 6px; border-radius: 3px; color: var(--accent);
+}
+
+.codeblock {
+  background: #1a1612; color: #e8e0d2; border-radius: 4px;
+  padding: 22px 28px; margin: 20px 0; font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px; line-height: 1.65; overflow-x: auto; position: relative; box-shadow: var(--shadow-1);
+}
+.codeblock pre { white-space: pre; font-family: inherit; }
+.codeblock::before {
+  content: attr(data-lang); position: absolute; top: 8px; right: 14px;
+  font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(232,224,210,0.4);
+}
+.codeblock--ascii { font-size: 11.5px; line-height: 1.5; padding: 28px; }
+
+/* Code highlights (light variant for diffs) */
+.codeblock--diff .add { color: #98c379; }
+.codeblock--diff .del { color: #e06c75; }
+.codeblock--diff .com { color: #828085; }
+.codeblock .kw { color: #d65a3f; font-weight: 500; }
+.codeblock .str { color: #e8c884; }
+.codeblock .com { color: #828085; font-style: italic; }
+.codeblock .fn { color: #98c379; }
+.codeblock .num { color: #c8a4d8; }
+
+.table-wrap { margin: 20px 0; overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+thead { background: var(--paper-2); }
+th {
+  text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft);
+  font-weight: 500; padding: 14px 18px; border-bottom: 1px solid var(--rule); white-space: nowrap;
+}
+td { padding: 12px 18px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; line-height: 1.6; }
+tr:last-child td { border-bottom: none; }
+tbody tr { transition: background .15s ease; }
+tbody tr:hover { background: var(--paper-2); }
+td strong { color: var(--ink); font-weight: 600; }
+td code { font-size: 11.5px; }
+
+.b {
+  display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  font-weight: 600; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 2px;
+  text-transform: uppercase; white-space: nowrap; border: 1px solid transparent;
+}
+.b--accent { background: var(--accent); color: white; }
+.b--soft { background: var(--accent-soft); color: var(--accent); }
+.b--green { background: var(--green-soft); color: var(--green); }
+.b--gold { background: var(--gold-soft); color: var(--gold); }
+.b--high { background: #f9d8d4; color: var(--red-deep); }
+.b--mid { background: var(--gold-soft); color: var(--gold); }
+.b--low { background: var(--green-soft); color: var(--green); }
+.b--neutral { background: var(--paper-3); color: var(--ink-soft); border-color: var(--rule); }
+.b--blue { background: var(--blue-soft); color: var(--blue); }
+
+.callout {
+  margin: 28px 0; border-left: 3px solid var(--gold); background: var(--gold-soft);
+  padding: 20px 26px; position: relative;
+}
+.callout__label {
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--gold); font-weight: 600;
+  margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+}
+.callout__label::before {
+  content: '!'; width: 18px; height: 18px; background: var(--gold); color: white;
+  border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; font-style: italic;
+}
+.callout__body { font-size: 14px; color: var(--ink); line-height: 1.7; }
+.callout--accent { border-left-color: var(--accent); background: var(--accent-soft); }
+.callout--accent .callout__label { color: var(--accent); }
+.callout--accent .callout__label::before { background: var(--accent); }
+.callout--note { border-left-color: var(--ink-mute); background: var(--paper-2); }
+.callout--note .callout__label { color: var(--ink-soft); }
+.callout--note .callout__label::before { background: var(--ink-soft); content: 'i'; font-style: italic; }
+.callout--blue { border-left-color: var(--blue); background: var(--blue-soft); }
+.callout--blue .callout__label { color: var(--blue); }
+.callout--blue .callout__label::before { background: var(--blue); }
+
+.lede-block {
+  font-family: 'Fraunces', 'Noto Serif SC', serif; font-size: 18px; line-height: 1.55;
+  color: var(--ink); margin: 24px 0; padding: 4px 0 4px 24px; border-left: 3px solid var(--accent);
+  font-variation-settings: "opsz" 30;
+}
+.lede-block strong { font-weight: 700; }
+
+/* Module cards (for module listings) */
+.module-card {
+  margin: 18px 0; padding: 18px 22px; background: var(--surface);
+  border: 1px solid var(--rule-soft); border-left: 3px solid var(--blue);
+}
+.module-card__path {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+  color: var(--blue); margin-bottom: 12px; display: inline-block;
+  background: var(--blue-soft); padding: 3px 10px; border-radius: 2px;
+}
+
+/* State machine sequence diagram */
+.flow {
+  margin: 24px 0; padding: 24px; background: var(--paper-2);
+  border: 1px dashed var(--rule); font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; line-height: 1.65; white-space: pre; overflow-x: auto;
+}
+
+.footer {
+  padding: 60px 0 0 0; border-top: 1px solid var(--rule); margin-top: 60px;
+  font-size: 13px; color: var(--ink-mute); text-align: center; letter-spacing: 0.05em;
+}
+.footer__mark {
+  display: inline-block; font-family: 'Fraunces', serif; font-size: 20px;
+  font-style: italic; color: var(--accent); margin: 0 16px;
+}
+
+.section, .module-card, .callout, .table-wrap, .codeblock {
+  opacity: 0; transform: translateY(12px);
+  transition: opacity .6s ease, transform .6s ease;
+}
+.section.visible, .module-card.visible, .callout.visible, .table-wrap.visible, .codeblock.visible {
+  opacity: 1; transform: translateY(0);
+}
+
+@media (max-width: 980px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; top: 50px; left: 0; width: 280px; height: calc(100vh - 50px);
+    background: var(--paper); z-index: 99; transform: translateX(-100%); transition: transform .3s ease;
+    border-right: 1px solid var(--rule);
+  }
+  .sidebar.open { transform: translateX(0); }
+  main { padding: 0 28px 80px 28px; }
+  .menu-toggle { display: block; }
+  .top-banner__meta, .top-banner__nav-doc { display: none; }
+  .stamp { position: relative; top: auto; right: auto; margin-bottom: 30px; }
+  .hero { padding-top: 40px; }
+  .doc-meta { grid-template-columns: repeat(2, 1fr); }
+  .section__title { font-size: 28px; }
+  .hero__title { font-size: 44px; }
+}
+@media (max-width: 560px) {
+  .doc-meta { grid-template-columns: 1fr 1fr; }
+  main { padding: 0 20px 60px 20px; }
+  .top-banner { padding: 12px 16px; }
+  .top-banner__brand { font-size: 13px; }
+  .top-banner__brand small { display:none; }
+}
+
+@media print {
+  .sidebar, .top-banner, .progress-bar, .menu-toggle, .section__toggle { display: none !important; }
+  main { padding: 20px; max-width: none; }
+  .section.collapsed .section__body { max-height: none !important; }
+  body::before { display: none; }
+}
+
+.backdrop { position: fixed; inset: 0; background: rgba(26,22,18,0.4); opacity: 0; pointer-events: none; transition: opacity .3s ease; z-index: 98; }
+.backdrop.open { opacity: 1; pointer-events: auto; }
+</style>
+</head>
+<body>
+
+<div class="progress-bar"><div class="progress-bar__fill" id="progress"></div></div>
+
+<div class="top-banner">
+  <div class="top-banner__brand">小红书自运营系统<small>· SPEC</small></div>
+  <button class="menu-toggle" id="menuToggle">目录</button>
+  <div class="top-banner__nav-doc">
+    <a href="PRD.html">PRD</a>
+    <a href="#" class="current">SPEC</a>
+    <a href="ROADMAP.html">ROADMAP</a>
+  </div>
+  <div class="top-banner__meta">
+    <span>doc <strong>SPEC</strong></span>
+    <span>ver <strong>v0.1</strong></span>
+    <span>date <strong>2026-05-16</strong></span>
+  </div>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+
+<div class="layout">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar__label">目 录 · Specification</div>
+    <ul class="toc" id="toc">
+      <li><a href="#sec-0"><span class="toc__num">00</span>文档定位</a></li>
+      <li><a href="#sec-1"><span class="toc__num">01</span>系统全景</a></li>
+      <li><a href="#sec-2"><span class="toc__num">02</span>Electron 主进程</a></li>
+      <li><a href="#sec-3"><span class="toc__num">03</span>Renderer 进程</a></li>
+      <li><a href="#sec-4"><span class="toc__num">04</span>Go 端改造</a></li>
+      <li><a href="#sec-5"><span class="toc__num">05</span>CDP 联调细节</a></li>
+      <li><a href="#sec-6"><span class="toc__num">06</span>License Worker</a></li>
+      <li><a href="#sec-7"><span class="toc__num">07</span>数据模型</a></li>
+      <li><a href="#sec-8"><span class="toc__num">08</span>安全规范</a></li>
+      <li><a href="#sec-9"><span class="toc__num">09</span>错误码规范</a></li>
+      <li><a href="#sec-10"><span class="toc__num">10</span>日志规范</a></li>
+      <li><a href="#sec-11"><span class="toc__num">11</span>测试策略</a></li>
+    </ul>
+    <div class="sidebar__footer">
+      <p style="margin-bottom:10px"><kbd>C</kbd> 折叠全部 &nbsp; <kbd>E</kbd> 展开全部</p>
+      <p>章节标题可点击折叠 · 顶部进度条跟随滚动</p>
+    </div>
+  </aside>
+
+  <main>
+
+    <header class="hero">
+      <div class="stamp" aria-hidden="true">
+        <div class="stamp__label">Technical</div>
+        <div class="stamp__title">SPEC</div>
+        <div class="stamp__sub">v0.1</div>
+      </div>
+      <div class="hero__eyebrow">技术规格说明书 · Technical Specification</div>
+      <h1 class="hero__title">实现层<br/><em>蓝图</em></h1>
+      <p class="hero__lede">
+        从 PRD 的"<strong>做什么</strong>"到工程的"<strong>怎么做</strong>"。
+        模块边界、接口签名、关键数据结构 —— 配合 ROADMAP 即可启动开发。
+      </p>
+
+      <div class="doc-meta">
+        <div class="doc-meta__item">
+          <div class="doc-meta__label">version</div>
+          <div class="doc-meta__value">v0.1</div>
+        </div>
+        <div class="doc-meta__item">
+          <div class="doc-meta__label">configures</div>
+          <div class="doc-meta__value">PRD v0.3</div>
+        </div>
+        <div class="doc-meta__item">
+          <div class="doc-meta__label">depth</div>
+          <div class="doc-meta__value">Lightweight</div>
+        </div>
+        <div class="doc-meta__item">
+          <div class="doc-meta__label">date</div>
+          <div class="doc-meta__value">2026-05-16</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 0 -->
+    <section class="section" id="sec-0">
+      <div class="section__header">
+        <div class="section__num">§ 00</div>
+        <h2 class="section__title">文档定位</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <ul>
+            <li><strong>读者</strong>：开发者（你自己 + 未来协作者 / AI 助手）</li>
+            <li><strong>关系</strong>：PRD 回答"做什么 / 为什么"，SPEC 回答"怎么做"</li>
+            <li><strong>粒度</strong>：轻量级——模块边界 + 接口签名 + 关键数据结构。具体代码实现留给开发阶段。</li>
+            <li><strong>配套文档</strong>：<a href="PRD.html" style="color:var(--accent);text-decoration:underline">PRD.html</a> · <a href="ROADMAP.html" style="color:var(--accent);text-decoration:underline">ROADMAP.html</a></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 1 -->
+    <section class="section" id="sec-1">
+      <div class="section__header">
+        <div class="section__num">§ 01</div>
+        <h2 class="section__title">系统全景</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <h3 class="subhead">1.1 进程模型</h3>
+<div class="codeblock codeblock--ascii" data-lang="topology"><pre>┌─────────────────────────────────────────────────────────────┐
+│ Electron App (用户本机)                                       │
+│                                                              │
+│   ┌─ Main Process (Node.js) ──────────────────────┐         │
+│   │  • App lifecycle / Window management          │         │
+│   │  • Go subprocess management                   │         │
+│   │  • License Manager                            │         │
+│   │  • IPC handler (ipcMain)                      │         │
+│   │  • Auto updater                               │         │
+│   └────────┬─────────────────┬─────────────────────┘        │
+│            │ IPC             │ spawn + stdio                │
+│            ↓                 ↓                              │
+│   ┌─ Renderer (Chromium) ─┐ ┌─ Go Subprocess ──────────┐   │
+│   │ • AI Sidebar (React)  │ │ xiaohongshu-mcp           │   │
+│   │ • Settings / Activate │ │ HTTP server (127.0.0.1)   │   │
+│   │ • Browser tabs        │ │ go-rod via CDP            │   │
+│   │ • LLM client (BYOK)   │ │                           │   │
+│   └───────────────────────┘ └───────────────────────────┘   │
+│            ↑                          ↑                      │
+│            │ remote-debugging-port    │ CDP attach           │
+│            └──────────────────────────┘                      │
+└─────────────────────────────────────────────────────────────┘
+                                    │
+                                    │ HTTPS (仅激活/心跳)
+                                    ↓
+                ┌──────────────────────────────────┐
+                │ Cloudflare Worker (License)      │
+                └──────────────────────────────────┘</pre></div>
+
+          <h3 class="subhead">1.2 关键数据流</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>场景</th><th>流向</th></tr></thead>
+            <tbody>
+              <tr><td>用户在 AI 侧边栏发消息</td><td>Renderer → LLM API（HTTPS 直连）→ Renderer</td></tr>
+              <tr><td>AI 调用 MCP 工具</td><td>Renderer → IPC → Main → HTTP localhost → Go → CDP → Chromium</td></tr>
+              <tr><td>用户登录小红书</td><td>Renderer 直接操作 Chromium 页面</td></tr>
+              <tr><td>应用启动</td><td>Main spawn Go → Go 等 CDP → Main 启 BrowserWindow → IPC 给 Go → Go attach</td></tr>
+              <tr><td>激活</td><td>Renderer → IPC → Main → Cloudflare Worker → 写本地 token</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3 class="subhead">1.3 技术选型表</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>维度</th><th>选型</th><th>一句话理由</th></tr></thead>
+            <tbody>
+              <tr><td>桌面框架</td><td><code>Electron</code></td><td>唯一稳定打包完整 Chromium 的方案</td></tr>
+              <tr><td>主进程语言</td><td><code>TypeScript + Node 20</code></td><td>Electron 原生支持</td></tr>
+              <tr><td>渲染端框架</td><td><code>React + Vite</code></td><td>生态成熟，HMR 体验最好</td></tr>
+              <tr><td>状态管理</td><td><code>Zustand</code></td><td>比 Redux 轻 10 倍，对一人项目刚好</td></tr>
+              <tr><td>MCP 服务</td><td>复用 <code>xiaohongshu-mcp</code> (Go)</td><td>11 个工具已实现，重写代价高</td></tr>
+              <tr><td>LLM 客户端</td><td><code>openai-node</code></td><td>OpenAI 兼容端点全覆盖，流式 + tool calling 一等公民</td></tr>
+              <tr><td>本地存储</td><td><code>SQLite (better-sqlite3)</code></td><td>零配置、单文件、同步 API 简单</td></tr>
+              <tr><td>加密存储</td><td>Electron <code>safeStorage</code></td><td>跨平台自动用系统 keychain</td></tr>
+              <tr><td>机器指纹</td><td><code>node-machine-id</code></td><td>一行代码跨平台</td></tr>
+              <tr><td>激活服务</td><td>Cloudflare Workers + KV</td><td>免费、零运维、自带 HTTPS 域名</td></tr>
+              <tr><td>签名算法</td><td><code>Ed25519</code></td><td>短、快、Node <code>crypto</code> 原生支持</td></tr>
+              <tr><td>打包</td><td><code>electron-builder</code></td><td>macOS dmg + Win NSIS + 自动更新一站式</td></tr>
+              <tr><td>进程间通信</td><td>Electron IPC (contextBridge)</td><td>安全默认（context isolation）</td></tr>
+              <tr><td>日志</td><td><code>electron-log</code></td><td>自动轮转 + 多平台路径</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section class="section" id="sec-2">
+      <div class="section__header">
+        <div class="section__num">§ 02</div>
+        <h2 class="section__title">Electron 主进程</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <h3 class="subhead">2.1 启动流程（State Machine）</h3>
+<div class="flow">[Cold Start]
+    ↓
+[Load Config from app.getPath('userData')]
+    ↓
+[License Check]
+    ├─ no token → [Activation Window] → /activate → save token → continue
+    ├─ token expired → [Activation Window] → /activate → ...
+    ├─ token valid + machine_id mismatch → [Show Error: 联系客服换绑]
+    └─ token valid + machine_id ok → continue
+    ↓
+[Spawn Go Subprocess]
+    ├─ wait Go ready (stdout "READY" or HTTP /health 200)
+    └─ get assigned port
+    ↓
+[Create BrowserWindow]
+    ├─ open with --remote-debugging-port=&lt;random&gt;
+    └─ wait for CDP WebSocket URL
+    ↓
+[Send CDP URL → Go via HTTP POST /internal/attach]
+    ↓
+[Show Main Window with AI Sidebar]
+    ↓
+[Background: heartbeat scheduler (every 15 days)]</div>
+
+          <h3 class="subhead">2.2 模块清单</h3>
+
+          <div class="module-card">
+            <div class="module-card__path">src/main/index.ts</div>
+            <p>应用入口，编排上面的启动流程。</p>
+          </div>
+
+          <div class="module-card">
+            <div class="module-card__path">src/main/window.ts</div>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">export function</span> <span class="fn">createMainWindow</span>(opts: {
+  cdpPort: <span class="kw">number</span>;
+}): BrowserWindow;
+
+<span class="kw">export function</span> <span class="fn">createActivationWindow</span>(): BrowserWindow;</pre></div>
+          </div>
+
+          <div class="module-card">
+            <div class="module-card__path">src/main/go-subprocess.ts</div>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">export class</span> GoSubprocess {
+  <span class="fn">start</span>(): <span class="kw">Promise</span>&lt;{ port: <span class="kw">number</span>; cdpAttach: (wsUrl: <span class="kw">string</span>) =&gt; <span class="kw">Promise</span>&lt;<span class="kw">void</span>&gt; }&gt;;
+  <span class="fn">stop</span>(): <span class="kw">Promise</span>&lt;<span class="kw">void</span>&gt;;
+  <span class="fn">health</span>(): <span class="kw">Promise</span>&lt;<span class="kw">boolean</span>&gt;;
+  <span class="fn">callMCP</span>(method: <span class="kw">string</span>, params: <span class="kw">any</span>): <span class="kw">Promise</span>&lt;<span class="kw">any</span>&gt;;  <span class="com">// 内部 HTTP</span>
+}</pre></div>
+            <p>启动参数：<code>./xiaohongshu-mcp --port=:0 --cdp-endpoint=&lt;占位,运行时 POST 注入&gt;</code></p>
+            <p><code>--port=:0</code> 让 Go 选择空闲端口，主进程从 stdout 解析。</p>
+          </div>
+
+          <div class="module-card">
+            <div class="module-card__path">src/main/license.ts</div>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">export interface</span> LicenseState {
+  status: <span class="str">'unactivated'</span> | <span class="str">'active'</span> | <span class="str">'expired'</span> | <span class="str">'revoked'</span> | <span class="str">'mismatch'</span>;
+  token?: SignedToken;
+  machineId: <span class="kw">string</span>;
+  validUntil?: <span class="kw">Date</span>;
+}
+
+<span class="kw">export class</span> LicenseManager {
+  <span class="fn">getMachineId</span>(): <span class="kw">string</span>;  <span class="com">// 包装 node-machine-id, 加盐 + SHA-256</span>
+  <span class="fn">loadLocal</span>(): LicenseState;
+  <span class="kw">async</span> <span class="fn">activate</span>(code: <span class="kw">string</span>): <span class="kw">Promise</span>&lt;LicenseState&gt;;
+  <span class="kw">async</span> <span class="fn">heartbeat</span>(): <span class="kw">Promise</span>&lt;LicenseState&gt;;
+  <span class="fn">verifyToken</span>(token: SignedToken, machineId: <span class="kw">string</span>): <span class="kw">boolean</span>;  <span class="com">// Ed25519</span>
+  <span class="fn">clear</span>(): <span class="kw">void</span>;  <span class="com">// 退出登录</span>
+}</pre></div>
+            <p>加密存储：用 <code>safeStorage.encryptString</code> 把 token JSON 加密后存到 <code>userData/license.bin</code>。</p>
+          </div>
+
+          <div class="module-card">
+            <div class="module-card__path">src/main/ipc.ts</div>
+<div class="codeblock" data-lang="ts"><pre>ipcMain.<span class="fn">handle</span>(<span class="str">'license:state'</span>, () =&gt; licenseMgr.<span class="fn">loadLocal</span>());
+ipcMain.<span class="fn">handle</span>(<span class="str">'license:activate'</span>, (_, code: <span class="kw">string</span>) =&gt; licenseMgr.<span class="fn">activate</span>(code));
+ipcMain.<span class="fn">handle</span>(<span class="str">'mcp:call'</span>, (_, tool, args) =&gt; goProc.<span class="fn">callMCP</span>(tool, args));
+ipcMain.<span class="fn">handle</span>(<span class="str">'mcp:listTools'</span>, () =&gt; goProc.<span class="fn">callMCP</span>(<span class="str">'tools/list'</span>, {}));
+ipcMain.<span class="fn">handle</span>(<span class="str">'config:get'</span>, (_, key) =&gt; config.<span class="fn">get</span>(key));
+ipcMain.<span class="fn">handle</span>(<span class="str">'config:set'</span>, (_, key, value) =&gt; config.<span class="fn">set</span>(key, value));
+ipcMain.<span class="fn">handle</span>(<span class="str">'byok:test'</span>, (_, providerCfg) =&gt; <span class="fn">testLLMConnection</span>(providerCfg));</pre></div>
+            <p>通过 <code>contextBridge.exposeInMainWorld('api', { ... })</code> 暴露给 renderer。</p>
+          </div>
+
+          <div class="module-card">
+            <div class="module-card__path">src/main/updater.ts</div>
+            <ul>
+              <li>集成 <code>electron-updater</code></li>
+              <li>配置 GitHub Releases 作为 update channel</li>
+              <li>自动更新检查间隔：24 小时</li>
+              <li>强制更新逻辑：服务端心跳响应里带 <code>min_version</code>，低于该版本拦截使用</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="section" id="sec-3">
+      <div class="section__header">
+        <div class="section__num">§ 03</div>
+        <h2 class="section__title">Renderer 进程</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <h3 class="subhead">3.1 路由结构</h3>
+<div class="codeblock" data-lang="routes"><pre>/activation       (无 token 时强制路由)
+/onboarding       (首次激活成功后, BYOK 配置引导)
+/                 (主界面: 浏览器 + 侧边栏)
+/settings         (设置页)
+/dashboard        (运营面板, P1)</pre></div>
+
+          <h3 class="subhead">3.2 AI Sidebar 核心</h3>
+          <div class="module-card">
+            <div class="module-card__path">src/renderer/llm/provider.ts</div>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">export interface</span> LLMProvider {
+  id: <span class="str">'volcengine'</span> | <span class="str">'deepseek'</span> | <span class="str">'custom'</span>;
+  name: <span class="kw">string</span>;
+  baseURL: <span class="kw">string</span>;
+  apiKey: <span class="kw">string</span>;
+  model: <span class="kw">string</span>;
+}
+
+<span class="kw">export class</span> LLMClient {
+  <span class="fn">constructor</span>(provider: LLMProvider, tools: ToolSchema[]);
+  <span class="kw">async</span> *<span class="fn">chat</span>(messages: Message[], options?: ChatOptions): <span class="kw">AsyncIterable</span>&lt;ChatChunk&gt;;
+}</pre></div>
+            <p>底层用 <code>openai</code> 包：</p>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">import</span> OpenAI <span class="kw">from</span> <span class="str">'openai'</span>;
+
+<span class="kw">const</span> client = <span class="kw">new</span> <span class="fn">OpenAI</span>({
+  baseURL: provider.baseURL,
+  apiKey: provider.apiKey,
+  dangerouslyAllowBrowser: <span class="kw">true</span>,  <span class="com">// Electron renderer 视为浏览器</span>
+});
+
+<span class="kw">const</span> stream = <span class="kw">await</span> client.chat.completions.<span class="fn">create</span>({
+  model: provider.model,
+  messages, tools,
+  stream: <span class="kw">true</span>,
+  stream_options: { include_usage: <span class="kw">true</span> },
+});</pre></div>
+          </div>
+
+          <h3 class="subhead">3.3 Tool Calling Loop</h3>
+          <div class="module-card">
+            <div class="module-card__path">src/renderer/llm/agent.ts</div>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">export async function</span> <span class="fn">runAgent</span>(opts: {
+  llm: LLMClient;
+  userMessage: <span class="kw">string</span>;
+  conversationId: <span class="kw">string</span>;
+  onChunk: (chunk: ChatChunk) =&gt; <span class="kw">void</span>;
+  onToolCall: (call: ToolCall) =&gt; <span class="kw">Promise</span>&lt;ToolResult&gt;;
+  abortSignal?: AbortSignal;
+}): <span class="kw">Promise</span>&lt;<span class="kw">void</span>&gt;;</pre></div>
+            <p>伪代码（在 <code>agent.ts</code> 内）：</p>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">const</span> messages = <span class="fn">loadConversation</span>(conversationId);
+messages.<span class="fn">push</span>({ role: <span class="str">'user'</span>, content: userMessage });
+
+<span class="kw">while</span> (<span class="kw">true</span>) {
+  <span class="kw">const</span> stream = llm.<span class="fn">chat</span>(messages);
+  <span class="kw">let</span> assistant = { role: <span class="str">'assistant'</span>, content: <span class="str">''</span>, tool_calls: [] };
+  <span class="kw">for await</span> (<span class="kw">const</span> chunk <span class="kw">of</span> stream) {
+    <span class="fn">accumulate</span>(assistant, chunk);
+    <span class="fn">onChunk</span>(chunk);
+    <span class="kw">if</span> (abortSignal?.aborted) <span class="kw">throw new</span> <span class="fn">AbortError</span>();
+  }
+  messages.<span class="fn">push</span>(assistant);
+  <span class="fn">saveConversation</span>(conversationId, messages);
+
+  <span class="kw">if</span> (assistant.tool_calls.length === <span class="num">0</span>) <span class="kw">break</span>;
+
+  <span class="kw">for</span> (<span class="kw">const</span> tc <span class="kw">of</span> assistant.tool_calls) {
+    <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">onToolCall</span>(tc);  <span class="com">// 含敏感操作确认</span>
+    messages.<span class="fn">push</span>({ role: <span class="str">'tool'</span>, tool_call_id: tc.id, content: <span class="fn">JSON.stringify</span>(result) });
+  }
+}</pre></div>
+          </div>
+
+          <h3 class="subhead">3.4 敏感操作确认</h3>
+          <div class="module-card">
+            <div class="module-card__path">src/renderer/llm/sensitivity.ts</div>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">const</span> SENSITIVE_TOOLS = <span class="kw">new</span> <span class="fn">Set</span>([
+  <span class="str">'publish_content'</span>,
+  <span class="str">'publish_with_video'</span>,
+  <span class="str">'post_comment_to_feed'</span>,
+  <span class="str">'reply_comment_in_feed'</span>,
+  <span class="str">'like_feed'</span>,
+  <span class="str">'favorite_feed'</span>,
+]);
+
+<span class="kw">export function</span> <span class="fn">isSensitive</span>(toolName: <span class="kw">string</span>): <span class="kw">boolean</span> {
+  <span class="kw">return</span> SENSITIVE_TOOLS.<span class="fn">has</span>(toolName);
+}</pre></div>
+            <p>UI：用 React 的 <code>useImperativeHandle</code> + Portal 实现全局可调起的确认对话框。</p>
+          </div>
+
+          <h3 class="subhead">3.5 Conversation 存储</h3>
+          <h5 class="subhead3">SQLite Schema</h5>
+<div class="codeblock" data-lang="sql"><pre><span class="kw">CREATE TABLE</span> conversations (
+  id <span class="kw">TEXT PRIMARY KEY</span>,
+  title <span class="kw">TEXT</span>,
+  created_at <span class="kw">INTEGER</span>,
+  updated_at <span class="kw">INTEGER</span>,
+  pinned <span class="kw">INTEGER DEFAULT</span> <span class="num">0</span>
+);
+
+<span class="kw">CREATE TABLE</span> messages (
+  id <span class="kw">INTEGER PRIMARY KEY AUTOINCREMENT</span>,
+  conversation_id <span class="kw">TEXT</span>,
+  role <span class="kw">TEXT</span>,             <span class="com">-- 'system' | 'user' | 'assistant' | 'tool'</span>
+  content <span class="kw">TEXT</span>,
+  tool_calls <span class="kw">TEXT</span>,       <span class="com">-- JSON, 仅 role=assistant 时</span>
+  tool_call_id <span class="kw">TEXT</span>,     <span class="com">-- 仅 role=tool 时</span>
+  created_at <span class="kw">INTEGER</span>,
+  <span class="kw">FOREIGN KEY</span> (conversation_id) <span class="kw">REFERENCES</span> conversations(id)
+);
+
+<span class="kw">CREATE INDEX</span> idx_messages_conv <span class="kw">ON</span> messages(conversation_id, id);</pre></div>
+          <p>文件路径：<code>app.getPath('userData')/conversations.db</code></p>
+
+          <h3 class="subhead">3.6 BYOK 配置存储</h3>
+          <p>加密存（不进 SQLite，避免误同步）：</p>
+<div class="codeblock" data-lang="byok.bin"><pre><span class="com">// userData/byok.bin (encrypted via safeStorage)</span>
+{
+  active_provider: <span class="str">'volcengine'</span> | <span class="str">'deepseek'</span> | <span class="str">'custom'</span>,
+  providers: {
+    volcengine: { apiKey, model },
+    deepseek:   { apiKey, model },
+    custom:     { baseURL, apiKey, model }
+  }
+}</pre></div>
+
+          <h3 class="subhead">3.7 页面上下文感知</h3>
+          <p>侧边栏需要"读取当前页面"作为 prompt 上下文。</p>
+          <ol>
+            <li>Main 进程注册 <code>webContents.executeJavaScript()</code> IPC</li>
+            <li>Renderer 在 chat 触发时拿到 <code>{ url, title, mainText }</code></li>
+            <li>自动注入到 system message 末尾："当前页面：&lt;title&gt; (&lt;url&gt;)，内容摘要：..."</li>
+          </ol>
+
+          <h3 class="subhead">3.8 频率护栏</h3>
+<div class="codeblock" data-lang="ts"><pre><span class="com">// src/renderer/rate-limit/guards.ts</span>
+<span class="kw">export const</span> GUARDS = {
+  publish:   { max: <span class="num">3</span>,  windowMs: <span class="num">86400_000</span>, gapMs: <span class="num">1800_000</span> },
+  comment:   { max: <span class="num">10</span>, windowMs: <span class="num">3600_000</span> },
+  like:      { max: <span class="num">30</span>, windowMs: <span class="num">3600_000</span> },
+};
+
+<span class="kw">export function</span> <span class="fn">checkGuard</span>(action: <span class="kw">keyof typeof</span> GUARDS): {
+  allowed: <span class="kw">boolean</span>,
+  warn?: <span class="kw">string</span>
+};</pre></div>
+          <p>存计数到 SQLite <code>rate_log</code> 表，按时间窗口统计。超限时返回 <code>warn</code> 字符串，UI 弹二次确认（不硬拦截）。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="section" id="sec-4">
+      <div class="section__header">
+        <div class="section__num">§ 04</div>
+        <h2 class="section__title">xiaohongshu-mcp Go 端改造</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <h3 class="subhead">4.1 新增 CLI 参数</h3>
+<div class="codeblock codeblock--diff" data-lang="diff"><pre><span class="com">// main.go</span>
+flag.<span class="fn">BoolVar</span>(&headless, <span class="str">"headless"</span>, <span class="kw">true</span>, <span class="str">"..."</span>)
+flag.<span class="fn">StringVar</span>(&binPath, <span class="str">"bin"</span>, <span class="str">""</span>, <span class="str">"..."</span>)
+flag.<span class="fn">StringVar</span>(&port, <span class="str">"port"</span>, <span class="str">":18060"</span>, <span class="str">"..."</span>)
+<span class="add">+ flag.StringVar(&cdpEndpoint, "cdp-endpoint", "", "CDP WebSocket endpoint (attach mode)")</span></pre></div>
+          <p>逻辑：</p>
+          <ul>
+            <li>如果 <code>--cdp-endpoint</code> 非空：browser 模块用 attach 模式（不启 Chrome）</li>
+            <li>否则维持现有行为（向后兼容 Docker 部署）</li>
+          </ul>
+
+          <h3 class="subhead">4.2 browser/browser.go 新增 attach 模式</h3>
+<div class="codeblock" data-lang="go"><pre><span class="kw">type</span> browserConfig <span class="kw">struct</span> {
+    binPath     <span class="kw">string</span>
+    cdpEndpoint <span class="kw">string</span>  <span class="com">// 新增</span>
+}
+
+<span class="kw">func</span> <span class="fn">WithCDPEndpoint</span>(endpoint <span class="kw">string</span>) Option {
+    <span class="kw">return func</span>(c *browserConfig) {
+        c.cdpEndpoint = endpoint
+    }
+}
+
+<span class="kw">func</span> <span class="fn">NewBrowser</span>(headless <span class="kw">bool</span>, options ...Option) *headless_browser.Browser {
+    cfg := &browserConfig{}
+    <span class="kw">for</span> _, opt := <span class="kw">range</span> options {
+        <span class="fn">opt</span>(cfg)
+    }
+
+    <span class="com">// attach 模式优先</span>
+    <span class="kw">if</span> cfg.cdpEndpoint != <span class="str">""</span> {
+        <span class="kw">return</span> headless_browser.<span class="fn">NewWithCDP</span>(cfg.cdpEndpoint)
+    }
+    <span class="com">// 维持原有自启 Chrome 逻辑</span>
+    ...
+}</pre></div>
+
+          <p><code>headless_browser</code> 包（外部依赖）需要新增 <code>NewWithCDP</code>。如果上游不支持，包一层用 <code>rod.New().ControlURL(endpoint).MustConnect()</code> 自己实现。</p>
+
+          <h3 class="subhead">4.3 端口选择</h3>
+<div class="codeblock codeblock--diff" data-lang="diff"><pre><span class="del">- flag.StringVar(&port, "port", ":18060", "端口")</span>
+<span class="add">+ flag.StringVar(&port, "port", ":0", "端口 (:0 = 随机)")</span></pre></div>
+          <p>启动后向 stdout 打印实际绑定端口（Main 进程用于 IPC）：</p>
+<div class="codeblock" data-lang="go"><pre>logrus.<span class="fn">Infof</span>(<span class="str">"BIND_PORT=%d"</span>, actualPort)  <span class="com">// Main 进程 grep "BIND_PORT="</span></pre></div>
+
+          <h3 class="subhead">4.4 等待 CDP 注入</h3>
+          <p>Go 服务启动后，<strong>先不开浏览器</strong>，等 Main 进程 POST <code>/internal/attach</code> 注入 CDP endpoint：</p>
+<div class="codeblock" data-lang="go"><pre><span class="com">// 新增内部接口</span>
+router.<span class="fn">POST</span>(<span class="str">"/internal/attach"</span>, <span class="kw">func</span>(c *gin.Context) {
+    <span class="kw">var</span> req <span class="kw">struct</span>{ CDPEndpoint <span class="kw">string</span> `json:<span class="str">"cdp_endpoint"</span>` }
+    c.<span class="fn">BindJSON</span>(&req)
+    <span class="kw">if</span> err := xiaohongshuService.<span class="fn">AttachCDP</span>(req.CDPEndpoint); err != <span class="kw">nil</span> {
+        c.<span class="fn">JSON</span>(<span class="num">500</span>, gin.H{<span class="str">"error"</span>: err.<span class="fn">Error</span>()})
+        <span class="kw">return</span>
+    }
+    c.<span class="fn">JSON</span>(<span class="num">200</span>, gin.H{<span class="str">"ok"</span>: <span class="kw">true</span>})
+})</pre></div>
+          <p><code>/internal/*</code> 路由仅绑定 127.0.0.1，不对外暴露（理论上整个 Go 服务都不对外，这是再加一层防护）。</p>
+
+          <h3 class="subhead">4.5 Cookies 路径</h3>
+<div class="codeblock codeblock--diff" data-lang="diff"><pre><span class="com">// cookies/cookies.go</span>
+<span class="kw">func</span> <span class="fn">GetCookiesFilePath</span>() <span class="kw">string</span> {
+<span class="del">-   path := os.Getenv("COOKIES_PATH")</span>
+<span class="del">-   if path == "" { path = "cookies.json" }</span>
+<span class="add">+   path := os.Getenv("XHS_USER_DATA_DIR")</span>
+<span class="add">+   if path == "" { return "cookies.json" }</span>
+<span class="add">+   return filepath.Join(path, "cookies.json")</span>
+}</pre></div>
+
+          <p>Main 进程启动 Go subprocess 时通过环境变量传入：</p>
+<div class="codeblock" data-lang="ts"><pre><span class="fn">spawn</span>(goBinary, args, {
+  env: { ...process.env, XHS_USER_DATA_DIR: app.<span class="fn">getPath</span>(<span class="str">'userData'</span>) }
+});</pre></div>
+
+          <h3 class="subhead">4.6 弃用 cmd/login</h3>
+          <p>不再需要独立登录入口（用户直接在 Electron 浏览器窗口登录）。代码保留供 Docker 部署用户继续使用。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section class="section" id="sec-5">
+      <div class="section__header">
+        <div class="section__num">§ 05</div>
+        <h2 class="section__title">CDP 联调细节</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <h3 class="subhead">5.1 启动顺序</h3>
+<div class="flow">T0: Main spawn Go subprocess (port=:0)
+T1: Go 启动 HTTP server, stdout "BIND_PORT=37281"
+T2: Main 读到 BIND_PORT, 标记 goProc.ready=true
+T3: Main 创建 BrowserWindow with webPreferences.devTools=false (生产)
+T4: Main 调用 webContents.debugger.attach('1.3')
+T5: Main 调用 webContents.debugger.sendCommand('Target.getTargets') 或读取 webContents.getProcessId
+    → 拿到 ws://127.0.0.1:&lt;port&gt;/devtools/browser/&lt;id&gt;
+T6: Main POST http://127.0.0.1:37281/internal/attach { cdp_endpoint: ws://... }
+T7: Go 用 rod.New().ControlURL(...).MustConnect()
+T8: Go 通过返回的 *rod.Browser 拿到 page, 现在可以操作小红书</div>
+
+          <h3 class="subhead">5.2 获取 CDP WebSocket URL 的方案</h3>
+          <p>Electron 默认不开 <code>--remote-debugging-port</code>。两种方法启用：</p>
+
+          <h4 class="subhead2">方案 A: 启动参数（推荐）</h4>
+<div class="codeblock" data-lang="ts"><pre>app.commandLine.<span class="fn">appendSwitch</span>(<span class="str">'remote-debugging-port'</span>, <span class="str">'0'</span>);  <span class="com">// 0 = 随机</span>
+app.commandLine.<span class="fn">appendSwitch</span>(<span class="str">'remote-debugging-address'</span>, <span class="str">'127.0.0.1'</span>);
+
+app.<span class="fn">on</span>(<span class="str">'ready'</span>, <span class="kw">async</span> () =&gt; {
+  <span class="com">// 等几百 ms 让 DevTools server 绑端口</span>
+  <span class="kw">await</span> <span class="fn">sleep</span>(<span class="num">500</span>);
+  <span class="kw">const</span> debuggerPort = <span class="kw">await</span> <span class="fn">getActualDebuggerPort</span>();
+  <span class="kw">const</span> json = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">`http://127.0.0.1:</span><span class="num">${debuggerPort}</span><span class="str">/json/version`</span>).<span class="fn">then</span>(r =&gt; r.<span class="fn">json</span>());
+  <span class="kw">const</span> wsUrl = json.webSocketDebuggerUrl;
+  <span class="com">// wsUrl = ws://127.0.0.1:&lt;port&gt;/devtools/browser/&lt;uuid&gt;</span>
+});</pre></div>
+
+          <h4 class="subhead2">方案 B: webContents.debugger API</h4>
+          <p>Electron 自带 API，无需开 remote-debugging-port，但只能操作单个 webContents，不能获取浏览器级 ws endpoint。<strong>不适合</strong>，go-rod 需要浏览器级 endpoint 才能管理多 page。</p>
+
+          <div class="callout callout--accent">
+            <div class="callout__label">结论</div>
+            <div class="callout__body">用方案 A。</div>
+          </div>
+
+          <h3 class="subhead">5.3 多 Page 隔离</h3>
+          <p>go-rod attach 后可以看到所有 page。我们的应用窗口可能有多个 webContents（主窗口、设置窗口、登录窗口等），需要让 go-rod 只操作"小红书页面"。</p>
+          <h5 class="subhead3">策略 A：URL 匹配</h5>
+<div class="codeblock" data-lang="go"><pre>browser := rod.<span class="fn">New</span>().<span class="fn">ControlURL</span>(cdpEndpoint).<span class="fn">MustConnect</span>()
+pages, _ := browser.<span class="fn">Pages</span>()
+<span class="kw">for</span> _, p := <span class="kw">range</span> pages {
+    info, _ := p.<span class="fn">Info</span>()
+    <span class="kw">if</span> strings.<span class="fn">Contains</span>(info.URL, <span class="str">"xiaohongshu.com"</span>) {
+        <span class="kw">return</span> p  <span class="com">// 使用这个 page</span>
+    }
+}</pre></div>
+
+          <h5 class="subhead3">策略 B：Main 显式传 targetId（更精确）</h5>
+<div class="flow">Main: webContents.getProcessId() / mainFrame.routingId
+   → 转 chrome targetId (需通过 CDP Target.getTargets)
+   → 传给 Go
+Go: browser.PageFromTargetID(targetId)</div>
+
+          <h3 class="subhead">5.4 Stealth 注入</h3>
+          <p>Main 进程在 BrowserWindow 创建后立即注入：</p>
+<div class="codeblock" data-lang="ts"><pre><span class="com">// src/main/stealth.ts</span>
+<span class="kw">export async function</span> <span class="fn">applyStealth</span>(wc: WebContents) {
+  <span class="kw">await</span> wc.<span class="fn">executeJavaScript</span>(<span class="str">`
+    Object.defineProperty(navigator, 'webdriver', { get: () =&gt; undefined });
+    Object.defineProperty(navigator, 'plugins', { get: () =&gt; [1,2,3,4,5] });
+    Object.defineProperty(navigator, 'languages', { get: () =&gt; ['zh-CN', 'zh', 'en'] });
+  `</span>);
+  <span class="kw">await</span> wc.<span class="fn">setUserAgent</span>(<span class="fn">getStandardChromeUA</span>());
+}</pre></div>
+          <p>需要在每个新 webContents 创建时调用：</p>
+<div class="codeblock" data-lang="ts"><pre>app.<span class="fn">on</span>(<span class="str">'web-contents-created'</span>, (_, wc) =&gt; <span class="fn">applyStealth</span>(wc));</pre></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section class="section" id="sec-6">
+      <div class="section__header">
+        <div class="section__num">§ 06</div>
+        <h2 class="section__title">License Worker (Cloudflare)</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <h3 class="subhead">6.1 项目结构</h3>
+<div class="codeblock" data-lang="tree"><pre>license-worker/
+├── src/
+│   ├── index.ts        <span class="com"># Router</span>
+│   ├── handlers/
+│   │   ├── activate.ts
+│   │   ├── heartbeat.ts
+│   │   └── admin.ts
+│   ├── crypto.ts       <span class="com"># Ed25519 sign / verify</span>
+│   └── kv.ts           <span class="com"># KV 封装</span>
+├── wrangler.toml
+└── package.json</pre></div>
+
+          <h3 class="subhead">6.2 接口契约</h3>
+<div class="codeblock" data-lang="ts"><pre><span class="com">// POST /activate</span>
+<span class="kw">interface</span> ActivateRequest {
+  code: <span class="kw">string</span>;        <span class="com">// "XHS-XXXX-XXXX-XXXX-XXXX"</span>
+  machine_id: <span class="kw">string</span>;  <span class="com">// 客户端生成的指纹哈希</span>
+}
+<span class="kw">interface</span> ActivateResponse {
+  ok: <span class="kw">true</span>;
+  token: <span class="kw">string</span>;       <span class="com">// base64 编码的 SignedToken</span>
+  valid_until: <span class="kw">string</span>; <span class="com">// ISO timestamp</span>
+}
+<span class="kw">interface</span> ActivateError {
+  ok: <span class="kw">false</span>;
+  code: <span class="str">'CODE_NOT_FOUND'</span> | <span class="str">'CODE_REVOKED'</span> | <span class="str">'CODE_BOUND_OTHER'</span>
+      | <span class="str">'CODE_EXPIRED'</span> | <span class="str">'INTERNAL'</span>;
+  message: <span class="kw">string</span>;
+}
+
+<span class="com">// POST /heartbeat</span>
+<span class="kw">interface</span> HeartbeatRequest { token: <span class="kw">string</span>; }
+<span class="kw">interface</span> HeartbeatResponse {
+  ok: <span class="kw">true</span>;
+  latest_version: <span class="kw">string</span>;
+  min_version: <span class="kw">string</span>;          <span class="com">// 低于此版本拦截使用</span>
+  revoked: <span class="kw">boolean</span>;
+  new_token?: <span class="kw">string</span>;           <span class="com">// 剩余有效期 &lt; 60 天时下发</span>
+  new_valid_until?: <span class="kw">string</span>;
+}
+
+<span class="com">// POST /admin/codes  (Bearer ADMIN_TOKEN)</span>
+<span class="kw">interface</span> IssueCodesRequest {
+  quantity: <span class="kw">number</span>;
+  notes?: <span class="kw">string</span>;
+  expire_at?: <span class="kw">string</span>;
+}
+<span class="kw">interface</span> IssueCodesResponse { codes: <span class="kw">string</span>[]; }
+
+<span class="com">// POST /admin/revoke  (Bearer ADMIN_TOKEN)</span>
+<span class="kw">interface</span> RevokeRequest { code: <span class="kw">string</span>; reason?: <span class="kw">string</span>; }
+
+<span class="com">// POST /admin/rebind  (Bearer ADMIN_TOKEN)</span>
+<span class="kw">interface</span> RebindRequest { code: <span class="kw">string</span>; new_machine_id: <span class="kw">string</span>; }</pre></div>
+
+          <h3 class="subhead">6.3 SignedToken 结构</h3>
+<div class="codeblock" data-lang="ts"><pre><span class="kw">interface</span> SignedTokenPayload {
+  code: <span class="kw">string</span>;
+  machine_id: <span class="kw">string</span>;
+  issued_at: <span class="kw">number</span>;     <span class="com">// unix ts</span>
+  valid_until: <span class="kw">number</span>;   <span class="com">// unix ts (issued_at + 365 days)</span>
+}
+
+<span class="com">// 序列化:
+//   base64( JSON(payload) ) + '.' + base64( ed25519_sign(JSON(payload), PRIVATE_KEY) )
+// 客户端用打包的 PUBLIC_KEY 验签</span></pre></div>
+
+          <h3 class="subhead">6.4 KV Schema</h3>
+<div class="codeblock" data-lang="kv"><pre>key:                       value (JSON):
+─────────────────────      ─────────────────────────────────────
+code:XHS-A1B2-C3D4-...     {
+                             status: <span class="str">'unused'</span> | <span class="str">'active'</span> | <span class="str">'revoked'</span>,
+                             bound_machine_id: <span class="kw">string</span> | <span class="kw">null</span>,
+                             bound_at: <span class="kw">number</span> | <span class="kw">null</span>,
+                             expire_at: <span class="kw">number</span> | <span class="kw">null</span>,
+                             rebind_count: <span class="kw">number</span>,
+                             notes: <span class="kw">string</span>,
+                             revoked_reason: <span class="kw">string</span> | <span class="kw">null</span>
+                           }
+
+config:min_version         <span class="str">"0.5.0"</span>
+config:latest_version      <span class="str">"1.2.3"</span></pre></div>
+
+          <h3 class="subhead">6.5 安全</h3>
+          <ul>
+            <li><code>ADMIN_TOKEN</code>: 在 <code>wrangler secret put ADMIN_TOKEN</code> 配置，不在代码</li>
+            <li>Ed25519 私钥: 同上，<code>wrangler secret put SIGNING_PRIVATE_KEY</code>（base64 编码）</li>
+            <li>客户端打包的公钥: 写在 native addon (C++ N-API) 或至少混淆过的 JS 常量</li>
+            <li>Rate limit: 单 IP <code>/activate</code> 10 次/分钟（防爆破）；<code>/admin/*</code> 50 次/分钟</li>
+          </ul>
+
+          <h3 class="subhead">6.6 部署</h3>
+<div class="codeblock" data-lang="bash"><pre>npm install -g wrangler
+wrangler login
+wrangler kv:namespace create LICENSES
+wrangler secret put ADMIN_TOKEN
+wrangler secret put SIGNING_PRIVATE_KEY
+wrangler deploy</pre></div>
+          <p>最终域名：<code>xhs-license.&lt;your-cf-account&gt;.workers.dev</code></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section class="section" id="sec-7">
+      <div class="section__header">
+        <div class="section__num">§ 07</div>
+        <h2 class="section__title">数据模型汇总</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <h3 class="subhead">7.1 客户端 SQLite (userData/app.db)</h3>
+<div class="codeblock" data-lang="sql"><pre><span class="com">-- 对话历史</span>
+<span class="kw">CREATE TABLE</span> conversations (id, title, created_at, updated_at, pinned);
+<span class="kw">CREATE TABLE</span> messages (id, conversation_id, role, content, tool_calls, tool_call_id, created_at);
+
+<span class="com">-- 频率限制</span>
+<span class="kw">CREATE TABLE</span> rate_log (
+  id <span class="kw">INTEGER PRIMARY KEY AUTOINCREMENT</span>,
+  action <span class="kw">TEXT</span>,              <span class="com">-- 'publish' | 'comment' | 'like' | 'favorite'</span>
+  created_at <span class="kw">INTEGER</span>
+);
+
+<span class="com">-- 草稿 (P1)</span>
+<span class="kw">CREATE TABLE</span> drafts (
+  id <span class="kw">TEXT PRIMARY KEY</span>,
+  type <span class="kw">TEXT</span>,                <span class="com">-- 'image' | 'video'</span>
+  title <span class="kw">TEXT</span>, content <span class="kw">TEXT</span>,
+  tags <span class="kw">TEXT</span>,                <span class="com">-- JSON array</span>
+  media_paths <span class="kw">TEXT</span>,         <span class="com">-- JSON array</span>
+  scheduled_at <span class="kw">INTEGER</span>,     <span class="com">-- null = 未排程</span>
+  status <span class="kw">TEXT</span>,              <span class="com">-- 'draft' | 'scheduled' | 'published' | 'failed'</span>
+  created_at <span class="kw">INTEGER</span>, updated_at <span class="kw">INTEGER</span>
+);</pre></div>
+
+          <h3 class="subhead">7.2 客户端文件存储 (userData/)</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>文件</th><th>内容</th><th>加密</th></tr></thead>
+            <tbody>
+              <tr><td><code>app.db</code></td><td>SQLite 数据库</td><td><span class="b b--neutral">否</span></td></tr>
+              <tr><td><code>license.bin</code></td><td>激活 token + 元数据</td><td><span class="b b--green">safeStorage</span></td></tr>
+              <tr><td><code>byok.bin</code></td><td>BYOK API keys + 配置</td><td><span class="b b--green">safeStorage</span></td></tr>
+              <tr><td><code>config.json</code></td><td>用户偏好（主题、快捷键等）</td><td><span class="b b--neutral">否</span></td></tr>
+              <tr><td><code>cookies.json</code></td><td>小红书 cookies（Go 写入）</td><td><span class="b b--neutral">否</span></td></tr>
+              <tr><td><code>logs/main.log</code></td><td>主进程日志</td><td><span class="b b--neutral">否</span></td></tr>
+              <tr><td><code>logs/go.log</code></td><td>Go subprocess 日志</td><td><span class="b b--neutral">否</span></td></tr>
+            </tbody>
+          </table></div>
+
+          <h3 class="subhead">7.3 Worker KV</h3>
+          <p>见 <a href="#sec-6" style="color:var(--accent);text-decoration:underline">§6.4</a>。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="section" id="sec-8">
+      <div class="section__header">
+        <div class="section__num">§ 08</div>
+        <h2 class="section__title">安全规范</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <div class="table-wrap"><table>
+            <thead><tr><th>项</th><th>规范</th></tr></thead>
+            <tbody>
+              <tr><td><strong>API key 不入日志</strong></td><td>所有日志 redact <code>sk-***</code> / <code>Bearer ***</code> 模式</td></tr>
+              <tr><td><strong>Token 验签</strong></td><td>每次启动 + 每次 IPC <code>mcp:call</code> 前</td></tr>
+              <tr><td><strong>Renderer 隔离</strong></td><td><code>contextIsolation: true</code>, <code>nodeIntegration: false</code></td></tr>
+              <tr><td><strong>HTTPS only</strong></td><td>LLM provider baseURL 校验必须 <code>https://</code></td></tr>
+              <tr><td><strong>Go 服务对外不暴露</strong></td><td>监听 <code>127.0.0.1</code>，不监听 <code>0.0.0.0</code></td></tr>
+              <tr><td><strong>用户协议必同意</strong></td><td>首次启动强制弹出</td></tr>
+              <tr><td><strong>asar 加密</strong></td><td>electron-builder <code>asar: { smartUnpack: false, asarUnpack: ['xiaohongshu-mcp'] }</code> + 自定义加密</td></tr>
+              <tr><td><strong>公钥保护</strong></td><td>写入 native addon，避免明文 JS</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section class="section" id="sec-9">
+      <div class="section__header">
+        <div class="section__num">§ 09</div>
+        <h2 class="section__title">错误码规范</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <p>错误码格式：<code>&lt;DOMAIN&gt;_&lt;SPECIFIC&gt;</code>，全大写下划线分隔。</p>
+
+          <h3 class="subhead">9.1 License</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>码</th><th>含义</th><th>用户文案</th></tr></thead>
+            <tbody>
+              <tr><td><code>LICENSE_NOT_ACTIVATED</code></td><td>无 token</td><td>请输入激活码</td></tr>
+              <tr><td><code>LICENSE_INVALID_CODE</code></td><td>激活码格式错误</td><td>激活码格式错误</td></tr>
+              <tr><td><code>LICENSE_CODE_NOT_FOUND</code></td><td>服务端找不到</td><td>激活码无效</td></tr>
+              <tr><td><code>LICENSE_CODE_REVOKED</code></td><td>已吊销</td><td>此激活码已停用，请联系客服</td></tr>
+              <tr><td><code>LICENSE_CODE_BOUND_OTHER</code></td><td>绑定到其他机器</td><td>此激活码已绑定其他设备，请联系客服换绑</td></tr>
+              <tr><td><code>LICENSE_TOKEN_EXPIRED</code></td><td>token 过期</td><td>需要重新激活（系统会自动尝试）</td></tr>
+              <tr><td><code>LICENSE_MACHINE_MISMATCH</code></td><td>本地 token 与机器不匹配</td><td>设备指纹变更，请联系客服</td></tr>
+              <tr><td><code>LICENSE_NETWORK_ERROR</code></td><td>网络问题</td><td>网络异常，请检查后重试</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3 class="subhead">9.2 MCP</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>码</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>MCP_NOT_READY</code></td><td>Go subprocess 未就绪</td></tr>
+              <tr><td><code>MCP_NOT_LOGGED_IN</code></td><td>小红书未登录</td></tr>
+              <tr><td><code>MCP_TOOL_NOT_FOUND</code></td><td>工具名不存在</td></tr>
+              <tr><td><code>MCP_INVALID_PARAMS</code></td><td>工具参数校验失败</td></tr>
+              <tr><td><code>MCP_EXECUTION_FAILED</code></td><td>工具执行失败（含小红书侧错误）</td></tr>
+              <tr><td><code>MCP_RATE_LIMITED</code></td><td>触发频率护栏</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3 class="subhead">9.3 LLM</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>码</th><th>含义</th></tr></thead>
+            <tbody>
+              <tr><td><code>LLM_NOT_CONFIGURED</code></td><td>BYOK 未配置</td></tr>
+              <tr><td><code>LLM_AUTH_FAILED</code></td><td>API key 无效（401）</td></tr>
+              <tr><td><code>LLM_QUOTA_EXCEEDED</code></td><td>provider 余额不足（402）</td></tr>
+              <tr><td><code>LLM_RATE_LIMITED</code></td><td>provider 限流（429）</td></tr>
+              <tr><td><code>LLM_NETWORK_ERROR</code></td><td>网络错误</td></tr>
+              <tr><td><code>LLM_INVALID_RESPONSE</code></td><td>响应解析失败</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3 class="subhead">9.4 错误响应格式</h3>
+          <p>所有 IPC handler 抛错时统一格式：</p>
+<div class="codeblock" data-lang="ts"><pre>{ code: <span class="str">'LICENSE_CODE_REVOKED'</span>, message: <span class="str">'此激活码已停用，请联系客服'</span>, detail?: <span class="kw">any</span> }</pre></div>
+          <p>Renderer 统一捕获、统一展示。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section class="section" id="sec-10">
+      <div class="section__header">
+        <div class="section__num">§ 10</div>
+        <h2 class="section__title">日志规范</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <ul>
+            <li>工具：<code>electron-log</code></li>
+            <li>文件位置：<code>userData/logs/main.log</code> / <code>userData/logs/renderer.log</code> / <code>userData/logs/go.log</code></li>
+            <li>单文件 ≤ 10MB，保留 5 份</li>
+            <li>级别：dev = debug，prod = info</li>
+            <li>敏感字段 redact 列表：<code>api_key</code>, <code>apiKey</code>, <code>token</code>, <code>password</code>, <code>cookies</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section class="section" id="sec-11">
+      <div class="section__header">
+        <div class="section__num">§ 11</div>
+        <h2 class="section__title">测试策略（轻量）</h2>
+        <div class="section__toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="section__body">
+        <div class="content">
+          <div class="table-wrap"><table>
+            <thead><tr><th>层级</th><th>范围</th><th>工具</th></tr></thead>
+            <tbody>
+              <tr><td><strong>单元测试</strong></td><td>License 加解密、频率护栏、token 验签</td><td><code>Vitest</code></td></tr>
+              <tr><td><strong>集成测试</strong></td><td>Go subprocess + IPC + License Worker mock</td><td><code>Playwright</code> + <code>Vitest</code></td></tr>
+              <tr><td><strong>手动验收</strong></td><td>11 个 MCP 工具 + 激活流程 + 跨平台打包</td><td>checklist</td></tr>
+            </tbody>
+          </table></div>
+          <div class="callout callout--note">
+            <div class="callout__label">说明</div>
+            <div class="callout__body">不做覆盖率指标，关注关键路径不回归即可。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      文档结束<span class="footer__mark">§</span>SPEC v0.1 · 2026-05-16
+    </div>
+
+  </main>
+</div>
+
+<script>
+const progress = document.getElementById('progress');
+function updateProgress() {
+  const scrollTop = window.scrollY;
+  const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+  const pct = (scrollTop / docHeight) * 100;
+  progress.style.width = Math.min(pct, 100) + '%';
+}
+window.addEventListener('scroll', updateProgress, { passive: true });
+updateProgress();
+
+const tocLinks = document.querySelectorAll('#toc a');
+const sections = document.querySelectorAll('section.section');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      tocLinks.forEach(a => a.classList.remove('active'));
+      const id = entry.target.id;
+      const link = document.querySelector('#toc a[href="#' + id + '"]');
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
+sections.forEach(s => observer.observe(s));
+
+document.querySelectorAll('.section__header').forEach(h => {
+  h.addEventListener('click', (e) => {
+    if (window.getSelection().toString()) return;
+    const section = h.closest('section');
+    section.classList.toggle('collapsed');
+  });
+});
+
+const sidebar = document.getElementById('sidebar');
+const backdrop = document.getElementById('backdrop');
+const menuToggle = document.getElementById('menuToggle');
+menuToggle?.addEventListener('click', () => {
+  sidebar.classList.toggle('open');
+  backdrop.classList.toggle('open');
+});
+backdrop?.addEventListener('click', () => {
+  sidebar.classList.remove('open');
+  backdrop.classList.remove('open');
+});
+tocLinks.forEach(a => a.addEventListener('click', () => {
+  if (window.innerWidth < 980) {
+    sidebar.classList.remove('open');
+    backdrop.classList.remove('open');
+  }
+}));
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'c' || e.key === 'C') {
+    document.querySelectorAll('section.section').forEach(s => s.classList.add('collapsed'));
+  } else if (e.key === 'e' || e.key === 'E') {
+    document.querySelectorAll('section.section').forEach(s => s.classList.remove('collapsed'));
+  }
+});
+
+const fadeObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+      fadeObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.05, rootMargin: '0px 0px -10% 0px' });
+document.querySelectorAll('.section, .module-card, .callout, .table-wrap, .codeblock').forEach(el => {
+  fadeObserver.observe(el);
+});
+</script>
+</body>
+</html>
