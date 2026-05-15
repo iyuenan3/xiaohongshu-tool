@@ -52,7 +52,13 @@ license-worker/.dev.vars
 *.test
 *.out
 
-# 外部参考仓库（保留各自 .git，不纳入顶层版本控制）
-# 注: xiaohongshu-mcp 我们 D3+ 要改造,届时会决定是否拆 .git 纳入跟踪
+# 外部参考仓库（仅参考，不纳入版本控制）
 x-mcp/
-xiaohongshu-mcp/
+
+# 注: xiaohongshu-mcp 已删 .git，作为顶层子目录纳入跟踪（M1 D3+ 改造）
+# 但忽略其编译产物
+xiaohongshu-mcp/cookies/cookies.json
+xiaohongshu-mcp/xiaohongshu-mcp
+xiaohongshu-mcp/main
+xiaohongshu-mcp/app
+/cookies.json
