@@ -13,6 +13,7 @@ const api = {
     }>,
   goApi: (method: string, path: string, body?: unknown) =>
     ipcRenderer.invoke('go:api', method, path, body),
+  openXhsWindow: () => ipcRenderer.invoke('browser:openXhs') as Promise<{ ok: boolean }>,
 };
 
 if (process.contextIsolated) {

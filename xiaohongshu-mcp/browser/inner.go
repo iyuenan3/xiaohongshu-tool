@@ -164,10 +164,17 @@ func (b *Browser) selectAttachedPage() *rod.Page {
 		}
 	}
 
-	// 3. 兜底
-	info, _ := pages[0].Info()
-	logrus.Warnf("attach: fallback to first page (URL=%s, 会让调用方 navigate 覆盖 UI)", info.URL)
-	return pages[0]
+	// 没找到合适 page。绝不 fallback 到 localhost (那是 UI, 会被业务 navigate 覆盖)。
+	urls := make([]string, 0, len(pages))
+	for _, p := range pages {
+		if info, err := p.Info(); err == nil {
+			urls = append(urls, info.URL)
+		}
+	}
+	logrus.Warnf("attach: no suitable page found, current pages=%v", urls)
+	// 主动 panic 携带友好信息, Gin 的 Recovery() 会 catch 并返回 500,
+	// details 中带这条 message 传到 UI, 比 nil pointer dereference 友好得多。
+	panic("XHS_WINDOW_NOT_OPEN: 没有找到小红书浏览器窗口, 请在 UI 中点击「打开/聚焦 小红书窗口」")
 }
 
 // Pages 返回所有当前打开的 page (用于 attach 模式下定位 Electron 主窗口)。

@@ -11,6 +11,7 @@ log.info('[main] app starting');
 
 let mainWindow: BrowserWindow | null = null;
 let xhsWindow: BrowserWindow | null = null;
+let isQuitting = false; // before-quit 时设 true, 让 xhs 窗口真正关闭
 const goProc = new GoSubprocess();
 let cdpPort: number | null = null;
 
@@ -47,9 +48,16 @@ function createWindow(): void {
   }
 }
 
-/** 创建独立的小红书浏览器窗口供 Go 端通过 CDP 操作。 */
+/**
+ * 创建独立的小红书浏览器窗口供 Go 端通过 CDP 操作。
+ *
+ * 关闭行为: 用户点 ✕ 时窗口仅隐藏 (cookies + page 保留),
+ * 应用 quit 时才真正销毁。这避免用户不小心关窗口导致 Go 找不到 page。
+ */
 function createXhsBrowserWindow(): void {
   if (xhsWindow && !xhsWindow.isDestroyed()) {
+    if (xhsWindow.isMinimized()) xhsWindow.restore();
+    if (!xhsWindow.isVisible()) xhsWindow.show();
     xhsWindow.focus();
     return;
   }
@@ -59,12 +67,21 @@ function createXhsBrowserWindow(): void {
     title: '小红书 (受 Go MCP 控制)',
     autoHideMenuBar: true,
     webPreferences: {
-      // 不挂 preload, 让小红书页面认为是普通 Chromium
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
   xhsWindow.loadURL('https://www.xiaohongshu.com/explore');
+
+  // 拦截关闭: 改为 minimize (hide 会让 Chromium 从 active targets 移除 page,
+  // 导致 Go 端 CDP 看不到, 必须保持窗口"存在"但可缩到 dock)。
+  xhsWindow.on('close', (e) => {
+    if (!isQuitting) {
+      e.preventDefault();
+      xhsWindow?.minimize();
+      log.info('[xhs-window] 用户关闭, 已改为最小化 (Chromium page 仍在 active targets)');
+    }
+  });
   xhsWindow.on('closed', () => { xhsWindow = null; });
 }
 
@@ -87,7 +104,7 @@ async function bootstrap(): Promise<void> {
     optimizer.watchWindowShortcuts(window);
   });
 
-  registerIpcHandlers(goProc);
+  registerIpcHandlers(goProc, { openXhsWindow: createXhsBrowserWindow });
   createWindow();
 
   app.on('activate', () => {
@@ -128,8 +145,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async (event) => {
+  if (isQuitting) return; // 防止递归
   log.info('[main] before-quit, stopping Go subprocess...');
   event.preventDefault();
+  isQuitting = true;
   try {
     await goProc.stop();
   } catch (e) {

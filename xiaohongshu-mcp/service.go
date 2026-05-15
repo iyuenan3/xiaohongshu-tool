@@ -105,7 +105,7 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	loginAction := xiaohongshu.NewLogin(page)
 
@@ -249,7 +249,7 @@ func (s *XiaohongshuService) publishContent(ctx context.Context, content xiaohon
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action, err := xiaohongshu.NewPublishImageAction(page)
 	if err != nil {
@@ -332,7 +332,7 @@ func (s *XiaohongshuService) publishVideo(ctx context.Context, content xiaohongs
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action, err := xiaohongshu.NewPublishVideoAction(page)
 	if err != nil {
@@ -348,7 +348,7 @@ func (s *XiaohongshuService) ListFeeds(ctx context.Context) (*FeedsListResponse,
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	// 创建 Feeds 列表 action
 	action := xiaohongshu.NewFeedsListAction(page)
@@ -373,7 +373,7 @@ func (s *XiaohongshuService) SearchFeeds(ctx context.Context, keyword string, fi
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewSearchAction(page)
 
@@ -401,7 +401,7 @@ func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	// 创建 Feed 详情 action
 	action := xiaohongshu.NewFeedDetailAction(page)
@@ -426,7 +426,7 @@ func (s *XiaohongshuService) UserProfile(ctx context.Context, userID, xsecToken 
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewUserProfileAction(page)
 
@@ -450,7 +450,7 @@ func (s *XiaohongshuService) PostCommentToFeed(ctx context.Context, feedID, xsec
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewCommentFeedAction(page)
 
@@ -467,7 +467,7 @@ func (s *XiaohongshuService) LikeFeed(ctx context.Context, feedID, xsecToken str
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewLikeAction(page)
 	if err := action.Like(ctx, feedID, xsecToken); err != nil {
@@ -482,7 +482,7 @@ func (s *XiaohongshuService) UnlikeFeed(ctx context.Context, feedID, xsecToken s
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewLikeAction(page)
 	if err := action.Unlike(ctx, feedID, xsecToken); err != nil {
@@ -497,7 +497,7 @@ func (s *XiaohongshuService) FavoriteFeed(ctx context.Context, feedID, xsecToken
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewFavoriteAction(page)
 	if err := action.Favorite(ctx, feedID, xsecToken); err != nil {
@@ -512,7 +512,7 @@ func (s *XiaohongshuService) UnfavoriteFeed(ctx context.Context, feedID, xsecTok
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewFavoriteAction(page)
 	if err := action.Unfavorite(ctx, feedID, xsecToken); err != nil {
@@ -527,7 +527,7 @@ func (s *XiaohongshuService) ReplyCommentToFeed(ctx context.Context, feedID, xse
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	defer closeIfNotAttached(b, page)
 
 	action := xiaohongshu.NewCommentFeedAction(page)
 
@@ -567,6 +567,14 @@ func saveCookies(page *rod.Page) error {
 	return cookieLoader.SaveCookies(data)
 }
 
+// closeIfNotAttached attach 模式下不能关 page (会关掉用户的 xhs 窗口)。
+// launcher 模式下正常关。所有 defer closeIfNotAttached(b, page) 都替换为这个。
+func closeIfNotAttached(b *browser.Browser, page *rod.Page) {
+	if b != nil && page != nil && !b.Attached() {
+		_ = page.Close()
+	}
+}
+
 // withBrowserPage 执行需要浏览器页面的操作的通用函数。
 //
 // launcher 模式: 创建新 page, 操作结束后关闭。
@@ -581,7 +589,7 @@ func withBrowserPage(fn func(*rod.Page) error) error {
 		return fmt.Errorf("no browser page available (attach mode: 请确保 Electron 已打开小红书窗口)")
 	}
 	if !b.Attached() {
-		defer page.Close()
+		defer closeIfNotAttached(b, page)
 	}
 
 	return fn(page)
