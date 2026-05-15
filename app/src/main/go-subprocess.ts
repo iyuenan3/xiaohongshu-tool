@@ -158,10 +158,16 @@ export class GoSubprocess {
   }
 
   async callApi<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    // GET/HEAD 不允许 body. body 为空对象 / null / undefined 时也不发 body.
+    const hasBody =
+      method !== 'GET' &&
+      method !== 'HEAD' &&
+      body != null &&
+      !(typeof body === 'object' && Object.keys(body as object).length === 0);
     const r = await fetch(`${this.baseUrl()}${path}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
+      headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
+      body: hasBody ? JSON.stringify(body) : undefined,
     });
     const json = (await r.json()) as T;
     if (!r.ok) {

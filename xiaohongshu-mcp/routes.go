@@ -51,6 +51,8 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 		api.POST("/feeds/comment", appServer.postCommentHandler)
 		api.POST("/feeds/comment/reply", appServer.replyCommentHandler)
 		api.GET("/user/me", appServer.myProfileHandler)
+		api.POST("/feeds/like", appServer.likeFeedHandler)
+		api.POST("/feeds/favorite", appServer.favoriteFeedHandler)
 	}
 
 	// 内部路由 (仅 Electron 主进程使用, 不对外暴露;

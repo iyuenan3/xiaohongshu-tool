@@ -29,6 +29,9 @@ function createWindow(): void {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      // M2 dev: 允许 renderer 直接 fetch LLM API (cross-origin)
+      // M3 商业化阶段会把 LLM 调用收回主进程 (safeStorage + IPC), 届时关闭
+      webSecurity: false,
     },
   });
 
@@ -69,6 +72,7 @@ function createXhsBrowserWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false, // 最小化时不节流, 防止 CDP execution context 被销毁
     },
   });
   xhsWindow.loadURL('https://www.xiaohongshu.com/explore');
@@ -95,6 +99,13 @@ async function bootstrap(): Promise<void> {
   log.info(`[main] picked remote-debugging-port=${cdpPort}`);
   app.commandLine.appendSwitch('remote-debugging-port', String(cdpPort));
   app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+
+  // 禁用 Chromium 对最小化/被遮挡窗口的 page 节流, 防止 Go 端 CDP 操作时
+  // 触发 "Execution context was destroyed" 错误.
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,BackForwardCache');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
   // 2. 等 Electron ready
   await app.whenReady();
