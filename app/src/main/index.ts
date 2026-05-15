@@ -5,6 +5,7 @@ import log from 'electron-log/main';
 import { registerIpcHandlers } from './ipc';
 import { GoSubprocess, resolveGoBinaryPath } from './go-subprocess';
 import { pickFreePort, getElectronCdpWsUrl } from './cdp';
+import { initDb, closeDb } from './db';
 
 log.initialize();
 log.info('[main] app starting');
@@ -115,7 +116,26 @@ async function bootstrap(): Promise<void> {
     optimizer.watchWindowShortcuts(window);
   });
 
-  registerIpcHandlers(goProc, { openXhsWindow: createXhsBrowserWindow });
+  // 初始化 SQLite (conv 历史 + rate_log)
+  initDb();
+
+  registerIpcHandlers(goProc, {
+    openXhsWindow: createXhsBrowserWindow,
+    getXhsContext: async () => {
+      if (!xhsWindow || xhsWindow.isDestroyed()) return null;
+      const wc = xhsWindow.webContents;
+      try {
+        const url = wc.getURL();
+        const title = wc.getTitle();
+        const text = await wc.executeJavaScript(
+          'document.body && document.body.innerText ? document.body.innerText.slice(0, 4000) : ""',
+        ) as string;
+        return { url, title, text };
+      } catch {
+        return null;
+      }
+    },
+  });
   createWindow();
 
   app.on('activate', () => {
@@ -164,6 +184,11 @@ app.on('before-quit', async (event) => {
     await goProc.stop();
   } catch (e) {
     log.warn(`[main] Go stop error: ${String(e)}`);
+  }
+  try {
+    closeDb();
+  } catch (e) {
+    log.warn(`[main] db close error: ${String(e)}`);
   }
   log.info('[main] cleanup done, exiting');
   app.exit(0);

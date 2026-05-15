@@ -20,7 +20,7 @@ export interface AgentEvent {
   error?: string;
 }
 
-const SYSTEM_PROMPT = `你是小红书内容创作与运营助手, 通过 11 个工具帮助用户完成: 搜索/浏览/读取/点赞/收藏/评论/发布等操作。
+const SYSTEM_PROMPT_BASE = `你是小红书内容创作与运营助手, 通过 11 个工具帮助用户完成: 搜索/浏览/读取/点赞/收藏/评论/发布等操作。
 
 关键约束:
 1. 操作前先调 check_login_status 确认已登录
@@ -29,6 +29,32 @@ const SYSTEM_PROMPT = `你是小红书内容创作与运营助手, 通过 11 个
 4. 用户要求"批量"或"频繁"操作时, 提醒频率风控 (建议每天发布 ≤ 3 篇, 间隔 ≥ 30 分钟)
 5. 一次只调一个工具, 等结果后再继续
 6. 对话用中文, 简洁不啰嗦`;
+
+async function buildSystemPrompt(): Promise<string> {
+  let prompt = SYSTEM_PROMPT_BASE;
+  try {
+    const ctx = await window.api.getPageContext();
+    if (ctx && ctx.url) {
+      prompt +=
+        `\n\n[当前小红书窗口上下文]\n` +
+        `URL: ${ctx.url}\n` +
+        `标题: ${ctx.title}\n` +
+        (ctx.text ? `页面摘要 (前 800 字):\n${ctx.text.slice(0, 800)}\n` : '');
+    }
+  } catch {
+    // ignore
+  }
+  return prompt;
+}
+
+const RATE_ACTION_MAP: Record<string, 'publish' | 'comment' | 'like' | 'favorite'> = {
+  publish_content: 'publish',
+  publish_with_video: 'publish',
+  post_comment_to_feed: 'comment',
+  reply_comment_in_feed: 'comment',
+  like_feed: 'like',
+  favorite_feed: 'favorite',
+};
 
 export interface ConfirmHandler {
   (info: { name: string; args: unknown }): Promise<boolean>;
@@ -57,8 +83,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
     dangerouslyAllowBrowser: true,
   });
 
+  const systemPrompt = await buildSystemPrompt();
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     ...opts.history.map(toOpenAIMessage),
     { role: 'user', content: opts.userInput },
   ];
@@ -148,15 +175,38 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
 
       onEvent({ type: 'tool_call_start', toolCallId: tc.id, toolName: name, toolArgs: argsRaw });
 
-      // 敏感操作弹确认
+      // 敏感操作弹确认 + 频率护栏 (软提示)
       if (isSensitive(name)) {
-        const ok = await onConfirm({ name, args });
+        const rateAction = RATE_ACTION_MAP[name];
+        let rateWarn = '';
+        if (rateAction) {
+          try {
+            const chk = await window.api.rate.check(rateAction);
+            if (!chk.allowed) {
+              rateWarn = `\n\n⚠️ 频率护栏: ${chk.reason ?? '已超额'}`;
+            }
+          } catch {
+            // ignore
+          }
+        }
+        const ok = await onConfirm({
+          name: rateWarn ? `${name}${rateWarn}` : name,
+          args,
+        });
         if (!ok) {
           const refused = '用户拒绝此操作';
           messages.push({ role: 'tool', tool_call_id: tc.id, content: refused });
           newHistory.push({ role: 'tool', tool_call_id: tc.id, content: refused });
           onEvent({ type: 'tool_result', toolCallId: tc.id, toolError: refused });
           continue;
+        }
+        // 用户确认通过, 记录频率
+        if (rateAction) {
+          try {
+            await window.api.rate.log(rateAction);
+          } catch {
+            // ignore
+          }
         }
       }
 
