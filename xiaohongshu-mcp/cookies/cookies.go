@@ -53,24 +53,31 @@ func (c *localCookie) DeleteCookies() error {
 }
 
 // GetCookiesFilePath 获取 cookies 文件路径。
-// 为了向后兼容，如果旧路径 /tmp/cookies.json 存在，则继续使用；
-// 否则使用当前目录下的 cookies.json
+//
+// 优先级（高→低）:
+//  1. XHS_USER_DATA_DIR 环境变量 (Electron 内嵌场景, 由主进程注入)
+//     → <XHS_USER_DATA_DIR>/cookies.json
+//  2. COOKIES_PATH 环境变量 (历史变量, 完整路径)
+//  3. /tmp/cookies.json 已存在 (向后兼容 Docker 老部署)
+//  4. ./cookies.json (本地调试 fallback)
 func GetCookiesFilePath() string {
-	// 旧路径：/tmp/cookies.json
+	// 优先级 1: Electron 注入的 userData 目录
+	if dir := os.Getenv("XHS_USER_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, "cookies.json")
+	}
+
+	// 优先级 2: 历史环境变量
+	if p := os.Getenv("COOKIES_PATH"); p != "" {
+		return p
+	}
+
+	// 优先级 3: 向后兼容旧 Docker 路径
 	tmpDir := os.TempDir()
 	oldPath := filepath.Join(tmpDir, "cookies.json")
-
-	// 检查旧路径文件是否存在
 	if _, err := os.Stat(oldPath); err == nil {
-		// 文件存在，使用旧路径（向后兼容）
 		return oldPath
 	}
 
-	path := os.Getenv("COOKIES_PATH") // 判断环境变量
-	if path == "" {
-		path = "cookies.json" // fallback，本地调试时用当前目录
-	}
-
-	// 文件不存在，使用新路径（当前目录）
-	return path
+	// 优先级 4: 当前目录
+	return "cookies.json"
 }

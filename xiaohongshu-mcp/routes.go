@@ -53,5 +53,12 @@ func setupRoutes(appServer *AppServer) *gin.Engine {
 		api.GET("/user/me", appServer.myProfileHandler)
 	}
 
+	// 内部路由 (仅 Electron 主进程使用, 不对外暴露;
+	// 整个服务监听 127.0.0.1 时安全, 否则只是约定)
+	internal := router.Group("/internal")
+	{
+		internal.POST("/attach", appServer.attachCDPHandler)
+	}
+
 	return router
 }

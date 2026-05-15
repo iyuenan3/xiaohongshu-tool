@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -33,19 +35,31 @@ func NewAppServer(xiaohongshuService *XiaohongshuService) *AppServer {
 	return appServer
 }
 
-// Start 启动服务器
+// Start 启动服务器。
+//
+// port 形如 ":18060" (固定端口) 或 ":0" (随机端口, 用于 Electron 内嵌场景,
+// 主进程通过解析 stdout 的 "BIND_PORT=<n>" 行获取实际端口)。
 func (s *AppServer) Start(port string) error {
 	s.router = setupRoutes(s)
 
+	// 显式创建 listener 以便 port=":0" 时拿到实际端口
+	listener, err := net.Listen("tcp", port)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", port, err)
+	}
+	actualAddr := listener.Addr().(*net.TCPAddr)
+	// 向 stdout 输出端口供 Electron 主进程解析。
+	// 用 fmt 而非 logrus, 保证不被日志级别过滤、且行格式稳定。
+	fmt.Printf("BIND_PORT=%d\n", actualAddr.Port)
+	logrus.Infof("HTTP server bound: 127.0.0.1:%d", actualAddr.Port)
+
 	s.httpServer = &http.Server{
-		Addr:    port,
 		Handler: s.router,
 	}
 
 	// 启动服务器的 goroutine
 	go func() {
-		logrus.Infof("启动 HTTP 服务器: %s", port)
-		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			logrus.Errorf("服务器启动失败: %v", err)
 			os.Exit(1)
 		}
