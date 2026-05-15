@@ -567,13 +567,22 @@ func saveCookies(page *rod.Page) error {
 	return cookieLoader.SaveCookies(data)
 }
 
-// withBrowserPage 执行需要浏览器页面的操作的通用函数
+// withBrowserPage 执行需要浏览器页面的操作的通用函数。
+//
+// launcher 模式: 创建新 page, 操作结束后关闭。
+// attach 模式:   复用 Electron 中已有 page (xiaohongshu page 优先),
+//                操作结束不关 page (用户的窗口不能被我们关掉)。
 func withBrowserPage(fn func(*rod.Page) error) error {
 	b := newBrowser()
 	defer b.Close()
 
 	page := b.NewPage()
-	defer page.Close()
+	if page == nil {
+		return fmt.Errorf("no browser page available (attach mode: 请确保 Electron 已打开小红书窗口)")
+	}
+	if !b.Attached() {
+		defer page.Close()
+	}
 
 	return fn(page)
 }

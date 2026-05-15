@@ -52,6 +52,12 @@ license-worker/.dev.vars
 *.test
 *.out
 
+# TypeScript build info
+*.tsbuildinfo
+
+# 构建产物 (运行 npm run build:go 重新生成)
+app/resources/bin/
+
 # 外部参考仓库（仅参考，不纳入版本控制）
 x-mcp/
 

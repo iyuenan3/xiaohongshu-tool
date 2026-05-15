@@ -7,6 +7,7 @@ package browser
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 
 	"github.com/go-rod/rod"
@@ -110,13 +111,63 @@ func newLaunched(cfg *innerConfig) (*Browser, error) {
 	}, nil
 }
 
-// NewPage 创建新页面 (启用 stealth)。
+// NewPage 创建或选择一个用于业务操作的页面。
 //
-// 注意 attach 模式下,这会在 Electron 内嵌的 Chromium 中新建一个 page (tab),
-// 而非操作 Electron 主窗口本身。若需要操作主窗口的 page,
-// 调用方应通过 BrowserContext / Targets 选择。
+// launcher 模式: 使用 stealth 创建新 page (原行为)。
+// attach 模式:   Electron 的 Chromium 不支持 CDP Target.createTarget,
+//                必须复用已有 page。选择策略 (优先级降序):
+//                  1. URL 含 xiaohongshu.com 的 page (业务已经在用)
+//                  2. 非 localhost/127.0.0.1 的 http(s) page (即 Electron 开的浏览器窗口)
+//                  3. 第一个 page (兜底, 调用方会 navigate)
+//                找不到任何 page 时返回 nil, 调用方必须检查。
 func (b *Browser) NewPage() *rod.Page {
+	if b.attached {
+		return b.selectAttachedPage()
+	}
 	return stealth.MustPage(b.rodBrowser)
+}
+
+func (b *Browser) selectAttachedPage() *rod.Page {
+	pages, err := b.rodBrowser.Pages()
+	if err != nil {
+		logrus.Errorf("attach: Pages() failed: %v", err)
+		return nil
+	}
+	if len(pages) == 0 {
+		logrus.Errorf("attach: no pages found in browser")
+		return nil
+	}
+
+	// 1. xiaohongshu 域
+	for _, p := range pages {
+		info, err := p.Info()
+		if err != nil {
+			continue
+		}
+		if strings.Contains(info.URL, "xiaohongshu.com") {
+			logrus.Debugf("attach: selected xhs page: %s", info.URL)
+			return p
+		}
+	}
+
+	// 2. 非 localhost 的 http(s) page (Electron 开的浏览器窗口可能还在加载)
+	for _, p := range pages {
+		info, err := p.Info()
+		if err != nil {
+			continue
+		}
+		if (strings.HasPrefix(info.URL, "http://") || strings.HasPrefix(info.URL, "https://")) &&
+			!strings.Contains(info.URL, "localhost") &&
+			!strings.Contains(info.URL, "127.0.0.1") {
+			logrus.Debugf("attach: selected non-localhost page: %s", info.URL)
+			return p
+		}
+	}
+
+	// 3. 兜底
+	info, _ := pages[0].Info()
+	logrus.Warnf("attach: fallback to first page (URL=%s, 会让调用方 navigate 覆盖 UI)", info.URL)
+	return pages[0]
 }
 
 // Pages 返回所有当前打开的 page (用于 attach 模式下定位 Electron 主窗口)。
