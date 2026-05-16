@@ -10,6 +10,7 @@ if (proxyUrl) {
 // xhs-license admin CLI
 // Usage:
 //   xhs-license issue [-c COUNT] [-n "notes"] [-e YYYY-MM-DD]
+//   xhs-license list [-s STATUS] [-m MID_SUBSTR] [-l LIMIT]
 //   xhs-license revoke CODE [-r "reason"]
 //   xhs-license rebind CODE NEW_MACHINE_ID
 //   xhs-license health
@@ -34,6 +35,8 @@ function usage(code = 1) {
 
 Usage:
   xhs-license issue [-c COUNT] [-n "notes"] [-e YYYY-MM-DD]
+  xhs-license list [-s STATUS] [-m MID_SUBSTR] [-l LIMIT]
+                   (STATUS: unused / active / revoked)
   xhs-license revoke CODE [-r "reason"]
   xhs-license rebind CODE NEW_MACHINE_ID
   xhs-license health
@@ -103,6 +106,30 @@ try {
       const r = await call('/admin/rebind', { code, new_machine_id: newMachineId });
       console.log(JSON.stringify(r, null, 2));
       if (!r.ok) process.exit(1);
+      break;
+    }
+    case 'list': {
+      const status = flag('-s', '');
+      const mid = flag('-m', '');
+      const limit = flag('-l', '');
+      const qs = new URLSearchParams();
+      if (status) qs.set('status', status);
+      if (mid) qs.set('machine_id', mid);
+      if (limit) qs.set('limit', limit);
+      const url = `${WORKER_URL}/admin/codes${qs.toString() ? '?' + qs : ''}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${ADMIN_TOKEN}` } });
+      const data = await res.json();
+      if (!data.ok) { console.error(JSON.stringify(data, null, 2)); process.exit(1); }
+      console.error(`# ${data.count} code(s)${data.list_complete === false ? ' (truncated, raise -l or use filter)' : ''}`);
+      console.error('CODE                            STATUS    EXPIRE      REBIND  MID(tail)     NOTES');
+      for (const c of data.codes) {
+        const exp = c.expire_at ? new Date(c.expire_at * 1000).toISOString().slice(0, 10) : 'never     ';
+        const midTail = c.bound_machine_id ? c.bound_machine_id.slice(-12) : '-           ';
+        const s = (c.status || '').padEnd(8);
+        const reason = c.revoked_reason ? `[${c.revoked_reason}] ` : '';
+        const notes = (c.notes || '').slice(0, 40);
+        console.log(`${c.code.padEnd(30)}  ${s}  ${exp}  ${String(c.rebind_count).padStart(6)}  ${midTail}  ${reason}${notes}`);
+      }
       break;
     }
     case 'health': {

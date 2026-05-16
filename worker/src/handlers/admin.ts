@@ -93,6 +93,28 @@ export async function handleAdminRevoke(req: Request, env: Env): Promise<Respons
   return ok({ revoked_code: body.code });
 }
 
+export async function handleAdminList(req: Request, env: Env): Promise<Response> {
+  const gate = await adminGate(req, env);
+  if (gate) return gate;
+
+  const url = new URL(req.url);
+  const statusFilter = url.searchParams.get('status');
+  const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '500', 10), 1000);
+  const search = url.searchParams.get('machine_id');
+
+  const list = await env.LICENSES.list({ prefix: 'code:', limit });
+  const codes: Array<CodeRecord & { code: string }> = [];
+  for (const k of list.keys) {
+    const raw = await env.LICENSES.get(k.name);
+    if (!raw) continue;
+    const rec = JSON.parse(raw) as CodeRecord;
+    if (statusFilter && rec.status !== statusFilter) continue;
+    if (search && (rec.bound_machine_id ?? '').indexOf(search) < 0) continue;
+    codes.push({ ...rec, code: k.name.slice('code:'.length) });
+  }
+  return ok({ count: codes.length, list_complete: list.list_complete, codes });
+}
+
 export async function handleAdminRebind(req: Request, env: Env): Promise<Response> {
   const gate = await adminGate(req, env);
   if (gate) return gate;
