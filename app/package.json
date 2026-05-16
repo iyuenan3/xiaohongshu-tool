@@ -7,13 +7,15 @@
   "author": "TBD",
   "scripts": {
     "build:go": "go build -C ../xiaohongshu-mcp -o ../app/resources/bin/xiaohongshu-mcp .",
+    "build:go:win": "cd ../xiaohongshu-mcp && GOOS=windows GOARCH=amd64 go build -o ../app/resources/bin/xiaohongshu-mcp.exe .",
     "predev": "npm run build:go",
     "prebuild": "npm run build:go",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "build:mac": "npm run build && electron-builder --mac",
-    "build:win": "npm run build && electron-builder --win",
+    "build:win": "npm run build:go:win && electron-vite build && electron-builder --win",
+    "build:win:docker": "npm run build:go:win && electron-vite build && docker run --rm -v \"$(pwd)\":/project -w /project electronuserland/builder:wine /bin/bash -c 'npm install --no-audit --prefer-offline 2>&1 | tail -3 && ./node_modules/.bin/electron-builder --win --x64 --publish never'",
     "typecheck": "./node_modules/.bin/tsc --noEmit -p tsconfig.node.json && ./node_modules/.bin/tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps"
   },

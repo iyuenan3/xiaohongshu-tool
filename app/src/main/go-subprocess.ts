@@ -179,10 +179,11 @@ export class GoSubprocess {
 
 /** 解析打包后的 Go 二进制路径 (dev 模式从 resources/bin/, 生产模式从 process.resourcesPath) */
 export function resolveGoBinaryPath(): string {
+  const binName = process.platform === 'win32' ? 'xiaohongshu-mcp.exe' : 'xiaohongshu-mcp';
   const isPackaged = app.isPackaged;
   if (isPackaged) {
-    return join(process.resourcesPath, 'bin', 'xiaohongshu-mcp');
+    return join(process.resourcesPath, 'bin', binName);
   }
   // dev: 从 app/ 项目根的 resources/bin/
-  return join(app.getAppPath(), 'resources', 'bin', 'xiaohongshu-mcp');
+  return join(app.getAppPath(), 'resources', 'bin', binName);
 }
