@@ -1,8 +1,8 @@
 {
   "name": "xhs-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "小红书自运营系统 - Electron 客户端 (M1 PoC)",
+  "description": "小红书自运营系统 - Electron 客户端",
   "main": "./out/main/index.js",
   "author": "TBD",
   "scripts": {
@@ -36,7 +36,7 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "electron": "^32.0.1",
+    "electron": "^38.8.6",
     "electron-builder": "^25.0.5",
     "electron-vite": "^2.3.0",
     "react": "^18.3.1",
@@ -101,8 +101,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "PLACEHOLDER_OWNER",
-        "repo": "PLACEHOLDER_REPO",
+        "owner": "iyuenan3",
+        "repo": "xiaohongshu-tool",
         "releaseType": "release"
       }
     ],

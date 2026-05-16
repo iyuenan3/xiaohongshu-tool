@@ -8,6 +8,19 @@ interface StoredMsg {
   tool_call_id?: string;
 }
 
+interface MediaAsset {
+  id: string;
+  filename: string;
+  mime_type: string;
+  size: number;
+  source_url: string | null;
+  storage_path: string;
+  width: number | null;
+  height: number | null;
+  created_at: number;
+  last_used_at: number;
+}
+
 const api = {
   ping: () => ipcRenderer.invoke('app:ping'),
   getVersion: () => ipcRenderer.invoke('app:version'),
@@ -29,6 +42,7 @@ const api = {
     saveMessages: (id: string, messages: StoredMsg[]) => ipcRenderer.invoke('conv:saveMessages', id, messages) as Promise<{ ok: boolean }>,
     setTitle: (id: string, title: string) => ipcRenderer.invoke('conv:setTitle', id, title) as Promise<{ ok: boolean }>,
     delete: (id: string) => ipcRenderer.invoke('conv:delete', id) as Promise<{ ok: boolean }>,
+    clearMessages: (id: string) => ipcRenderer.invoke('conv:clearMessages', id) as Promise<{ ok: boolean }>,
   },
 
   // 频率护栏
@@ -69,6 +83,16 @@ const api = {
       message?: string;
     }>,
     clear: () => ipcRenderer.invoke('license:clear') as Promise<{ ok: boolean }>,
+  },
+
+  // 媒体素材库
+  assets: {
+    pick: () => ipcRenderer.invoke('assets:pick') as Promise<MediaAsset[]>,
+    importUrl: (url: string) => ipcRenderer.invoke('assets:importUrl', url) as Promise<MediaAsset>,
+    list: () => ipcRenderer.invoke('assets:list') as Promise<MediaAsset[]>,
+    delete: (id: string) => ipcRenderer.invoke('assets:delete', id) as Promise<void>,
+    getPath: (id: string) => ipcRenderer.invoke('assets:getPath', id) as Promise<string | null>,
+    touchUsed: (ids: string[]) => ipcRenderer.invoke('assets:touchUsed', ids) as Promise<{ ok: boolean }>,
   },
 };
 

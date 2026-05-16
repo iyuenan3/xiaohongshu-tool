@@ -51,23 +51,29 @@ sqlite3 "$HOME/Library/Application Support/xhs-app/app.db" ".schema"
 pkill -f electron-vite; pkill -f "Electron.app/Contents/MacOS/Electron"; pkill -f xiaohongshu-mcp
 ```
 
-## 进度（截止 2026-05-16）
+## 进度（截止 2026-05-16 下午）
 
 - [x] M1 PoC（CDP attach + publish_content E2E 已真实发到小红书）
-- [x] M2 W3-W4（AI 侧边栏 + Tool Calling Loop + 11 工具）
-- [x] M2 W5（SQLite 对话历史 + 页面上下文注入 + 频率护栏）
-- [ ] **M3 商业化**（Cloudflare Worker 激活 + 客户端激活 + asar 加固）← 下一步
-- [ ] M4 跨平台无证书打包
+- [x] M2 W3-W5（AI 侧边栏 + Tool Calling + 11 工具 + SQLite + 频率护栏）
+- [x] **M3 商业化**（Worker + KV + Custom Domain xhslicense.maxwellii.com + 客户端激活 E2E ✅）
+- [x] **M4 macOS dmg 打包**（identity:null 无证书 + auto-update + Windows nsis 跨平台 build）
 - [ ] M5 公测 + 发售
 
-## M3 启动前阻塞决策
+## M3 已拍板决策（v0.4 2026-05-16）
 
-**必须先拍板的（D1/D2/D4）**：
-- D1 售价区间（推荐 ¥299 一次性买断）
-- D2 是否提供试用版（推荐 否）
-- D4 法律主体（推荐 个体工商户）
+- D1 ✅ 售价：挂牌 ¥399 + 客服 1V1 议价
+- D2 ✅ 试用版：无（仅 demo 视频/截图）
+- D4 ✅ 法律主体：个人名义（销量验证后升级个体户）
+- D3 ⏳ 产品名/域名：待 M5 公测前定
+- D5 ⏳ 客服渠道：待 M5 公测前定
 
-详见 `PRD.md` §10。
+## 部署事实（2026-05-16）
+
+- Worker URL（fallback）：`https://xhs-license.liyuenan93.workers.dev`
+- Custom Domain（客户端默认）：`https://xhslicense.maxwellii.com`
+- KV namespace ID：`a42560054b8241e89ddbe9317d35af21`
+- Secrets：SIGNING_PRIVATE_KEY + ADMIN_TOKEN 已注入（值见 INFRA.md gitignored）
+- 首发码发码 CLI：`worker/scripts/xhs-license.mjs`，详见 `worker/DEPLOY.md`
 
 ## 关键技术约束（架构红线）
 
@@ -75,12 +81,27 @@ pkill -f electron-vite; pkill -f "Electron.app/Contents/MacOS/Electron"; pkill -
 
 1. 主进程 bootstrap 顺序：`pickFreePort()` → `appendSwitch('remote-debugging-port')` → `app.whenReady()` → spawn Go → 解析 `BIND_PORT=<n>` → fetch `/json/version` 拿 wsUrl → POST `/internal/attach`
 2. attach 模式下 go-rod **不能创建新 page**（Electron 不支持 CDP `Target.createTarget`），必走 `selectAttachedPage()` 复用已有
-3. xhs 窗口**绝不能 hide**（page 会从 active targets 消失），只能 `minimize()`
-4. 主进程必须设这 4 个 switch（不设则最小化后 `Execution context destroyed`）：
+3. M4 后改 `<webview>` 嵌入：guest page target type=`"webview"`，`selectAttachedPage()` 必须 fallback 用 `proto.TargetGetTargets{}.Call()` + `PageFromTarget` 找
+4. **必须**设这 4 个 commandLine switch（webview tab 切换隐藏时 occlusion 节流让 Go CDP 报 -32000）：
    - `disable-features=CalculateNativeWinOcclusion,BackForwardCache`
    - `disable-background-timer-throttling`
    - `disable-renderer-backgrounding`
    - `disable-backgrounding-occluded-windows`
+
+### M4 单窗口 + tab 切换架构
+
+- mainWindow webPreferences `webviewTag: true`
+- 顶部 tabbar 40px：[控制台] [小红书]
+- 控制台 tab：左 main-pane 60% (hero + 提示) + 右 ChatSidebar 40%
+- 小红书 tab：`<webview src="..." partition="persist:xhs">` 全屏
+- **所有 MCP 工具交互走 AI 聊天**（不要做 ToolPanel 直接调用按钮 — user 明确否决）
+- tab 切换用 `left:-99999px + visibility:hidden`，**绝不能用 display:none**（webview guest 会被 destroy 丢 cookies）
+
+### macOS Tahoe + Retina + Chromium fractional scaling 锁定
+
+- 用户 Mac 14" "Looks Like 1800x1169" (1.68x 非整数 retina) 让 Chromium inner viewport 锁死 1280x800
+- 当前 workaround：BrowserWindow 锁 1280x800 + `resizable: false`
+- 详见 memory `decisions_macos_tahoe_chromium.md`
 
 ### 业务约束
 
@@ -97,11 +118,15 @@ pkill -f electron-vite; pkill -f "Electron.app/Contents/MacOS/Electron"; pkill -
 
 ## 工程踩坑速查
 
-1. **npm install 偶尔破坏 node_modules** → 装新包后立即 `ls node_modules/.bin/electron-vite`，破坏就 `rm -rf node_modules && npm install`
-2. **GET/HEAD 请求不能带 body** → `callApi` 必须检查 `Object.keys(body).length > 0`
-3. **service.go 所有 `defer page.Close()`** 必须用 `closeIfNotAttached(b, page)` helper（attach 模式下关 page 等于关用户窗口）
-4. **Electron 二进制 + Go 依赖国内被墙** → `.npmrc` 已配淘宝镜像，Go 端 `go env -w GOPROXY=https://goproxy.cn,direct`
-5. **macOS Finder 偶尔留 `<name> 2.<ext>` 副本** → `find . -name "* 2.*" -not -path "*/node_modules/*"` 扫一遍
+1. **npm install 极频繁破坏 node_modules** → 已发生 10+ 次，每次某个 transitive dep missing。标准修：`chmod -R u+w node_modules; rm -rf node_modules package-lock.json; npm install`。避免反复 install/uninstall
+2. **macOS Finder 留 `<name> 2/` 目录副本** → `find node_modules -name "* 2" -type d 2>/dev/null | xargs rm -rf`
+3. **GET/HEAD 请求不能带 body** → `callApi` 必须检查 `Object.keys(body).length > 0`
+4. **service.go 所有 `defer page.Close()`** 必须用 `closeIfNotAttached(b, page)` helper（attach 模式下关 page 等于关用户窗口）
+5. **Electron 32 → 38 升级**：需 `npx electron-builder install-app-deps` rebuild native modules (NODE_MODULE_VERSION 128 → 139)
+6. **Electron 二进制 + Go 依赖国内被墙** → `.npmrc` 已配淘宝镜像，Go 端 `go env -w GOPROXY=https://goproxy.cn,direct`
+7. **小红书 API 字段是 camelCase 不是 snake_case** → `noteCard.displayTitle` / `xsecToken` / `interactInfo.likedCount`。写 formatter 前先 `curl http://127.0.0.1:<port>/api/v1/feeds/list` 看真实 schema
+8. **DNS 劫持 *.workers.dev (国内运营商)** → 已用 Custom Domain `xhslicense.maxwellii.com` 绕过
+9. **Electron 32 WebContentsView setBounds 在 macOS 不生效** → 改用 `<webview>` 标签
 
 ## BYOK 接入参考
 

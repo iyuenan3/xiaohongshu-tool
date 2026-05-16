@@ -1,5 +1,6 @@
-import { app, BrowserWindow, shell } from 'electron';
-import { join } from 'path';
+import { app, BrowserWindow, protocol, screen, shell, net } from 'electron';
+import { join, extname } from 'path';
+import { pathToFileURL } from 'url';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import log from 'electron-log/main';
 import { registerIpcHandlers } from './ipc';
@@ -8,47 +9,62 @@ import { pickFreePort, getElectronCdpWsUrl } from './cdp';
 import { initDb, closeDb } from './db';
 import { licenseManager } from './license';
 import { initUpdater, stopUpdater } from './updater';
+import { getAssetPath } from './assets';
+
+// 在 app.whenReady() 之前注册自定义 scheme, 让 renderer 用 xhs-asset://{id} 加载本地素材
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'xhs-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
+]);
 
 log.initialize();
 log.info('[main] app starting');
 
 let mainWindow: BrowserWindow | null = null;
-let xhsWindow: BrowserWindow | null = null;
-let isQuitting = false; // before-quit 时设 true, 让 xhs 窗口真正关闭
+let isQuitting = false;
 const goProc = new GoSubprocess();
 let cdpPort: number | null = null;
-let goStarted = false; // ensureGoStarted 幂等保护
+let goStarted = false;
 
 function createWindow(): void {
+  const { workArea } = screen.getPrimaryDisplay();
+  log.info(`[main] workArea=${workArea.width}x${workArea.height}`);
+
+  // Chromium 在某些 macOS retina fractional scaling (如 14" "Looks Like 1800") 下
+  // inner viewport 锁死 1280x800。锁定 BrowserWindow 1280x800 + 禁用 resize,
+  // 让 outer = inner = 1280x800, 消除留白。最低屏幕要求 1440x900。
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    minWidth: 960,
-    minHeight: 600,
-    show: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     autoHideMenuBar: true,
     title: '小红书自运营系统',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
-      // M2 dev: 允许 renderer 直接 fetch LLM API (cross-origin)
-      // M3 商业化阶段会把 LLM 调用收回主进程 (safeStorage + IPC), 届时关闭
+      webviewTag: true,
       webSecurity: false,
     },
   });
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show();
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow) return;
+    mainWindow.show();
+    const cb = mainWindow.getContentBounds();
+    mainWindow.setContentSize(cb.width, cb.height);
+    if (is.dev) mainWindow.webContents.openDevTools({ mode: 'detach' });
   });
+
+
+
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: 'deny' };
   });
 
-  // Prod 模式: 拦截 DevTools 打开 + 屏蔽相关快捷键 (asar 加固一部分)
   if (!is.dev) {
     mainWindow.webContents.on('before-input-event', (event, input) => {
       const k = input.key.toLowerCase();
@@ -72,63 +88,20 @@ function createWindow(): void {
   }
 }
 
-/**
- * 创建独立的小红书浏览器窗口供 Go 端通过 CDP 操作。
- *
- * 关闭行为: 用户点 ✕ 时窗口仅隐藏 (cookies + page 保留),
- * 应用 quit 时才真正销毁。这避免用户不小心关窗口导致 Go 找不到 page。
- */
-function createXhsBrowserWindow(): void {
-  if (xhsWindow && !xhsWindow.isDestroyed()) {
-    if (xhsWindow.isMinimized()) xhsWindow.restore();
-    if (!xhsWindow.isVisible()) xhsWindow.show();
-    xhsWindow.focus();
-    return;
-  }
-  xhsWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    title: '小红书 (受 Go MCP 控制)',
-    autoHideMenuBar: true,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false, // 最小化时不节流, 防止 CDP execution context 被销毁
-    },
-  });
-  xhsWindow.loadURL('https://www.xiaohongshu.com/explore');
-
-  // 拦截关闭: 改为 minimize (hide 会让 Chromium 从 active targets 移除 page,
-  // 导致 Go 端 CDP 看不到, 必须保持窗口"存在"但可缩到 dock)。
-  xhsWindow.on('close', (e) => {
-    if (!isQuitting) {
-      e.preventDefault();
-      xhsWindow?.minimize();
-      log.info('[xhs-window] 用户关闭, 已改为最小化 (Chromium page 仍在 active targets)');
-    }
-  });
-  xhsWindow.on('closed', () => { xhsWindow = null; });
-}
-
-/**
- * bootstrap 在 app.ready 之前选择空闲端口, 注入 --remote-debugging-port,
- * 之后启动 Electron, 再编排 Go subprocess 启动 + CDP attach。
- */
 async function bootstrap(): Promise<void> {
-  // 1. 选择空闲端口供 Chromium DevTools 监听
   cdpPort = await pickFreePort();
   log.info(`[main] picked remote-debugging-port=${cdpPort}`);
   app.commandLine.appendSwitch('remote-debugging-port', String(cdpPort));
   app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 
-  // 禁用 Chromium 对最小化/被遮挡窗口的 page 节流, 防止 Go 端 CDP 操作时
-  // 触发 "Execution context was destroyed" 错误.
+
+  // 禁用 Chromium 对最小化/被遮挡 (含 left:-99999 隐藏的 webview) 的 page 节流,
+  // 否则 tab 切换时 webview guest page 的 execution context 被销毁, Go CDP 调用返回 -32000
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,BackForwardCache');
   app.commandLine.appendSwitch('disable-background-timer-throttling');
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
-  // 2. 等 Electron ready
   await app.whenReady();
   electronApp.setAppUserModelId('com.xhs.app');
 
@@ -136,24 +109,32 @@ async function bootstrap(): Promise<void> {
     optimizer.watchWindowShortcuts(window);
   });
 
-  // 初始化 SQLite (conv 历史 + rate_log)
   initDb();
 
+  // xhs-asset://{id} 把 renderer 请求 → DB 查 storage_path → 返回文件流
+  protocol.handle('xhs-asset', async (req) => {
+    try {
+      const u = new URL(req.url);
+      const id = u.hostname || u.pathname.replace(/^\/+/, '');
+      const path = getAssetPath(id);
+      if (!path) return new Response('not found', { status: 404 });
+      return net.fetch(pathToFileURL(path).toString());
+    } catch (e) {
+      log.error('[protocol xhs-asset]', e);
+      return new Response('error', { status: 500 });
+    }
+  });
+
   registerIpcHandlers(goProc, {
-    openXhsWindow: createXhsBrowserWindow,
+    openXhsWindow: () => {
+      // <webview> 改造后, xhs 由 renderer 控制. main 进程仅 noop 占位
+      // renderer 可直接调 webview.reload() (在 ChatSidebar 或 App 内实现)
+      log.info('[ipc] openXhsWindow called (no-op in webview mode)');
+    },
     getXhsContext: async () => {
-      if (!xhsWindow || xhsWindow.isDestroyed()) return null;
-      const wc = xhsWindow.webContents;
-      try {
-        const url = wc.getURL();
-        const title = wc.getTitle();
-        const text = await wc.executeJavaScript(
-          'document.body && document.body.innerText ? document.body.innerText.slice(0, 4000) : ""',
-        ) as string;
-        return { url, title, text };
-      } catch {
-        return null;
-      }
+      // <webview> 的上下文由 renderer 自己通过 webview.executeJavaScript 获取
+      // 此 handler 保留兼容但返回 null, 真正的 context 走 renderer 路径
+      return null;
     },
   });
   createWindow();
@@ -162,7 +143,6 @@ async function bootstrap(): Promise<void> {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  // 3. License gate: 仅在已激活时才启动 Go subprocess
   licenseManager.onActivated(() => {
     log.info('[main] license activated event - starting Go subprocess');
     licenseManager.startHeartbeatScheduler();
@@ -179,10 +159,9 @@ async function bootstrap(): Promise<void> {
       log.error(`[main] Go bootstrap failed: ${err.message}`);
     });
   } else {
-    log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go 暂不启动`);
+    log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go + xhs view 暂不启动`);
   }
 
-  // 自动更新 (仅 packaged 模式生效, dev 跳过)
   initUpdater(() => mainWindow);
 }
 
@@ -206,20 +185,17 @@ async function spawnAndAttachGo(): Promise<void> {
   log.info(`[main] go binary: ${binPath}`);
   log.info(`[main] userData:  ${userDataDir}`);
 
+  // <webview> 由 renderer 渲染 (App.tsx layout__xhs-slot 内), 跟 React UI 一起 ready
+  // CDP attach 时 webview guest page 已经在 active targets, 不需要 main 进程预先创建
+
   const { baseUrl } = await goProc.start({ binPath, userDataDir });
   log.info(`[main] Go ready at ${baseUrl}`);
 
-  if (cdpPort === null) {
-    throw new Error('cdpPort not set (bootstrap race)');
-  }
+  if (cdpPort === null) throw new Error('cdpPort not set (bootstrap race)');
   const wsUrl = await getElectronCdpWsUrl(cdpPort);
   await goProc.attachCDP(wsUrl);
 
   log.info('[main] CDP attach 完成, Go 已接入 Electron Chromium');
-
-  // 打开小红书浏览器窗口供 Go 操作 (UI 窗口保持不变)
-  createXhsBrowserWindow();
-  log.info('[main] xhs 浏览器窗口已打开');
 }
 
 app.on('window-all-closed', () => {
@@ -227,7 +203,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async (event) => {
-  if (isQuitting) return; // 防止递归
+  if (isQuitting) return;
   log.info('[main] before-quit, stopping Go subprocess...');
   event.preventDefault();
   isQuitting = true;

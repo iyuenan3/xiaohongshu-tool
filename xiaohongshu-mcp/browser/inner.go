@@ -115,11 +115,12 @@ func newLaunched(cfg *innerConfig) (*Browser, error) {
 //
 // launcher 模式: 使用 stealth 创建新 page (原行为)。
 // attach 模式:   Electron 的 Chromium 不支持 CDP Target.createTarget,
-//                必须复用已有 page。选择策略 (优先级降序):
-//                  1. URL 含 xiaohongshu.com 的 page (业务已经在用)
-//                  2. 非 localhost/127.0.0.1 的 http(s) page (即 Electron 开的浏览器窗口)
-//                  3. 第一个 page (兜底, 调用方会 navigate)
-//                找不到任何 page 时返回 nil, 调用方必须检查。
+//
+//	必须复用已有 page。选择策略 (优先级降序):
+//	  1. URL 含 xiaohongshu.com 的 page (业务已经在用)
+//	  2. 非 localhost/127.0.0.1 的 http(s) page (即 Electron 开的浏览器窗口)
+//	  3. 第一个 page (兜底, 调用方会 navigate)
+//	找不到任何 page 时返回 nil, 调用方必须检查。
 func (b *Browser) NewPage() *rod.Page {
 	if b.attached {
 		return b.selectAttachedPage()
@@ -128,52 +129,48 @@ func (b *Browser) NewPage() *rod.Page {
 }
 
 func (b *Browser) selectAttachedPage() *rod.Page {
+	// 1. 先用 rod.Pages() 找 (仅 type=page)
 	pages, err := b.rodBrowser.Pages()
-	if err != nil {
-		logrus.Errorf("attach: Pages() failed: %v", err)
-		return nil
-	}
-	if len(pages) == 0 {
-		logrus.Errorf("attach: no pages found in browser")
-		return nil
-	}
-
-	// 1. xiaohongshu 域
-	for _, p := range pages {
-		info, err := p.Info()
-		if err != nil {
-			continue
-		}
-		if strings.Contains(info.URL, "xiaohongshu.com") {
-			logrus.Debugf("attach: selected xhs page: %s", info.URL)
-			return p
+	if err == nil {
+		for _, p := range pages {
+			if info, err := p.Info(); err == nil && strings.Contains(info.URL, "xiaohongshu.com") {
+				logrus.Debugf("attach: selected xhs page (type=page): %s", info.URL)
+				return p
+			}
 		}
 	}
 
-	// 2. 非 localhost 的 http(s) page (Electron 开的浏览器窗口可能还在加载)
-	for _, p := range pages {
-		info, err := p.Info()
-		if err != nil {
-			continue
-		}
-		if (strings.HasPrefix(info.URL, "http://") || strings.HasPrefix(info.URL, "https://")) &&
-			!strings.Contains(info.URL, "localhost") &&
-			!strings.Contains(info.URL, "127.0.0.1") {
-			logrus.Debugf("attach: selected non-localhost page: %s", info.URL)
-			return p
+	// 2. fallback: 用底层 Target.getTargets 查所有 target (含 webview / iframe)
+	// Electron <webview> guest page 的 type 是 "webview", 默认 Pages() 不返回
+	targetsResp, terr := proto.TargetGetTargets{}.Call(b.rodBrowser)
+	if terr == nil {
+		for _, t := range targetsResp.TargetInfos {
+			if !strings.Contains(t.URL, "xiaohongshu.com") {
+				continue
+			}
+			// 用 PageFromTarget 把 TargetInfo 转 rod.Page
+			page, perr := b.rodBrowser.PageFromTarget(t.TargetID)
+			if perr == nil && page != nil {
+				logrus.Infof("attach: selected xhs target (type=%s): %s", t.Type, t.URL)
+				return page
+			}
+			logrus.Warnf("attach: PageFromTarget failed for %s: %v", t.URL, perr)
 		}
 	}
 
-	// 没找到合适 page。绝不 fallback 到 localhost (那是 UI, 会被业务 navigate 覆盖)。
-	urls := make([]string, 0, len(pages))
+	// 3. 还没找到, 列已知 page + target URLs 帮助 debug
+	urls := make([]string, 0)
 	for _, p := range pages {
 		if info, err := p.Info(); err == nil {
-			urls = append(urls, info.URL)
+			urls = append(urls, "page:"+info.URL)
 		}
 	}
-	logrus.Warnf("attach: no suitable page found, current pages=%v", urls)
-	// 主动 panic 携带友好信息, Gin 的 Recovery() 会 catch 并返回 500,
-	// details 中带这条 message 传到 UI, 比 nil pointer dereference 友好得多。
+	if targetsResp != nil {
+		for _, t := range targetsResp.TargetInfos {
+			urls = append(urls, string(t.Type)+":"+t.URL)
+		}
+	}
+	logrus.Warnf("attach: no xhs page/target found, available=%v", urls)
 	panic("XHS_WINDOW_NOT_OPEN: 没有找到小红书浏览器窗口, 请在 UI 中点击「打开/聚焦 小红书窗口」")
 }
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import ChatSidebar from './components/ChatSidebar';
+import ConsolePane from './components/ConsolePane';
+import HelpPanel from './components/HelpPanel';
+import AssetLibrary from './components/AssetLibrary';
 import Settings from './components/Settings';
 import ActivationPage from './components/ActivationPage';
 
@@ -18,13 +20,13 @@ interface LicenseState {
   message?: string;
 }
 
-export default function App() {
-  const platform = window.electron?.process?.platform ?? 'unknown';
-  const versions = window.electron?.process?.versions ?? {};
+type Tab = 'console' | 'xhs' | 'assets' | 'help';
 
+export default function App() {
   const [licenseState, setLicenseState] = useState<LicenseState | null>(null);
   const [goStatus, setGoStatus] = useState<GoStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>('console');
 
   useEffect(() => {
     let alive = true;
@@ -61,60 +63,73 @@ export default function App() {
     );
   }
 
+  const validDate = licenseState.valid_until
+    ? new Date(licenseState.valid_until * 1000).toISOString().slice(0, 10)
+    : '-';
+
   return (
     <div className="layout">
-      <main className="main-pane">
-        <header className="hero">
-          <div className="hero__eyebrow">M3 W7 · License 激活 + 心跳 + asar 加固</div>
-          <h1>小红书<em>自运营系统</em></h1>
-          <p className="lede">侧边栏 AI 通过 11 个 MCP 工具操作小红书。</p>
-        </header>
+      <div className="tabbar">
+        <button
+          className={`tabbar__tab ${tab === 'console' ? 'tabbar__tab--active' : ''}`}
+          onClick={() => setTab('console')}
+        >
+          控制台
+        </button>
+        <button
+          className={`tabbar__tab ${tab === 'xhs' ? 'tabbar__tab--active' : ''}`}
+          onClick={() => setTab('xhs')}
+        >
+          小红书
+        </button>
+        <button
+          className={`tabbar__tab ${tab === 'assets' ? 'tabbar__tab--active' : ''}`}
+          onClick={() => setTab('assets')}
+        >
+          素材库
+        </button>
+        <button
+          className={`tabbar__tab ${tab === 'help' ? 'tabbar__tab--active' : ''}`}
+          onClick={() => setTab('help')}
+        >
+          帮助
+        </button>
+        <span className="tabbar__spacer" />
+        <span className="tabbar__status">
+          {goStatus === null ? (
+            <span style={{ color: 'var(--ink-mute)' }}>● 初始化…</span>
+          ) : goStatus.ok ? (
+            <span style={{ color: 'var(--green)' }}>● Go MCP ready</span>
+          ) : (
+            <span style={{ color: 'var(--accent)' }}>○ Go down</span>
+          )}
+        </span>
+        <span className="tabbar__meta" title={`激活码 ${licenseState.code} / 到期 ${validDate}`}>
+          v0.1.0 · {licenseState.code?.slice(-9) ?? ''} · 到 {validDate}
+        </span>
+        <button className="tabbar__icon" onClick={() => setSettingsOpen(true)} title="设置">⚙️</button>
+      </div>
 
-        <section className="status-grid">
-          <div className="status-card">
-            <div className="sc-label">Platform</div>
-            <div className="sc-value">{platform}</div>
-          </div>
-          <div className="status-card">
-            <div className="sc-label">Electron</div>
-            <div className="sc-value">{versions.electron ?? '?'}</div>
-          </div>
-          <div className="status-card">
-            <div className="sc-label">Go MCP</div>
-            <div className="sc-value">
-              {goStatus === null ? '...' : goStatus.ok ? (
-                <span style={{ color: 'var(--green)' }}>✓ ready</span>
-              ) : (
-                <span style={{ color: 'var(--accent)' }}>× down</span>
-              )}
-            </div>
-          </div>
-          <div className="status-card">
-            <div className="sc-label">XHS 窗口</div>
-            <div className="sc-value">
-              <button className="link-btn" onClick={() => window.api.openXhsWindow()}>
-                打开/聚焦 →
-              </button>
-            </div>
-          </div>
-        </section>
+      <div className="tab-body">
+        <div className={`tab-pane tab-pane--console ${tab === 'console' ? '' : 'tab-pane--hidden'}`}>
+          <ConsolePane goOk={goStatus?.ok === true} onOpenSettings={() => setSettingsOpen(true)} />
+        </div>
 
-        <section className="hint-card">
-          <h3>使用流程</h3>
-          <ol>
-            <li>点右侧侧边栏齿轮图标, 配置 AI 大模型 (火山方舟 / DeepSeek)</li>
-            <li>点上方 "XHS 窗口 - 打开/聚焦", 在弹出的小红书窗口扫码登录</li>
-            <li>回到侧边栏与 AI 对话, 让它帮你搜索 / 发布 / 互动</li>
-            <li>敏感操作 (发布/评论/点赞/收藏) 会弹确认, 你可以审核</li>
-          </ol>
-        </section>
+        <div
+          className={`tab-pane tab-pane--xhs ${tab === 'xhs' ? '' : 'tab-pane--hidden'}`}
+          dangerouslySetInnerHTML={{
+            __html: '<webview src="https://www.xiaohongshu.com/explore" partition="persist:xhs" allowpopups class="xhs-webview" id="xhs-webview"></webview>',
+          }}
+        />
 
-        <footer className="footer">
-          <code>xhs-app v0.1.0 · {licenseState.code ?? ''} · valid until {licenseState.valid_until ? new Date(licenseState.valid_until * 1000).toISOString().slice(0, 10) : '-'}</code>
-        </footer>
-      </main>
+        <div className={`tab-pane tab-pane--assets ${tab === 'assets' ? '' : 'tab-pane--hidden'}`}>
+          <AssetLibrary active={tab === 'assets'} />
+        </div>
 
-      <ChatSidebar goOk={goStatus?.ok === true} onOpenSettings={() => setSettingsOpen(true)} />
+        <div className={`tab-pane tab-pane--help ${tab === 'help' ? '' : 'tab-pane--hidden'}`}>
+          <HelpPanel />
+        </div>
+      </div>
 
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>

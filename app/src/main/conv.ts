@@ -102,3 +102,12 @@ export function deleteConversation(id: string): void {
     db.prepare(`DELETE FROM conversations WHERE id = ?`).run(id);
   })();
 }
+
+export function clearConversationMessages(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.transaction(() => {
+    db.prepare(`DELETE FROM messages WHERE conversation_id = ?`).run(id);
+    db.prepare(`UPDATE conversations SET title = NULL, updated_at = ? WHERE id = ?`).run(now, id);
+  })();
+}

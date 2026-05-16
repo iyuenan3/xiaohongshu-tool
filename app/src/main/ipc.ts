@@ -3,12 +3,15 @@ import log from 'electron-log/main';
 import type { GoSubprocess } from './go-subprocess';
 import {
   listConversations, createConversation, getConversation, getMessages,
-  saveMessages, setConversationTitle, deleteConversation,
+  saveMessages, setConversationTitle, deleteConversation, clearConversationMessages,
   type StoredMessage,
 } from './conv';
 import { checkRate, logRate, type RateAction } from './rate';
 import { licenseManager } from './license';
 import { checkForUpdatesNow } from './updater';
+import {
+  pickAndImport, importFromUrl, listAssets, deleteAsset, getAssetPath, touchUsed,
+} from './assets';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -62,6 +65,10 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
     deleteConversation(id);
     return { ok: true };
   });
+  ipcMain.handle('conv:clearMessages', (_, id: string) => {
+    clearConversationMessages(id);
+    return { ok: true };
+  });
 
   // 频率护栏
   ipcMain.handle('rate:check', (_, action: RateAction) => checkRate(action));
@@ -83,4 +90,15 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
 
   // Auto-update
   ipcMain.handle('updater:check', () => checkForUpdatesNow());
+
+  // 媒体素材库
+  ipcMain.handle('assets:pick', () => pickAndImport());
+  ipcMain.handle('assets:importUrl', (_, url: string) => importFromUrl(url));
+  ipcMain.handle('assets:list', () => listAssets());
+  ipcMain.handle('assets:delete', (_, id: string) => deleteAsset(id));
+  ipcMain.handle('assets:getPath', (_, id: string) => getAssetPath(id));
+  ipcMain.handle('assets:touchUsed', (_, ids: string[]) => {
+    touchUsed(ids);
+    return { ok: true };
+  });
 }

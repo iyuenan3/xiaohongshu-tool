@@ -41,6 +41,20 @@ export function initDb(): Database.Database {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_rate_log ON rate_log(action, created_at);
+
+    CREATE TABLE IF NOT EXISTS media_assets (
+      id            TEXT PRIMARY KEY,
+      filename      TEXT NOT NULL,
+      mime_type     TEXT NOT NULL,
+      size          INTEGER NOT NULL,
+      source_url    TEXT,
+      storage_path  TEXT NOT NULL,
+      width         INTEGER,
+      height        INTEGER,
+      created_at    INTEGER NOT NULL,
+      last_used_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_assets_last_used ON media_assets(last_used_at DESC);
   `);
   db = inst;
   return inst;
