@@ -1,0 +1,110 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_artifact:
+        description: 'Upload .exe artifact for download (manual)'
+        type: boolean
+        default: true
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Setup Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install Go deps
+        working-directory: xiaohongshu-mcp
+        run: go mod download
+
+      - name: Build Go (Windows amd64)
+        working-directory: xiaohongshu-mcp
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o ../app/resources/bin/xiaohongshu-mcp.exe .
+
+      - name: Verify Go binary
+        working-directory: app
+        run: |
+          dir resources\bin\
+          if (!(Test-Path "resources\bin\xiaohongshu-mcp.exe")) { exit 1 }
+        shell: pwsh
+
+      - name: Install app deps
+        working-directory: app
+        run: npm ci --no-audit
+
+      - name: Build Electron renderer + main + preload
+        working-directory: app
+        run: npm run build
+
+      - name: Package Windows NSIS
+        working-directory: app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./node_modules/.bin/electron-builder --win --x64 --publish never
+
+      - name: Smoke test - launch app for 8s + collect log
+        working-directory: app
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $exe = Get-ChildItem release\*\win-unpacked\*.exe | Where-Object { $_.Name -notlike "xiaohongshu-mcp*" } | Select-Object -First 1
+          Write-Host "Launching: $($exe.FullName)"
+          $proc = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 8
+          if (!$proc.HasExited) {
+            Write-Host "✓ App still running after 8s, killing for clean shutdown"
+            Stop-Process -Id $proc.Id -Force
+          } else {
+            Write-Host "✗ App exited prematurely with code $($proc.ExitCode)"
+            exit 1
+          }
+
+      - name: List artifacts
+        working-directory: app
+        shell: pwsh
+        run: |
+          Get-ChildItem release -Recurse -Include *.exe,*.yml,*.blockmap | Format-Table Name,Length,LastWriteTime
+
+      - name: Upload .exe artifact
+        if: ${{ github.event.inputs.upload_artifact != 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: xhs-app-windows-x64
+          path: |
+            app/release/*/小红书自运营 Setup *.exe
+            app/release/*/latest.yml
+            app/release/*/小红书自运营 Setup *.exe.blockmap
+          retention-days: 14
+
+      - name: Create GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app/release/*/小红书自运营 Setup *.exe
+            app/release/*/latest.yml
+            app/release/*/小红书自运营 Setup *.exe.blockmap
+          draft: true
+          generate_release_notes: true

@@ -39,6 +39,32 @@ export GH_TOKEN=ghp_xxxxxxxxxxxx
 
 ---
 
+## GitHub Actions 自动化（推荐流程）
+
+`.github/workflows/build-windows.yml` + `build-macos.yml` 已就绪。**手动触发**或 **push tag 自动**都行。
+
+### 手动触发（验证一次性 build）
+
+仓库 → Actions → "Build Windows" → "Run workflow" → 选 main 分支 → Run。
+跑完 → 下载 artifact `xhs-app-windows-x64`（含 .exe + latest.yml + blockmap）。
+
+### 自动发版（push tag）
+
+```bash
+cd app
+npm version patch        # 0.1.0 → 0.1.1, 同时 git tag v0.1.1
+git push origin main
+git push origin v0.1.1   # 触发两个 workflow
+```
+
+跑完后 GitHub Releases 自动出现 draft release（含 mac dmg + win exe + 自动更新 yml）。
+确认无问题 → 在 Releases 页 publish → electron-updater 客户端自动检测。
+
+### CI 内置冒烟测试
+
+build-windows.yml 在打包后自动跑 8 秒 launch test (启动 + 没崩 = pass)。
+完整 license 激活 E2E 仍需真 Win 机器手动测（CI 没 system proxy + 没有 license.bin）。
+
 ## 日常发版流程（每次小更新）
 
 ### 1. 更新版本号
