@@ -1,0 +1,23 @@
+{
+  "name": "xhs-license-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "License activation Worker for 小红书自运营系统",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "secret:set": "wrangler secret put SIGNING_PRIVATE_KEY && wrangler secret put ADMIN_TOKEN",
+    "kv:create": "wrangler kv namespace create LICENSES"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250416.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^3.114.0"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.4.0"
+  }
+}

@@ -45,8 +45,10 @@ cookies.json
 *.db-journal
 
 # Cloudflare Workers
-license-worker/.wrangler/
-license-worker/.dev.vars
+worker/.wrangler/
+worker/.dev.vars
+worker/node_modules/
+worker/dist/
 
 # Go test binaries
 *.test
