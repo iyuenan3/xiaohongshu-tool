@@ -1,4 +1,4 @@
-import { app, safeStorage } from 'electron';
+import { app, safeStorage, net } from 'electron';
 import { machineIdSync } from 'node-machine-id';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
@@ -12,7 +12,7 @@ import log from 'electron-log/main';
 ed.hashes.sha512 = sha512 as unknown as typeof ed.hashes.sha512;
 
 const PUBLIC_KEY_B64 = '8aC5Ujl8syPRmowRgYBPlbRFfkwM5/Eb3DKyLj7UKW8=';
-const WORKER_URL = process.env.XHS_WORKER_URL ?? 'http://localhost:8787';
+const WORKER_URL = process.env.XHS_WORKER_URL ?? 'https://xhslicense.maxwellii.com';
 const MACHINE_SALT = 'xhs-app-v1';
 const HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -190,7 +190,7 @@ export class LicenseManager {
 
     let resp: Response;
     try {
-      resp = await fetch(`${WORKER_URL}/activate`, {
+      resp = await net.fetch(`${WORKER_URL}/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, machine_id }),
@@ -239,7 +239,7 @@ export class LicenseManager {
 
     let resp: Response;
     try {
-      resp = await fetch(`${WORKER_URL}/heartbeat`, {
+      resp = await net.fetch(`${WORKER_URL}/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: this.cached.token }),

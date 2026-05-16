@@ -1,6 +1,29 @@
 # Worker 部署清单
 
-> M3 W6 D6 一次性操作。后续日常用 `npm run deploy` 即可。
+> ✅ 已于 2026-05-16 部署完成: https://xhs-license.liyuenan93.workers.dev
+> 后续日常用 `npm run deploy` 推新版本。
+
+## 当前状态
+
+- KV namespace: `a42560054b8241e89ddbe9317d35af21` (binding `LICENSES`)
+- Secrets: `SIGNING_PRIVATE_KEY` + `ADMIN_TOKEN` 已通过 wrangler secret put 注入
+- 首码已发 (admin CLI `issue -c 1`), prod E2E 跑通 (通过 ClashX 代理因本机 DNS 劫持)
+
+## DNS 劫持应对
+
+国内部分运营商劫持 `*.workers.dev` 到假 IP (如 facebook IPv6 段)。两种应对:
+
+**短期** - 客户端走代理 (Maxwell 自测专用):
+- 环境变量 `HTTPS_PROXY=http://127.0.0.1:7897` 时 admin CLI + main 进程 fetch 自动走代理
+- 见 `app/src/main/proxy.ts` + `worker/scripts/xhs-license.mjs`
+
+**长期** - 绑自定义域名 (M5 公测前必做):
+- 把 `maxwellii.com` 整体迁到 Cloudflare DNS
+- Worker 加 Custom Domain `xhs.maxwellii.com`
+- 客户端 license.ts default WORKER_URL 改 `https://xhs.maxwellii.com`
+- 备案域名不受运营商 DNS 劫持
+
+
 
 ## 一次性步骤（在你的电脑上）
 

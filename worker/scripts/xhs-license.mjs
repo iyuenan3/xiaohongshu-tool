@@ -1,4 +1,12 @@
 #!/usr/bin/env node
+// 国内 DNS 劫持 workers.dev 时, 需通过 HTTPS_PROXY 代理 fetch
+// (Node undici 不读 system proxy, 必须显式 ProxyAgent)
+const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+if (proxyUrl) {
+  const { setGlobalDispatcher, ProxyAgent } = await import('undici');
+  setGlobalDispatcher(new ProxyAgent(proxyUrl));
+}
+
 // xhs-license admin CLI
 // Usage:
 //   xhs-license issue [-c COUNT] [-n "notes"] [-e YYYY-MM-DD]

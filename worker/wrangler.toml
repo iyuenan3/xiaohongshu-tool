@@ -3,12 +3,15 @@ main = "src/index.ts"
 compatibility_date = "2025-05-01"
 account_id = "597366cb37ce88965f9f0ba73a45662c"
 
-# KV namespace (W6 D2 通过 `wrangler kv namespace create LICENSES` 创建后填入 id)
+# Custom Domain (maxwellii.com 已托管在 Cloudflare DNS, 自动配 DNS + SSL)
+routes = [
+  { pattern = "xhslicense.maxwellii.com", custom_domain = true }
+]
+
+# KV namespace
 [[kv_namespaces]]
 binding = "LICENSES"
-# T6 部署前: 运行 `wrangler kv namespace create LICENSES` 后填入真实 id
-# 本地 dev (wrangler dev --local) 不校验 id, 使用占位即可
-id = "00000000000000000000000000000000"
+id = "a42560054b8241e89ddbe9317d35af21"
 
 # Secrets (通过 `wrangler secret put <NAME>` 设置, 不入 git):
 # - SIGNING_PRIVATE_KEY: Ed25519 私钥 base64 (32 字节 raw)
