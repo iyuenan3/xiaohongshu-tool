@@ -49,6 +49,7 @@
     "appId": "com.xhs.app",
     "productName": "小红书自运营",
     "copyright": "Copyright © 2026",
+    "artifactName": "xhs-app-${version}-${arch}.${ext}",
     "directories": {
       "output": "release/${version}"
     },
