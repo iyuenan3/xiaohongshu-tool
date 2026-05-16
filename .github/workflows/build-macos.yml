@@ -68,5 +68,5 @@ jobs:
             app/release/*/*.zip
             app/release/*/latest-mac.yml
             app/release/*/*.blockmap
-          draft: true
-          generate_release_notes: true
+          draft: false
+          body: "Windows / macOS 安装包。auto-update 通过 latest.yml / latest-mac.yml 工作。"

@@ -96,9 +96,9 @@ jobs:
         with:
           name: xhs-app-windows-x64
           path: |
-            app/release/*/小红书自运营 Setup *.exe
+            app/release/*/xhs-app-Setup-*.exe
             app/release/*/latest.yml
-            app/release/*/小红书自运营 Setup *.exe.blockmap
+            app/release/*/xhs-app-Setup-*.exe.blockmap
           retention-days: 14
 
       - name: Create GitHub Release (on tag)
@@ -106,8 +106,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            app/release/*/小红书自运营 Setup *.exe
+            app/release/*/xhs-app-Setup-*.exe
             app/release/*/latest.yml
-            app/release/*/小红书自运营 Setup *.exe.blockmap
-          draft: true
-          generate_release_notes: true
+            app/release/*/xhs-app-Setup-*.exe.blockmap
+          draft: false
+          body: "Windows / macOS 安装包。auto-update 通过 latest.yml / latest-mac.yml 工作。"

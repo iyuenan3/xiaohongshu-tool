@@ -1,6 +1,6 @@
 {
   "name": "xhs-app",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "小红书自运营系统 - Electron 客户端",
   "main": "./out/main/index.js",
@@ -13,8 +13,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "build:mac": "npm run build && electron-builder --mac",
-    "build:win": "npm run build:go:win && electron-vite build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac --publish never",
+    "build:win": "npm run build:go:win && electron-vite build && electron-builder --win --publish never",
     "build:win:docker": "npm run build:go:win && electron-vite build && docker run --rm -v \"$(pwd)\":/project -w /project electronuserland/builder:wine /bin/bash -c 'npm install --no-audit --prefer-offline 2>&1 | tail -3 && ./node_modules/.bin/electron-builder --win --x64 --publish never'",
     "typecheck": "./node_modules/.bin/tsc --noEmit -p tsconfig.node.json && ./node_modules/.bin/tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps"
@@ -75,6 +75,7 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
+      "artifactName": "xhs-app-${version}-mac-${arch}.${ext}",
       "target": [
         {
           "target": "dmg",
@@ -121,7 +122,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "xhs-app-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [
