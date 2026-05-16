@@ -7,6 +7,7 @@ import { GoSubprocess, resolveGoBinaryPath } from './go-subprocess';
 import { pickFreePort, getElectronCdpWsUrl } from './cdp';
 import { initDb, closeDb } from './db';
 import { licenseManager } from './license';
+import { initUpdater, stopUpdater } from './updater';
 
 log.initialize();
 log.info('[main] app starting');
@@ -180,6 +181,9 @@ async function bootstrap(): Promise<void> {
   } else {
     log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go 暂不启动`);
   }
+
+  // 自动更新 (仅 packaged 模式生效, dev 跳过)
+  initUpdater(() => mainWindow);
 }
 
 async function ensureGoStarted(): Promise<void> {
@@ -228,6 +232,7 @@ app.on('before-quit', async (event) => {
   event.preventDefault();
   isQuitting = true;
   try { licenseManager.stopHeartbeatScheduler(); } catch (e) { log.warn(`[main] license stop error: ${String(e)}`); }
+  try { stopUpdater(); } catch (e) { log.warn(`[main] updater stop error: ${String(e)}`); }
   try {
     await goProc.stop();
   } catch (e) {

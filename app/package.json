@@ -22,6 +22,7 @@
     "@noble/hashes": "^2.2.0",
     "better-sqlite3": "^12.10.0",
     "electron-log": "^5.2.0",
+    "electron-updater": "^6.8.3",
     "node-machine-id": "^1.1.12",
     "openai": "^6.37.0"
   },
@@ -64,36 +65,65 @@
       {
         "from": "resources/bin",
         "to": "bin",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.utilities",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
     "dmg": {
-      "writeUpdateInfo": false,
+      "writeUpdateInfo": true,
       "sign": false
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "PLACEHOLDER_OWNER",
+        "repo": "PLACEHOLDER_REPO",
+        "releaseType": "release"
+      }
+    ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDir": true,
+      "allowToChangeInstallationDirectory": true,
       "perMachine": false
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Utility"
     }
   }

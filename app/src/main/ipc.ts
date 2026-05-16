@@ -8,6 +8,7 @@ import {
 } from './conv';
 import { checkRate, logRate, type RateAction } from './rate';
 import { licenseManager } from './license';
+import { checkForUpdatesNow } from './updater';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -79,4 +80,7 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
     log.info('[ipc] license cleared by renderer');
     return { ok: true };
   });
+
+  // Auto-update
+  ipcMain.handle('updater:check', () => checkForUpdatesNow());
 }

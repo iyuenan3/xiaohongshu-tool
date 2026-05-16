@@ -42,6 +42,11 @@ const api = {
       ipcRenderer.invoke('rate:log', action) as Promise<{ ok: boolean }>,
   },
 
+  // Auto-update
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check') as Promise<{ ok: boolean; version?: string; message?: string }>,
+  },
+
   // License
   license: {
     status: () => ipcRenderer.invoke('license:status') as Promise<{
