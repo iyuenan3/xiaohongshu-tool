@@ -18,8 +18,11 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
     "better-sqlite3": "^12.10.0",
     "electron-log": "^5.2.0",
+    "node-machine-id": "^1.1.12",
     "openai": "^6.37.0"
   },
   "devDependencies": {
@@ -38,5 +41,60 @@
     "typescript": "^5.9.3",
     "vite": "^5.4.2",
     "zustand": "^4.5.5"
+  },
+  "build": {
+    "appId": "com.xhs.app",
+    "productName": "小红书自运营",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release/${version}"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "resources/bin/**/*",
+      "**/*.node"
+    ],
+    "files": [
+      "out/**/*",
+      "resources/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "writeUpdateInfo": false,
+      "sign": false
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDir": true,
+      "perMachine": false
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Utility"
+    }
   }
 }

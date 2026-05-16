@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import ChatSidebar from './components/ChatSidebar';
 import Settings from './components/Settings';
+import ActivationPage from './components/ActivationPage';
 
 interface GoStatus {
   ok: boolean;
@@ -8,14 +9,31 @@ interface GoStatus {
   error?: string;
 }
 
+type LicenseStatus = 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
+
+interface LicenseState {
+  status: LicenseStatus;
+  code?: string;
+  valid_until?: number;
+  message?: string;
+}
+
 export default function App() {
   const platform = window.electron?.process?.platform ?? 'unknown';
   const versions = window.electron?.process?.versions ?? {};
 
+  const [licenseState, setLicenseState] = useState<LicenseState | null>(null);
   const [goStatus, setGoStatus] = useState<GoStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
+    let alive = true;
+    window.api.license.status().then((s) => { if (alive) setLicenseState(s); });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    if (licenseState?.status !== 'active') return;
     let alive = true;
     const tick = async () => {
       if (!alive) return;
@@ -25,13 +43,29 @@ export default function App() {
     };
     tick();
     return () => { alive = false; };
-  }, []);
+  }, [licenseState?.status]);
+
+  if (licenseState === null) {
+    return <div className="loading-screen">加载中…</div>;
+  }
+
+  if (licenseState.status !== 'active') {
+    const errorMsg = renderLicenseError(licenseState);
+    return (
+      <ActivationPage
+        initialError={errorMsg}
+        onActivated={() => {
+          window.api.license.status().then(setLicenseState);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="layout">
       <main className="main-pane">
         <header className="hero">
-          <div className="hero__eyebrow">M2 W3-W4 · AI 侧边栏 + Tool Calling</div>
+          <div className="hero__eyebrow">M3 W7 · License 激活 + 心跳 + asar 加固</div>
           <h1>小红书<em>自运营系统</em></h1>
           <p className="lede">侧边栏 AI 通过 11 个 MCP 工具操作小红书。</p>
         </header>
@@ -76,7 +110,7 @@ export default function App() {
         </section>
 
         <footer className="footer">
-          <code>xhs-app v0.1.0 · M2 W3-W4 · 11 tools active</code>
+          <code>xhs-app v0.1.0 · {licenseState.code ?? ''} · valid until {licenseState.valid_until ? new Date(licenseState.valid_until * 1000).toISOString().slice(0, 10) : '-'}</code>
         </footer>
       </main>
 
@@ -85,4 +119,21 @@ export default function App() {
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   );
+}
+
+function renderLicenseError(s: LicenseState): string | undefined {
+  switch (s.status) {
+    case 'unactivated':
+      return undefined;
+    case 'expired':
+      return '激活码已过期，请重新激活';
+    case 'revoked':
+      return '此激活码已被吊销，请联系客服';
+    case 'mismatch':
+      return '此设备与激活码绑定的设备不一致，请联系客服换绑';
+    case 'error':
+      return s.message ?? '激活码验证出错';
+    default:
+      return undefined;
+  }
 }

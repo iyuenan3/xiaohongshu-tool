@@ -4,7 +4,9 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // @noble/ed25519 v3 + @noble/hashes v2 是 ESM-only,
+    // 必须从 externalize 排除让 rollup 打包进 bundle (转 CJS)
+    plugins: [externalizeDepsPlugin({ exclude: ['@noble/ed25519', '@noble/hashes'] })],
     resolve: {
       alias: {
         '@main': resolve(__dirname, 'src/main'),

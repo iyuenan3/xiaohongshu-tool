@@ -41,6 +41,30 @@ const api = {
     log: (action: 'publish' | 'comment' | 'like' | 'favorite') =>
       ipcRenderer.invoke('rate:log', action) as Promise<{ ok: boolean }>,
   },
+
+  // License
+  license: {
+    status: () => ipcRenderer.invoke('license:status') as Promise<{
+      status: 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
+      code?: string;
+      machine_id?: string;
+      valid_until?: number;
+      message?: string;
+    }>,
+    getMachineId: () => ipcRenderer.invoke('license:machineId') as Promise<string>,
+    activate: (code: string) => ipcRenderer.invoke('license:activate', code) as Promise<{
+      status: 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
+      code?: string;
+      message?: string;
+    }>,
+    heartbeat: () => ipcRenderer.invoke('license:heartbeat') as Promise<{
+      ok: boolean;
+      revoked?: boolean;
+      latest_version?: string;
+      message?: string;
+    }>,
+    clear: () => ipcRenderer.invoke('license:clear') as Promise<{ ok: boolean }>,
+  },
 };
 
 if (process.contextIsolated) {

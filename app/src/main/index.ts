@@ -6,6 +6,7 @@ import { registerIpcHandlers } from './ipc';
 import { GoSubprocess, resolveGoBinaryPath } from './go-subprocess';
 import { pickFreePort, getElectronCdpWsUrl } from './cdp';
 import { initDb, closeDb } from './db';
+import { licenseManager } from './license';
 
 log.initialize();
 log.info('[main] app starting');
@@ -15,6 +16,7 @@ let xhsWindow: BrowserWindow | null = null;
 let isQuitting = false; // before-quit 时设 true, 让 xhs 窗口真正关闭
 const goProc = new GoSubprocess();
 let cdpPort: number | null = null;
+let goStarted = false; // ensureGoStarted 幂等保护
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -44,6 +46,23 @@ function createWindow(): void {
     shell.openExternal(details.url);
     return { action: 'deny' };
   });
+
+  // Prod 模式: 拦截 DevTools 打开 + 屏蔽相关快捷键 (asar 加固一部分)
+  if (!is.dev) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      const k = input.key.toLowerCase();
+      const blockedKey =
+        k === 'f12' ||
+        (input.meta && input.alt && k === 'i') ||
+        (input.control && input.shift && k === 'i') ||
+        (input.meta && input.alt && k === 'j') ||
+        (input.control && input.shift && k === 'j');
+      if (blockedKey) event.preventDefault();
+    });
+    mainWindow.webContents.on('devtools-opened', () => {
+      mainWindow?.webContents.closeDevTools();
+    });
+  }
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
@@ -142,11 +161,39 @@ async function bootstrap(): Promise<void> {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  // 3. spawn Go subprocess (异步, 不阻塞 UI 显示)
-  spawnAndAttachGo().catch((err) => {
-    log.error(`[main] Go bootstrap failed: ${err.message}`);
-    // M1 PoC 阶段允许 UI 先起来, Go 失败用户能看到错误状态
+  // 3. License gate: 仅在已激活时才启动 Go subprocess
+  licenseManager.onActivated(() => {
+    log.info('[main] license activated event - starting Go subprocess');
+    licenseManager.startHeartbeatScheduler();
+    ensureGoStarted().catch((err) => {
+      log.error(`[main] post-activation Go start failed: ${err.message}`);
+    });
   });
+
+  const lic = await licenseManager.getStatus();
+  log.info(`[main] license status: ${lic.status}`);
+  if (lic.status === 'active') {
+    licenseManager.startHeartbeatScheduler();
+    ensureGoStarted().catch((err) => {
+      log.error(`[main] Go bootstrap failed: ${err.message}`);
+    });
+  } else {
+    log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go 暂不启动`);
+  }
+}
+
+async function ensureGoStarted(): Promise<void> {
+  if (goStarted) {
+    log.info('[main] ensureGoStarted: already started, noop');
+    return;
+  }
+  goStarted = true;
+  try {
+    await spawnAndAttachGo();
+  } catch (e) {
+    goStarted = false;
+    throw e;
+  }
 }
 
 async function spawnAndAttachGo(): Promise<void> {
@@ -180,6 +227,7 @@ app.on('before-quit', async (event) => {
   log.info('[main] before-quit, stopping Go subprocess...');
   event.preventDefault();
   isQuitting = true;
+  try { licenseManager.stopHeartbeatScheduler(); } catch (e) { log.warn(`[main] license stop error: ${String(e)}`); }
   try {
     await goProc.stop();
   } catch (e) {

@@ -7,6 +7,7 @@ import {
   type StoredMessage,
 } from './conv';
 import { checkRate, logRate, type RateAction } from './rate';
+import { licenseManager } from './license';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -65,6 +66,17 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
   ipcMain.handle('rate:check', (_, action: RateAction) => checkRate(action));
   ipcMain.handle('rate:log', (_, action: RateAction) => {
     logRate(action);
+    return { ok: true };
+  });
+
+  // License
+  ipcMain.handle('license:status', () => licenseManager.getStatus());
+  ipcMain.handle('license:machineId', () => licenseManager.getMachineIdPublic());
+  ipcMain.handle('license:activate', (_, code: string) => licenseManager.activate(code));
+  ipcMain.handle('license:heartbeat', () => licenseManager.heartbeat());
+  ipcMain.handle('license:clear', () => {
+    licenseManager.clear();
+    log.info('[ipc] license cleared by renderer');
     return { ok: true };
   });
 }
