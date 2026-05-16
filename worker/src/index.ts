@@ -2,6 +2,7 @@ import type { Env } from './types';
 import { handleActivate } from './handlers/activate';
 import { handleHeartbeat } from './handlers/heartbeat';
 import { handleAdminCodes, handleAdminRevoke, handleAdminRebind, handleAdminList } from './handlers/admin';
+import { ADMIN_HTML } from './admin-ui';
 import { err } from './util';
 
 export default {
@@ -28,6 +29,10 @@ export default {
             JSON.stringify({ ok: true, service: 'xhs-license', version: '0.1.0' }),
             { headers: { 'content-type': 'application/json; charset=utf-8' } },
           );
+        case 'GET /admin':
+          return new Response(ADMIN_HTML, {
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          });
       }
       return err('NOT_FOUND', `Route not found: ${route}`, 404);
     } catch (e) {
