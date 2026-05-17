@@ -1,6 +1,6 @@
 {
   "name": "xhs-app",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "小红书自运营系统 - Electron 客户端",
   "main": "./out/main/index.js",

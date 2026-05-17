@@ -118,6 +118,15 @@ const api = {
     search: (query: string, n?: number) =>
       ipcRenderer.invoke('web:search', query, n) as Promise<Array<{ title: string; url: string; snippet: string }>>,
   },
+
+  // 日志导出 + renderer 透传 (内测期间用)
+  logs: {
+    getInfo: () => ipcRenderer.invoke('logs:getInfo') as Promise<{ path: string; size: number; exists: boolean }>,
+    openFolder: () => ipcRenderer.invoke('logs:openFolder') as Promise<{ ok: boolean; path: string }>,
+    export: () => ipcRenderer.invoke('logs:export') as Promise<{ ok: boolean; canceled?: boolean; savedTo?: string; message?: string }>,
+    write: (level: 'info' | 'warn' | 'error', scope: string, msg: string) =>
+      ipcRenderer.invoke('logs:write', level, scope, msg) as Promise<{ ok: boolean }>,
+  },
 };
 
 if (process.contextIsolated) {

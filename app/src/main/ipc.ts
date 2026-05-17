@@ -1,4 +1,5 @@
-import { ipcMain, app } from 'electron';
+import { ipcMain, app, dialog, shell, BrowserWindow } from 'electron';
+import { copyFileSync, existsSync, statSync } from 'fs';
 import log from 'electron-log/main';
 import type { GoSubprocess } from './go-subprocess';
 import {
@@ -111,4 +112,62 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
 
   // 联网搜索 (隐藏 BrowserWindow + 搜狗 DOM 抓取)
   ipcMain.handle('web:search', (_, query: string, n?: number) => searchWeb(query, n));
+
+  // 日志导出 (内测期间用, 便于客服收集 bug 现场)
+  ipcMain.handle('logs:getInfo', () => {
+    const file = log.transports.file.getFile();
+    const p = file.path;
+    let size = 0;
+    let exists = false;
+    try {
+      if (existsSync(p)) {
+        size = statSync(p).size;
+        exists = true;
+      }
+    } catch (e) {
+      log.warn(`[ipc logs:getInfo] stat error: ${String(e)}`);
+    }
+    return { path: p, size, exists };
+  });
+
+  ipcMain.handle('logs:openFolder', () => {
+    const p = log.transports.file.getFile().path;
+    shell.showItemInFolder(p);
+    return { ok: true, path: p };
+  });
+
+  // renderer → main 透传, 在 main.log 里盖一个 [renderer] 标记
+  // 内测期间用, 让 LLM 调用 / tool_call 决策 / tool_result 都进 main.log, 便于离线分析
+  ipcMain.handle('logs:write', (_, level: 'info' | 'warn' | 'error', scope: string, msg: string) => {
+    const tag = `[renderer:${scope}]`;
+    if (level === 'error') log.error(`${tag} ${msg}`);
+    else if (level === 'warn') log.warn(`${tag} ${msg}`);
+    else log.info(`${tag} ${msg}`);
+    return { ok: true };
+  });
+
+  ipcMain.handle('logs:export', async (evt) => {
+    const src = log.transports.file.getFile().path;
+    if (!existsSync(src)) {
+      return { ok: false, message: '日志文件不存在' };
+    }
+    const win = BrowserWindow.fromWebContents(evt.sender) ?? BrowserWindow.getFocusedWindow();
+    const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const defaultName = `xhs-app-${app.getVersion()}-${ts}.log`;
+    const r = await dialog.showSaveDialog(win!, {
+      title: '导出日志文件',
+      defaultPath: defaultName,
+      filters: [{ name: '日志', extensions: ['log'] }],
+    });
+    if (r.canceled || !r.filePath) {
+      return { ok: false, canceled: true };
+    }
+    try {
+      copyFileSync(src, r.filePath);
+      return { ok: true, savedTo: r.filePath };
+    } catch (e) {
+      log.error(`[ipc logs:export] copy error: ${String(e)}`);
+      return { ok: false, message: String(e) };
+    }
+  });
 }

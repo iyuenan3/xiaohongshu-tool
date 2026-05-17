@@ -8,8 +8,13 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/sirupsen/logrus"
 	"github.com/xpzouying/xiaohongshu-mcp/errors"
 )
+
+// searchOpTimeout 单次 search 操作链总超时.
+// 防 page.Context(ctx) 把 60s 默认 timeout 清掉, 出现 14h47m41s 卡死现象.
+const searchOpTimeout = 120 * time.Second
 
 type SearchResult struct {
 	Search struct {
@@ -165,14 +170,27 @@ func NewSearchAction(page *rod.Page) *SearchAction {
 	return &SearchAction{page: pp}
 }
 
-func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...FilterOption) ([]Feed, error) {
-	page := s.page.Context(ctx)
+func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...FilterOption) (feeds []Feed, err error) {
+	// page.Context(ctx) 会替换 NewSearchAction 设的 60s timeout, 必须重新 cap
+	// 否则 SPA 加载失败 / 登录态过期 时 MustXxx 会卡死直到上游取消 (实测出现过 14h47m41s)
+	page := s.page.Context(ctx).Timeout(searchOpTimeout)
+
+	// 加 recover 把 MustXxx panic 转成带页面 URL 的可读 error, 便于客服诊断
+	defer func() {
+		if r := recover(); r != nil {
+			pageURL := currentPageURL(page)
+			err = fmt.Errorf("搜索失败: %v (当前页面: %s)", r, pageURL)
+			logrus.Warnf("search.Search panicked, recovered: %v, page=%s", r, pageURL)
+		}
+	}()
 
 	searchURL := makeSearchURL(keyword)
+	logrus.Infof("search.Search: navigating to %s", searchURL)
 	page.MustNavigate(searchURL)
 	page.MustWaitStable()
 
 	page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
+	logrus.Infof("search.Search: page loaded, url=%s", currentPageURL(page))
 
 	// 如果有筛选条件，则应用筛选
 	if len(filters) > 0 {
@@ -231,12 +249,20 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 		return nil, errors.ErrNoFeeds
 	}
 
-	var feeds []Feed
 	if err := json.Unmarshal([]byte(result), &feeds); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal feeds: %w", err)
 	}
 
 	return feeds, nil
+}
+
+// currentPageURL 安全取页面 URL, 失败返 "(unknown)"
+func currentPageURL(page *rod.Page) string {
+	info, err := page.Info()
+	if err != nil || info == nil {
+		return "(unknown)"
+	}
+	return info.URL
 }
 
 func makeSearchURL(keyword string) string {

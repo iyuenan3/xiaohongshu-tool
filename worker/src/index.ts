@@ -2,6 +2,7 @@ import type { Env } from './types';
 import { handleActivate } from './handlers/activate';
 import { handleHeartbeat } from './handlers/heartbeat';
 import { handleAdminCodes, handleAdminRevoke, handleAdminRebind, handleAdminList } from './handlers/admin';
+import { handleVersion } from './handlers/version';
 import { ADMIN_HTML } from './admin-ui';
 import { err } from './util';
 
@@ -16,6 +17,8 @@ export default {
           return await handleActivate(req, env);
         case 'POST /heartbeat':
           return await handleHeartbeat(req, env);
+        case 'GET /version':
+          return await handleVersion(req, env);
         case 'POST /admin/codes':
           return await handleAdminCodes(req, env);
         case 'GET /admin/codes':

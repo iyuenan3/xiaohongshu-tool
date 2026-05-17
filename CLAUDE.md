@@ -50,23 +50,44 @@ sqlite3 "$HOME/Library/Application Support/xhs-app/app.db" ".schema"
 
 # 杀残留进程 (UI/Go 卡死时)
 pkill -f electron-vite; pkill -f "Electron.app/Contents/MacOS/Electron"; pkill -f xiaohongshu-mcp
+
+# 跑 E2E 测试 (dev 在跑 + license 已激活 前置)
+node tests/e2e/run-all.mjs
+
+# 触发 GitHub Actions build (workflow_dispatch 模式)
+gh workflow run "Build macOS" --ref main -f release_tag=v0.3.2 --repo iyuenan3/xiaohongshu-tool
+gh workflow run "Build Windows" --ref main -f release_tag=v0.3.2 --repo iyuenan3/xiaohongshu-tool
+# release_tag 留空 → 只 build artifacts 不发 Release (临时测试)
+
+# 发激活码 (worker admin CLI)
+cd worker && WORKER_URL="https://xhslicense.maxwellii.com" \
+  ADMIN_TOKEN="<INFRA.md>" node scripts/xhs-license.mjs issue -c 1 -n "备注"
 ```
 
-## 进度（截止 2026-05-16 下午）
+## 进度（截止 2026-05-17 晚）
 
 - [x] M1 PoC（CDP attach + publish_content E2E 已真实发到小红书）
 - [x] M2 W3-W5（AI 侧边栏 + Tool Calling + 11 工具 + SQLite + 频率护栏）
 - [x] **M3 商业化**（Worker + KV + Custom Domain xhslicense.maxwellii.com + 客户端激活 E2E ✅）
-- [x] **M4 macOS dmg 打包**（identity:null 无证书 + auto-update + Windows nsis 跨平台 build）
-- [ ] M5 公测 + 发售
+- [x] **M4 macOS dmg 打包**（identity:null 无证书 + Windows nsis 跨平台 build）
+- [x] **M5 polish (v0.2.x ~ v0.3.x)** — 4-tab UI + 智能素材库 + vision tag + 联网搜索 + 网页管理后台 + 7 次 mac 打包流水线 fix
+- [x] **E2E 黑盒测试** — subagent 18 min ship 176/176 pass + 6 bug 全修
+- [ ] M5+ 公测发售 (待 D3/D5 决策)
+- [ ] M5+ 中转站方案 (D6 待决: BYOK / Worker Gateway / 混合)
 
-## M3 已拍板决策（v0.4 2026-05-16）
+## 已拍板 + 待决策
 
-- D1 ✅ 售价：挂牌 ¥399 + 客服 1V1 议价
-- D2 ✅ 试用版：无（仅 demo 视频/截图）
-- D4 ✅ 法律主体：个人名义（销量验证后升级个体户）
-- D3 ⏳ 产品名/域名：待 M5 公测前定
-- D5 ⏳ 客服渠道：待 M5 公测前定
+| 编号 | 议题 | 状态 |
+|---|---|---|
+| D1 售价 | ¥399 + 客服议价 | ✅ |
+| D2 试用版 | 无 | ✅ |
+| D4 法律主体 | 个人名义 | ✅ |
+| D3 产品名 / 域名 | 影响品牌 | ⏳ |
+| D5 客服渠道 | 影响压力 | ⏳ |
+| **D6 LLM Gateway 中转站** | 服务端反代 LLM, 配额管理 (用户主动提议) | ⏳ |
+| **D7 mac Intel build** | macOS quota 倍率 10x 卡 queue | ⏳ |
+| **D8 仓库公私** | private 现状 (用户已拒改 public) | ⏳ (临时维持 private) |
+| **更新策略** | 不 auto-update, Worker /version + 联系客服 dialog (方案 C) | ✅ 已实施 (2026-05-17) |
 
 ## 部署事实（2026-05-16）
 

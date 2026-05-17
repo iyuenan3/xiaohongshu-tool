@@ -10,6 +10,7 @@ import { initDb, closeDb } from './db';
 import { licenseManager } from './license';
 import { initUpdater, stopUpdater } from './updater';
 import { getAssetPath } from './assets';
+import { logEnvironment } from './env';
 
 // 在 app.whenReady() 之前注册自定义 scheme, 让 renderer 用 xhs-asset://{id} 加载本地素材
 protocol.registerSchemesAsPrivileged([
@@ -104,6 +105,10 @@ async function bootstrap(): Promise<void> {
 
   await app.whenReady();
   electronApp.setAppUserModelId('com.xhs.app');
+
+  // 启动 banner: app/OS/electron/chromium/cpu/memory/displays/locale/timezone/license 一次性 dump
+  // 便于客服收到日志后立即识别用户环境, 不用再追问"你 win 还是 mac"
+  await logEnvironment();
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);

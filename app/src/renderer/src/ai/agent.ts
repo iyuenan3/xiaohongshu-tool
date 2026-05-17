@@ -3,6 +3,7 @@
 import OpenAI from 'openai';
 import { ALL_TOOL_SCHEMAS, isRegisteredTool, isSensitive, type ToolName } from './tools';
 import type { BYOKConfig } from './byok';
+import { rlog, safeJson } from '../lib/log';
 
 export type ChatMessage =
   | { role: 'system' | 'user'; content: string }
@@ -88,6 +89,14 @@ export interface RunAgentOptions {
 export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
   const { cfg, onEvent, onToolCall, onConfirm, abortSignal } = opts;
 
+  // 内测期间: 进入 runAgent 时记录 LLM 调用上下文 (不含 key)
+  rlog.info(
+    'agent',
+    `runAgent start: model=${cfg.model} baseURL=${cfg.baseURL} historyLen=${opts.history.length} ` +
+    `userInputLen=${opts.userInput.length} images=${opts.userImageDataUrls?.length ?? 0}`,
+  );
+  rlog.info('agent', `user input: ${safeJson(opts.userInput, 400)}`);
+
   const client = new OpenAI({
     baseURL: cfg.baseURL,
     apiKey: cfg.apiKey,
@@ -121,11 +130,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
   for (let round = 0; round < MAX_ROUNDS; round++) {
     if (abortSignal?.aborted) {
       onEvent({ type: 'error', error: '用户取消' });
+      rlog.warn('agent', `aborted at round ${round}`);
       return newHistory;
     }
 
     let assistantText = '';
     const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] = [];
+
+    rlog.info('agent', `round ${round} start: messages=${messages.length}`);
 
     try {
       const stream = await client.chat.completions.create({
@@ -162,9 +174,18 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
         }
       }
     } catch (e) {
+      rlog.error('agent', `LLM stream failed at round ${round}: ${safeJson(e)}`);
       onEvent({ type: 'error', error: String(e) });
       return newHistory;
     }
+
+    rlog.info(
+      'agent',
+      `round ${round} stream done: text_len=${assistantText.length} tool_calls=${toolCalls.length} ` +
+      (toolCalls.length > 0
+        ? `tools=[${toolCalls.map((tc) => (tc as any).function?.name ?? '?').join(',')}]`
+        : `text_preview="${assistantText.slice(0, 120)}"`),
+    );
 
     // 拼出本轮 assistant message
     const assistantMsg: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
@@ -180,6 +201,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
     });
 
     if (toolCalls.length === 0) {
+      rlog.info('agent', `done at round ${round}, final reply preview="${assistantText.slice(0, 200)}"`);
       onEvent({ type: 'done' });
       return newHistory;
     }
@@ -196,6 +218,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
         args = {};
       }
 
+      rlog.info('agent', `tool_call: name=${name} args=${safeJson(args, 300)}`);
       onEvent({ type: 'tool_call_start', toolCallId: tc.id, toolName: name, toolArgs: argsRaw });
 
       // 敏感操作弹确认 + 频率护栏 (软提示)
@@ -218,6 +241,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
         });
         if (!ok) {
           const refused = '用户拒绝此操作';
+          rlog.info('agent', `tool_call: name=${name} → user refused`);
           messages.push({ role: 'tool', tool_call_id: tc.id, content: refused });
           newHistory.push({ role: 'tool', tool_call_id: tc.id, content: refused });
           onEvent({ type: 'tool_result', toolCallId: tc.id, toolError: refused });
@@ -236,20 +260,26 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
       // 检查工具是否注册 (含本地 local tool)
       if (!isRegisteredTool(name)) {
         const err = `工具 ${name} 不存在或未注册`;
+        rlog.warn('agent', `tool_call: name=${name} → unregistered`);
         messages.push({ role: 'tool', tool_call_id: tc.id, content: err });
         newHistory.push({ role: 'tool', tool_call_id: tc.id, content: err });
         onEvent({ type: 'tool_result', toolCallId: tc.id, toolError: err });
         continue;
       }
 
+      const callStart = Date.now();
       try {
         const result = await onToolCall(name as ToolName, args);
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+        const dur = Date.now() - callStart;
+        rlog.info('agent', `tool_result: name=${name} ok dur=${dur}ms preview=${safeJson(result, 300)}`);
         messages.push({ role: 'tool', tool_call_id: tc.id, content: resultStr });
         newHistory.push({ role: 'tool', tool_call_id: tc.id, content: resultStr });
         onEvent({ type: 'tool_result', toolCallId: tc.id, toolResult: result });
       } catch (e) {
         const err = `工具调用失败: ${String(e)}`;
+        const dur = Date.now() - callStart;
+        rlog.error('agent', `tool_result: name=${name} FAIL dur=${dur}ms err=${safeJson(e, 400)}`);
         messages.push({ role: 'tool', tool_call_id: tc.id, content: err });
         newHistory.push({ role: 'tool', tool_call_id: tc.id, content: err });
         onEvent({ type: 'tool_result', toolCallId: tc.id, toolError: err });
@@ -260,6 +290,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
     // 继续下一轮 (LLM 看到 tool result 后决定是否再调)
   }
 
+  rlog.warn('agent', `max rounds (${MAX_ROUNDS}) reached, terminating`);
   onEvent({ type: 'error', error: `超过最大对话轮数 (${MAX_ROUNDS}), 已终止` });
   return newHistory;
 }
