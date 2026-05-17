@@ -44,7 +44,11 @@ jobs:
         working-directory: app
         run: ./node_modules/.bin/electron-builder install-app-deps --arch=arm64
 
-      - name: Build Electron + DMG (arm64 only)
+      - name: Build Electron renderer + main + preload
+        working-directory: app
+        run: ./node_modules/.bin/electron-vite build
+
+      - name: Package DMG (arm64 only)
         working-directory: app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
