@@ -34,12 +34,15 @@ jobs:
         working-directory: xiaohongshu-mcp
         run: go build -o ../app/resources/bin/xiaohongshu-mcp .
 
-      - name: Install app deps (force build native from source)
+      - name: Install app deps (skip prebuild-install)
         working-directory: app
-        # 强制 native module 从源码 build, 避免 prebuilt arch 错位
-        env:
-          npm_config_build_from_source: 'true'
-        run: npm ci --no-audit
+        # --ignore-scripts 跳过 better-sqlite3 的 prebuild-install (它默认拉 prebuilt 不验证 arch)
+        # 紧跟 install-app-deps 用 Electron ABI + 当前 runner arch 从源码 rebuild
+        run: npm ci --no-audit --ignore-scripts
+
+      - name: Rebuild native modules for Electron (arm64)
+        working-directory: app
+        run: ./node_modules/.bin/electron-builder install-app-deps --arch=arm64
 
       - name: Build Electron + DMG (arm64 only)
         working-directory: app
