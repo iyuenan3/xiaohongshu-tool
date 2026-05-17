@@ -10,7 +10,8 @@
 | v0.2 | 2026-05-15 | 重大调整：切换到路线 A（完全本地化 + BYOK）。卖 token 业务剥离为独立项目 |
 | v0.3 | 2026-05-16 | 决策无证书发布：砍掉 Apple 公证 + Win 代码签名，接受首次启动用户教育成本 |
 | v0.4 | 2026-05-16 | M3 决策拍板：D1 挂牌 ¥399 客服议价、D2 不提供试用、D4 个人收款。M3 服务端 5 接口 + admin CLI 实现完成（E2E 测试 11/11 通过） |
-| **v0.5** | 2026-05-17 | **v0.2 ~ v0.3 系列功能 ship：4-tab UI 重构 / 智能素材库 (压缩 + LLM vision 打 tag) / 📎 附件 + xhs-asset:// 协议 / 联网搜索 (搜狗 hidden BrowserWindow) / 网页管理后台 (Worker /admin) / dmg 内嵌「首次安装.command」+ 0 Keychain. 中转站方案 (E)：待用户决策** |
+| v0.5 | 2026-05-17 | v0.2 ~ v0.3 系列功能 ship：4-tab UI 重构 / 智能素材库 (压缩 + LLM vision 打 tag) / 📎 附件 + xhs-asset:// 协议 / 联网搜索 (搜狗 hidden BrowserWindow) / 网页管理后台 (Worker /admin) / dmg 内嵌「首次安装.command」+ 0 Keychain. 中转站方案 (E)：待用户决策 |
+| **v0.5.1** | 2026-05-17 | **黑盒 E2E 测试 (subagent 跑 164/167 pass) 发现 5 个 bug, 修完: B-001 license 状态变化 push 通道 (代码改); B-002 工具计数 11/13 → 14 (PRD §4.4 + SPEC §12.9); B-003 删 xhs_generate_cover 占位 (PRD §4.4); B-004 SPEC §2.2 加 v0.2 重构通知; B-005 §9.1 错误码前缀约定明确 (Worker 不带 LICENSE_)** |
 
 ## 1. 产品定位
 
@@ -70,7 +71,12 @@
    - 客户端持有 conversation history（SQLite，存 `app.getPath('userData')`）
 
 4. **MCP 工具完整可用（双模式调用）**
-   - 11 个工具：check_login_status / publish_content / publish_with_video / search_feeds / list_feeds / get_feed_detail / post_comment_to_feed / reply_comment_in_feed / user_profile / my_profile / xhs_generate_cover
+   - 14 个工具 (12 个走 Go MCP HTTP + 2 个 renderer 本地):
+     - **登录/浏览**: check_login_status / list_feeds / search_feeds / get_feed_detail
+     - **资料**: user_profile / my_profile
+     - **互动 (敏感)**: post_comment_to_feed / reply_comment_in_feed / like_feed / favorite_feed
+     - **发布 (敏感)**: publish_content / publish_with_video
+     - **本地工具 (v0.2/v0.3 增量, 不走 Go)**: search_local_assets (按 tag 检索素材库) / web_search (搜狗联网搜索)
    - 模式 A：侧边栏 Chat 中 AI 自主多轮调用（autonomous agent）
    - 模式 B：运营面板里固定工作流（一键发布 = 编排好的固定步骤）
    - 客户端启动时通过 MCP `list_tools` 拉取 schema，转 OpenAI function calling 格式
@@ -337,7 +343,7 @@ value: {
 标准 OpenAI function calling，客户端实现：
 
 ```
-1. 启动时通过 MCP list_tools 拉取 11 个工具的 schema
+1. 启动时通过 MCP list_tools 拉取 14 个工具的 schema (12 个走 Go + 2 个 renderer 本地)
 2. 转换为 OpenAI function 格式
 3. 用户对话 → 发请求到 LLM（带 tools）
 4. LLM 返回 tool_calls → 客户端识别

@@ -1,0 +1,130 @@
+{
+  "ts": 1779026807877,
+  "total": {
+    "pass": 164,
+    "fail": 0,
+    "skip": 3
+  },
+  "modules": [
+    {
+      "file": "license.mjs",
+      "exit": 0,
+      "elapsed": 7376,
+      "summary": {
+        "module": "E2E License ===\n\n  ✓ LIC-01 license.status() = active\n  ✓ LIC-01b code 与文档一致\n  ✓ LIC-01c machine_id 与文档一致\n  ✓ LIC-02 getMachineId 长度 64 hex\n  ✓ LIC-02b machineId 与 status.machine_id 相等\n  ✓ LIC-03 heartbeat ok=true\n  ✓ LIC-03b revoked !== true\n  ✓ LIC-04 错的激活码格式 worker 拒绝\n  ✓ LIC-05 不存在的码 worker 拒绝 ok=false\n  ✓ LIC-05b 错误码有 message\n  ✓ LIC-06 admin/codes 端点联通\n  ✓ LIC-06b admin list 找到本机码 XHS-7WXF-K9LR-3FLR-FQAG\n  ✓ LIC-06c 本机码 status=active\n  ✓ LIC-06d bound_machine_id 一致\n  ~ SKIP LIC-07 license.clear() (会破坏 dev 激活态, 跳过)\n\n=== License",
+        "pass": 14,
+        "fail": 0,
+        "skip": 1
+      },
+      "out": "=== E2E License ===\n\n  ✓ LIC-01 license.status() = active\n  ✓ LIC-01b code 与文档一致\n  ✓ LIC-01c machine_id 与文档一致\n  ✓ LIC-02 getMachineId 长度 64 hex\n  ✓ LIC-02b machineId 与 status.machine_id 相等\n  ✓ LIC-03 heartbeat ok=true\n  ✓ LIC-03b revoked !== true\n  ✓ LIC-04 错的激活码格式 worker 拒绝\n  ✓ LIC-05 不存在的码 worker 拒绝 ok=false\n  ✓ LIC-05b 错误码有 message\n  ✓ LIC-06 admin/codes 端点联通\n  ✓ LIC-06b admin list 找到本机码 XHS-7WXF-K9LR-3FLR-FQAG\n  ✓ LIC-06c 本机码 status=active\n  ✓ LIC-06d bound_machine_id 一致\n  ~ SKIP LIC-07 license.clear() (会破坏 dev 激活态, 跳过)\n\n=== License · pass 14 · fail 0 · skip 1 ===\n"
+    },
+    {
+      "file": "ipc-surface.mjs",
+      "exit": 0,
+      "elapsed": 105,
+      "summary": {
+        "module": "E2E IPC Surface ===\n\n  ✓ IPC-01 window.api 暴露\n  ✓ IPC: root.ping 是 function\n  ✓ IPC: root.getVersion 是 function\n  ✓ IPC: root.goStatus 是 function\n  ✓ IPC: root.goApi 是 function\n  ✓ IPC: root.openXhsWindow 是 function\n  ✓ IPC: root.getPageContext 是 function\n  ✓ IPC: conv.list 是 function\n  ✓ IPC: conv.get 是 function\n  ✓ IPC: conv.create 是 function\n  ✓ IPC: conv.saveMessages 是 function\n  ✓ IPC: conv.setTitle 是 function\n  ✓ IPC: conv.delete 是 function\n  ✓ IPC: conv.clearMessages 是 function\n  ✓ IPC: rate.check 是 function\n  ✓ IPC: rate.log 是 function\n  ✓ IPC: updater.check 是 function\n  ✓ IPC: license.status 是 function\n  ✓ IPC: license.getMachineId 是 function\n  ✓ IPC: license.activate 是 function\n  ✓ IPC: license.heartbeat 是 function\n  ✓ IPC: license.clear 是 function\n  ✓ IPC: assets.pick 是 function\n  ✓ IPC: assets.importUrl 是 function\n  ✓ IPC: assets.list 是 function\n  ✓ IPC: assets.delete 是 function\n  ✓ IPC: assets.getPath 是 function\n  ✓ IPC: assets.touchUsed 是 function\n  ✓ IPC: assets.setTags 是 function\n  ✓ IPC: assets.search 是 function\n  ✓ IPC: web.search 是 function\n  ✓ IPC-11 ping 返回非 undefined\n  ✓ IPC-12 getVersion 返回字符串\n  ✓ IPC-13 goStatus ok=true\n  ✓ IPC-13b baseUrl 是 http:// URL\n  ✓ IPC-14 goApi GET /health 调通\n  ✓ IPC-14b goApi 返非 undefined\n  ✓ IPC-15 getPageContext 不抛\n  ✓ IPC-15b getPageContext 返 null (无活动页) 也允许\n\n=== IPC Surface",
+        "pass": 39,
+        "fail": 0,
+        "skip": 0
+      },
+      "out": "=== E2E IPC Surface ===\n\n  ✓ IPC-01 window.api 暴露\n  ✓ IPC: root.ping 是 function\n  ✓ IPC: root.getVersion 是 function\n  ✓ IPC: root.goStatus 是 function\n  ✓ IPC: root.goApi 是 function\n  ✓ IPC: root.openXhsWindow 是 function\n  ✓ IPC: root.getPageContext 是 function\n  ✓ IPC: conv.list 是 function\n  ✓ IPC: conv.get 是 function\n  ✓ IPC: conv.create 是 function\n  ✓ IPC: conv.saveMessages 是 function\n  ✓ IPC: conv.setTitle 是 function\n  ✓ IPC: conv.delete 是 function\n  ✓ IPC: conv.clearMessages 是 function\n  ✓ IPC: rate.check 是 function\n  ✓ IPC: rate.log 是 function\n  ✓ IPC: updater.check 是 function\n  ✓ IPC: license.status 是 function\n  ✓ IPC: license.getMachineId 是 function\n  ✓ IPC: license.activate 是 function\n  ✓ IPC: license.heartbeat 是 function\n  ✓ IPC: license.clear 是 function\n  ✓ IPC: assets.pick 是 function\n  ✓ IPC: assets.importUrl 是 function\n  ✓ IPC: assets.list 是 function\n  ✓ IPC: assets.delete 是 function\n  ✓ IPC: assets.getPath 是 function\n  ✓ IPC: assets.touchUsed 是 function\n  ✓ IPC: assets.setTags 是 function\n  ✓ IPC: assets.search 是 function\n  ✓ IPC: web.search 是 function\n  ✓ IPC-11 ping 返回非 undefined\n  ✓ IPC-12 getVersion 返回字符串\n  ✓ IPC-13 goStatus ok=true\n  ✓ IPC-13b baseUrl 是 http:// URL\n  ✓ IPC-14 goApi GET /health 调通\n  ✓ IPC-14b goApi 返非 undefined\n  ✓ IPC-15 getPageContext 不抛\n  ✓ IPC-15b getPageContext 返 null (无活动页) 也允许\n\n=== IPC Surface · pass 39 · fail 0 · skip 0 ===\n"
+    },
+    {
+      "file": "assets.mjs",
+      "exit": 0,
+      "elapsed": 1193,
+      "summary": {
+        "module": "Assets",
+        "pass": 26,
+        "fail": 0,
+        "skip": 0
+      },
+      "out": "=== E2E Assets ===\n\n  · 使用图源 https://www.gstatic.com/webp/gallery/1.jpg\n  ✓ AST-01 filename 格式 picture-YYYYMMDD-HHmmss-N.jpg\n  ✓ AST-02 mime=image/jpeg\n  ✓ AST-02b size>1KB\n  ✓ AST-03 list 包含新导入\n  ✓ AST-04 默认 tags='[]'\n  ✓ AST-04b description=null\n  ✓ AST-04c analyzed=0\n  ✓ AST-05 setTags 成功\n  ✓ AST-05b tags 入库\n  ✓ AST-05c description 入库\n  ✓ AST-05d analyzed=1\n  ✓ AST-06 search '猫' 命中 (1 条)\n  ✓ AST-07 search '草地' 命中 description\n  ✓ AST-08 search 'picture' 命中 filename\n  ✓ AST-09 search 不存在的关键词 不返回此 id (0 条)\n  ✓ AST-10 空 query 不崩 + 返回数组 (2)\n  ✓ AST-11 limit=2 返回 ≤2 (1)\n  ✓ AST-12 getPath 非空\n  ✓ AST-13 xhs-asset:// 200\n  ✓ AST-13b content-type image/*\n  ✓ AST-13c 内容 >1KB\n  ✓ AST-14 xhs-asset:// 不存在 id 返 404 或错误\n  ✓ AST-15 touchUsed 更新 last_used_at (1779026794592 → 1779026795701)\n  ✓ AST-17 delete 不存在 id idempotent (不抛)\n  ✓ AST-18 importUrl 非法 URL 抛错/null\n  ✓ AST-16 delete 后 list 不含\n\n=== Assets · pass 26 · fail 0 · skip 0 ===\n"
+    },
+    {
+      "file": "chat.mjs",
+      "exit": 0,
+      "elapsed": 149,
+      "summary": {
+        "module": "E2E Chat / Conversation ===\n\n  ✓ CONV-01 conv.list 返回数组 (1)\n  ✓ CONV-02 conv.create 返回 id\n  ✓ CONV-03 新建后 list 包含 (2)\n  ✓ CONV-04 get(id) 返 meta.id 一致\n  ✓ CONV-04b 新建 messages=[]\n  ✓ CONV-05 setTitle ok=true\n  ✓ CONV-05b title 已更新\n  ✓ CONV-06 saveMessages ok=true\n  ✓ CONV-06b get 返回 2 条消息 (2)\n  ✓ CONV-06c user 消息一致\n  ✓ CONV-06d assistant 消息存在\n  ✓ CONV-07 clearMessages ok=true\n  ✓ CONV-07b 清空后 messages=[] (0)\n  ✓ CONV-09 不存在 id meta=null\n  ✓ CONV-10 setTitle 超长 不崩\n  ✓ CONV-11 saveMessages 50 条 不崩\n  ✓ CONV-11b get 50 条 (50)\n  ✓ CONV-12 delete 不存在 id idempotent\n  ✓ CONV-13 两个 id 都在 list 中\n  ✓ CONV-13b 新建的 id2 在 newId 之前 (idx2=0, idx1=1)\n  ✓ CONV-08 delete 后 list 不含 newId\n\n=== Chat/Conv",
+        "pass": 21,
+        "fail": 0,
+        "skip": 0
+      },
+      "out": "=== E2E Chat / Conversation ===\n\n  ✓ CONV-01 conv.list 返回数组 (1)\n  ✓ CONV-02 conv.create 返回 id\n  ✓ CONV-03 新建后 list 包含 (2)\n  ✓ CONV-04 get(id) 返 meta.id 一致\n  ✓ CONV-04b 新建 messages=[]\n  ✓ CONV-05 setTitle ok=true\n  ✓ CONV-05b title 已更新\n  ✓ CONV-06 saveMessages ok=true\n  ✓ CONV-06b get 返回 2 条消息 (2)\n  ✓ CONV-06c user 消息一致\n  ✓ CONV-06d assistant 消息存在\n  ✓ CONV-07 clearMessages ok=true\n  ✓ CONV-07b 清空后 messages=[] (0)\n  ✓ CONV-09 不存在 id meta=null\n  ✓ CONV-10 setTitle 超长 不崩\n  ✓ CONV-11 saveMessages 50 条 不崩\n  ✓ CONV-11b get 50 条 (50)\n  ✓ CONV-12 delete 不存在 id idempotent\n  ✓ CONV-13 两个 id 都在 list 中\n  ✓ CONV-13b 新建的 id2 在 newId 之前 (idx2=0, idx1=1)\n  ✓ CONV-08 delete 后 list 不含 newId\n\n=== Chat/Conv · pass 21 · fail 0 · skip 0 ===\n"
+    },
+    {
+      "file": "tabs.mjs",
+      "exit": 0,
+      "elapsed": 968,
+      "summary": {
+        "module": "E2E Tabs / UI ===\n\n  ✓ TAB-01 tabbar 有 4 个 tab (4)\n  ✓ TAB-01b tab 标签包含 控制台/小红书/素材库/帮助\n  ✓ TAB-02 默认激活「控制台」\n  ✓ TAB-07 5 个 command-btn (5)\n  ✓ TAB-07b 命令标签顺序匹配\n  ✓ TAB-08 点「检查登录」预填非空\n  ~ SKIP TAB-08b textarea 聚焦 (CDP 测试 window 无 OS focus, .focus() 不生效)\n  ✓ TAB-03 小红书 pane 显示\n  ✓ TAB-03b 控制台 pane hidden\n  ✓ TAB-03c webview 节点存在\n  ✓ TAB-04 素材库 pane 显示\n  ✓ TAB-05 帮助 pane 显示\n  ✓ TAB-05b 帮助页 ≥1 step (实际 5)\n  ✓ TAB-05c 帮助页 callouts (实际 2)\n  ✓ TAB-06 切回控制台 pane 显示\n  ✓ TAB-06b chat-panel 元素存在\n\n=== Tabs/UI",
+        "pass": 15,
+        "fail": 0,
+        "skip": 1
+      },
+      "out": "=== E2E Tabs / UI ===\n\n  ✓ TAB-01 tabbar 有 4 个 tab (4)\n  ✓ TAB-01b tab 标签包含 控制台/小红书/素材库/帮助\n  ✓ TAB-02 默认激活「控制台」\n  ✓ TAB-07 5 个 command-btn (5)\n  ✓ TAB-07b 命令标签顺序匹配\n  ✓ TAB-08 点「检查登录」预填非空\n  ~ SKIP TAB-08b textarea 聚焦 (CDP 测试 window 无 OS focus, .focus() 不生效)\n  ✓ TAB-03 小红书 pane 显示\n  ✓ TAB-03b 控制台 pane hidden\n  ✓ TAB-03c webview 节点存在\n  ✓ TAB-04 素材库 pane 显示\n  ✓ TAB-05 帮助 pane 显示\n  ✓ TAB-05b 帮助页 ≥1 step (实际 5)\n  ✓ TAB-05c 帮助页 callouts (实际 2)\n  ✓ TAB-06 切回控制台 pane 显示\n  ✓ TAB-06b chat-panel 元素存在\n\n=== Tabs/UI · pass 15 · fail 0 · skip 1 ===\n"
+    },
+    {
+      "file": "rate-limit.mjs",
+      "exit": 0,
+      "elapsed": 90,
+      "summary": {
+        "module": "E2E Rate Limit ===\n\n  ✓ RATE-01 rate.check('like') 返 allowed bool\n  ✓ RATE-02 publish allowed 是 bool\n  ✓ RATE-02b windowCount 是 number 或 undefined\n  ✓ RATE-02c windowMax 是 number 或 undefined\n  ✓ RATE-03 非法 action 不崩 (抛或返 error)\n  ✓ RATE-04 log 后 windowCount +1 (2 → 3)\n\n=== Rate Limit",
+        "pass": 6,
+        "fail": 0,
+        "skip": 0
+      },
+      "out": "=== E2E Rate Limit ===\n\n  ✓ RATE-01 rate.check('like') 返 allowed bool\n  ✓ RATE-02 publish allowed 是 bool\n  ✓ RATE-02b windowCount 是 number 或 undefined\n  ✓ RATE-02c windowMax 是 number 或 undefined\n  ✓ RATE-03 非法 action 不崩 (抛或返 error)\n  ✓ RATE-04 log 后 windowCount +1 (2 → 3)\n\n=== Rate Limit · pass 6 · fail 0 · skip 0 ===\n"
+    },
+    {
+      "file": "web-search.mjs",
+      "exit": 0,
+      "elapsed": 5949,
+      "summary": {
+        "module": "E2E Web Search (sogou) ===\n\n  ✓ WEB-01 window.api.web.search 暴露\n  → search \"露营帐篷推荐 2026\" ...\n    耗时: 1235ms, 5 条\n  ✓ WEB-02 返回数组\n  ✓ WEB-02b 返回 ≥3 条 (5)\n  ✓ WEB-03 每条结构 {title,url,snippet} 类型对\n  ✓ WEB-03b 有效结果数 5\n  → 连续第二次搜索 ...\n  ✓ WEB-04 第二次返回 ≥1 (3)\n  ✓ WEB-05 n=1 返回数组 (1 条)\n  ✓ WEB-06 空 query 不崩 + 返回数组 (1)\n  ✓ WEB-07 超长 query 不崩 (3 条)\n\n=== Web Search",
+        "pass": 9,
+        "fail": 0,
+        "skip": 0
+      },
+      "out": "=== E2E Web Search (sogou) ===\n\n  ✓ WEB-01 window.api.web.search 暴露\n  → search \"露营帐篷推荐 2026\" ...\n    耗时: 1235ms, 5 条\n  ✓ WEB-02 返回数组\n  ✓ WEB-02b 返回 ≥3 条 (5)\n  ✓ WEB-03 每条结构 {title,url,snippet} 类型对\n  ✓ WEB-03b 有效结果数 5\n  → 连续第二次搜索 ...\n  ✓ WEB-04 第二次返回 ≥1 (3)\n  ✓ WEB-05 n=1 返回数组 (1 条)\n  ✓ WEB-06 空 query 不崩 + 返回数组 (1)\n  ✓ WEB-07 超长 query 不崩 (3 条)\n\n=== Web Search · pass 9 · fail 0 · skip 0 ===\n"
+    },
+    {
+      "file": "tools-agent.mjs",
+      "exit": 0,
+      "elapsed": 93,
+      "summary": {
+        "module": "E2E Tools / Agent ===\n\n  ✓ TOOL-01 ALL_TOOL_SCHEMAS 暴露\n  ✓ TOOL-02 全部 14 工具注册\n  ✓ TOOL-03 search_local_assets 是 local\n  ✓ TOOL-04 web_search 是 local\n  ✓ TOOL-05 publish_content schema 含 images 字段\n  ✓ TOOL-06 search_local_assets schema 含 query 字段\n  ✓ TOOL-07 web_search schema 含 query 字段\n  ✓ TOOL-08 isSensitive 覆盖 6 个敏感工具 (path=/src/ai/tools.ts)\n  ✓ TOOL-08b 安全工具未被误标 (sample=8)\n  ✓ TOOL-09 BYOK localStorage 探测\n  ~ SKIP TOOL-09b BYOK 未配置 (vision 测试将 SKIP)\n  ✓ TOOL-10 window.api.web.search 与 ai/tools 路径吻合\n  ✓ TOOL-11 assets.search 调通\n  ✓ TOOL-12 rate.check('favorite') 也被支持 (PRD 提到 favorite_feed)\n\n=== Tools/Agent",
+        "pass": 13,
+        "fail": 0,
+        "skip": 1
+      },
+      "out": "=== E2E Tools / Agent ===\n\n  ✓ TOOL-01 ALL_TOOL_SCHEMAS 暴露\n  ✓ TOOL-02 全部 14 工具注册\n  ✓ TOOL-03 search_local_assets 是 local\n  ✓ TOOL-04 web_search 是 local\n  ✓ TOOL-05 publish_content schema 含 images 字段\n  ✓ TOOL-06 search_local_assets schema 含 query 字段\n  ✓ TOOL-07 web_search schema 含 query 字段\n  ✓ TOOL-08 isSensitive 覆盖 6 个敏感工具 (path=/src/ai/tools.ts)\n  ✓ TOOL-08b 安全工具未被误标 (sample=8)\n  ✓ TOOL-09 BYOK localStorage 探测\n  ~ SKIP TOOL-09b BYOK 未配置 (vision 测试将 SKIP)\n  ✓ TOOL-10 window.api.web.search 与 ai/tools 路径吻合\n  ✓ TOOL-11 assets.search 调通\n  ✓ TOOL-12 rate.check('favorite') 也被支持 (PRD 提到 favorite_feed)\n\n=== Tools/Agent · pass 13 · fail 0 · skip 1 ===\n"
+    },
+    {
+      "file": "errors.mjs",
+      "exit": 0,
+      "elapsed": 1642,
+      "summary": {
+        "module": "E2E Errors ===\n\n  ✓ ERR-01 goApi 不存在 path 不崩 (返/抛)\n  ✓ ERR-02 goApi body=null 不崩\n  ✓ ERR-03 goApi GET 带 {} body 不报错 (踩坑已修)\n  ✓ ERR-04 activate 'abc' 不变 active\n  ✓ ERR-04b 返 message 或 status\n  ✓ ERR-05 activate '' 不变 active\n  ✓ ERR-06 delete 不存在 id idempotent\n  ✓ ERR-07 getPath 不存在返 null\n  ✓ ERR-08 xhs-asset 非法 id 404 或错误\n  ✓ ERR-Extra conv.get 不存在 id meta=null\n\n=== Errors",
+        "pass": 10,
+        "fail": 0,
+        "skip": 0
+      },
+      "out": "=== E2E Errors ===\n\n  ✓ ERR-01 goApi 不存在 path 不崩 (返/抛)\n  ✓ ERR-02 goApi body=null 不崩\n  ✓ ERR-03 goApi GET 带 {} body 不报错 (踩坑已修)\n  ✓ ERR-04 activate 'abc' 不变 active\n  ✓ ERR-04b 返 message 或 status\n  ✓ ERR-05 activate '' 不变 active\n  ✓ ERR-06 delete 不存在 id idempotent\n  ✓ ERR-07 getPath 不存在返 null\n  ✓ ERR-08 xhs-asset 非法 id 404 或错误\n  ✓ ERR-Extra conv.get 不存在 id meta=null\n\n=== Errors · pass 10 · fail 0 · skip 0 ===\n"
+    },
+    {
+      "file": "integration.mjs",
+      "exit": 0,
+      "elapsed": 3272,
+      "summary": {
+        "module": "E2E Integration ===\n\n  → INT-01: 上传 → setTags → search 链路\n  ✓ INT-01 search 找到此图\n  ✓ INT-01b search.storage_path === getPath(id)\n  ✓ INT-01c xhs-asset:// 协议可加载\n  → INT-02: 上传 → list → 加载 → 删除 → 不含\n  ✓ INT-02 list 包含此图\n  ✓ INT-02b delete 后 list 不含\n  ✓ INT-02c delete 后 xhs-asset 失效\n  → INT-03: Worker admin list 与本机激活态一致\n  ✓ INT-03 admin/codes 找到本机码 XHS-7WXF-K9LR-3FLR-FQAG\n  ✓ INT-03b 状态=active\n  ✓ INT-03c bound_machine_id 一致\n  → INT-04: tab 切换 textarea 值保留\n  ✓ INT-04 textarea 填值成功\n  ✓ INT-04b 切换 tab 后 textarea 值保留\n\n=== Integration",
+        "pass": 11,
+        "fail": 0,
+        "skip": 0
+      },
+      "out": "=== E2E Integration ===\n\n  → INT-01: 上传 → setTags → search 链路\n  ✓ INT-01 search 找到此图\n  ✓ INT-01b search.storage_path === getPath(id)\n  ✓ INT-01c xhs-asset:// 协议可加载\n  → INT-02: 上传 → list → 加载 → 删除 → 不含\n  ✓ INT-02 list 包含此图\n  ✓ INT-02b delete 后 list 不含\n  ✓ INT-02c delete 后 xhs-asset 失效\n  → INT-03: Worker admin list 与本机激活态一致\n  ✓ INT-03 admin/codes 找到本机码 XHS-7WXF-K9LR-3FLR-FQAG\n  ✓ INT-03b 状态=active\n  ✓ INT-03c bound_machine_id 一致\n  → INT-04: tab 切换 textarea 值保留\n  ✓ INT-04 textarea 填值成功\n  ✓ INT-04b 切换 tab 后 textarea 值保留\n\n=== Integration · pass 11 · fail 0 · skip 0 ===\n"
+    }
+  ]
+}

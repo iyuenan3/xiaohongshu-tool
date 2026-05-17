@@ -151,6 +151,14 @@ async function bootstrap(): Promise<void> {
     });
   });
 
+  // license 任何状态变化 (activate / heartbeat-revoked / clear) push 给 renderer
+  // 让 React 端 App.tsx 可以实时 setLicenseState, 不再依赖 ActivationPage onActivated 回调
+  licenseManager.onChanged((state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('license:changed', state);
+    }
+  });
+
   const lic = await licenseManager.getStatus();
   log.info(`[main] license status: ${lic.status}`);
   if (lic.status === 'active') {

@@ -86,6 +86,17 @@ const api = {
       message?: string;
     }>,
     clear: () => ipcRenderer.invoke('license:clear') as Promise<{ ok: boolean }>,
+    onChanged: (cb: (state: {
+      status: 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
+      code?: string;
+      machine_id?: string;
+      valid_until?: number;
+      message?: string;
+    }) => void) => {
+      const handler = (_e: unknown, state: Parameters<typeof cb>[0]) => cb(state);
+      ipcRenderer.on('license:changed', handler);
+      return () => { ipcRenderer.removeListener('license:changed', handler); };
+    },
   },
 
   // 媒体素材库

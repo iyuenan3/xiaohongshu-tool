@@ -31,7 +31,15 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     window.api.license.status().then((s) => { if (alive) setLicenseState(s); });
-    return () => { alive = false; };
+    // 监听 main 进程 license 状态变化 push (activate / heartbeat-revoked / clear)
+    // 解决 B-001: 外部触发 (CDP / heartbeat / 测试) 的状态变化能实时反映到 UI
+    const unsubscribe = window.api.license.onChanged?.((state) => {
+      if (alive) setLicenseState(state);
+    });
+    return () => {
+      alive = false;
+      unsubscribe?.();
+    };
   }, []);
 
   useEffect(() => {

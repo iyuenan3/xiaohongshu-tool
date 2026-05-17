@@ -134,9 +134,31 @@ export class LicenseManager {
   private cacheLoaded = false;
   private onActivatedCb: (() => Promise<void> | void) | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private changeListeners: Array<(state: LicenseState) => void> = [];
 
   onActivated(cb: () => Promise<void> | void): void {
     this.onActivatedCb = cb;
+  }
+
+  /** 注册 license 状态变化监听 (activate/heartbeat-revoked/clear 触发), 返回 unsubscribe. */
+  onChanged(cb: (state: LicenseState) => void): () => void {
+    this.changeListeners.push(cb);
+    return () => {
+      this.changeListeners = this.changeListeners.filter((l) => l !== cb);
+    };
+  }
+
+  private async emitChange(): Promise<void> {
+    let state: LicenseState;
+    try {
+      state = await this.getStatus();
+    } catch (e) {
+      log.warn(`[license] emitChange getStatus failed: ${e}`);
+      return;
+    }
+    for (const cb of this.changeListeners) {
+      try { cb(state); } catch (e) { log.warn(`[license] change listener error: ${e}`); }
+    }
   }
 
   getMachineIdPublic(): string {
@@ -223,6 +245,7 @@ export class LicenseManager {
         log.warn(`[license] onActivated callback error: ${e}`);
       }
     }
+    void this.emitChange();
     return { status: 'active', code, machine_id, valid_until };
   }
 
@@ -254,6 +277,7 @@ export class LicenseManager {
       log.warn('[license] code revoked by server');
       this.cached.revoked = true;
       saveStored(this.cached);
+      void this.emitChange();
       return body;
     }
 
@@ -291,6 +315,7 @@ export class LicenseManager {
     this.cached = null;
     this.cacheLoaded = true;
     this.stopHeartbeatScheduler();
+    void this.emitChange();
   }
 }
 

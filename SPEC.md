@@ -68,7 +68,7 @@
 | 主进程语言 | TypeScript + Node 20 | Electron 原生支持 |
 | 渲染端框架 | React + Vite | 生态成熟，HMR 体验最好 |
 | 状态管理 | Zustand | 比 Redux 轻 10 倍，对一人项目刚好 |
-| MCP 服务 | 复用现有 Go (`xiaohongshu-mcp`) | 11 个工具已实现，重写代价高 |
+| MCP 服务 | 复用现有 Go (`xiaohongshu-mcp`) | 12 个 Go 工具已实现, 加 2 个 renderer 本地工具 (v0.2/v0.3) |
 | LLM 客户端 | `openai-node` npm 包 | OpenAI 兼容端点全覆盖，流式 + tool calling 一等公民 |
 | 本地存储 | SQLite (better-sqlite3) | 零配置、单文件、同步 API 简单 |
 | 加密存储 | Electron `safeStorage` | 跨平台自动用系统 keychain |
@@ -110,6 +110,16 @@
 ```
 
 ### 2.2 模块清单
+
+> ⚠️ **v0.2 重构通知**: 本节中部分接口/模块签名已过时, 真实清单见 §12 增量模块 + `app/src/preload/index.ts`. 具体变化:
+> - `window.ts` 不存在 (mainWindow 在 `index.ts` 直接 new BrowserWindow, 锁 1280×800 + resizable:false, 见 [[decisions_macos_tahoe_chromium]])
+> - `license.ts` 已重写为 file-base64 存储 (见 §12.5), 取代下方 `safeStorage` 描述
+> - `mcp:call` → 实际 `go:api(method, path, body)` HTTP 透传, 不再走 MCP protocol
+> - `mcp:listTools` 不暴露 (客户端硬编码 schemas in `ai/tools.ts`)
+> - `config:get / set` / `byok:test` 不存在 (BYOK 直接存 localStorage)
+> - 新增 30+ IPC: `assets:*` (§12.2) / `web:search` (§12.3) / `license:changed` push event (§12.5 B-001 修复) / `conv:*` / `rate:*` / `updater:check` / `protocol xhs-asset://` (§12.4)
+>
+> 下方代码仅作为 v0.1 设计意图保留, 不反映 v0.3 实际。
 
 #### `src/main/index.ts`
 应用入口，编排上面的启动流程。
@@ -755,16 +765,25 @@ CREATE TABLE drafts (
 
 ### 9.1 License
 
-| 码 | 含义 | 用户文案 |
+> ⚠️ **命名约定**: **Worker 端响应 `code` 字段不带 `LICENSE_` 前缀** (例如 `CODE_NOT_FOUND` 而非 `LICENSE_CODE_NOT_FOUND`, 见 §6.2 接口契约). 下表中带 `LICENSE_` 前缀的是**客户端展示 i18n key**, Worker 错误转 i18n 时由客户端补上前缀:
+> ```
+>   Worker code            i18n key (客户端补前缀)
+>   CODE_NOT_FOUND     →   LICENSE_CODE_NOT_FOUND
+>   CODE_REVOKED       →   LICENSE_CODE_REVOKED
+>   CODE_BOUND_OTHER   →   LICENSE_CODE_BOUND_OTHER
+>   CODE_EXPIRED       →   LICENSE_TOKEN_EXPIRED
+> ```
+
+| 码 (i18n key) | 含义 | 用户文案 |
 |---|---|---|
-| `LICENSE_NOT_ACTIVATED` | 无 token | 请输入激活码 |
-| `LICENSE_INVALID_CODE` | 激活码格式错误 | 激活码格式错误 |
-| `LICENSE_CODE_NOT_FOUND` | 服务端找不到 | 激活码无效 |
-| `LICENSE_CODE_REVOKED` | 已吊销 | 此激活码已停用，请联系客服 |
-| `LICENSE_CODE_BOUND_OTHER` | 绑定到其他机器 | 此激活码已绑定其他设备，请联系客服换绑 |
-| `LICENSE_TOKEN_EXPIRED` | token 过期 | 需要重新激活（系统会自动尝试） |
-| `LICENSE_MACHINE_MISMATCH` | 本地 token 与机器不匹配 | 设备指纹变更，请联系客服 |
-| `LICENSE_NETWORK_ERROR` | 网络问题 | 网络异常，请检查后重试 |
+| `LICENSE_NOT_ACTIVATED` | 无 token (客户端独有) | 请输入激活码 |
+| `LICENSE_INVALID_CODE` | 激活码格式错误 (客户端独有) | 激活码格式错误 |
+| `LICENSE_CODE_NOT_FOUND` | Worker 返 `CODE_NOT_FOUND` | 激活码无效 |
+| `LICENSE_CODE_REVOKED` | Worker 返 `CODE_REVOKED` | 此激活码已停用，请联系客服 |
+| `LICENSE_CODE_BOUND_OTHER` | Worker 返 `CODE_BOUND_OTHER` | 此激活码已绑定其他设备，请联系客服换绑 |
+| `LICENSE_TOKEN_EXPIRED` | Worker 返 `CODE_EXPIRED` 或本地校验过期 | 需要重新激活（系统会自动尝试） |
+| `LICENSE_MACHINE_MISMATCH` | 本地 token 与机器不匹配 (客户端独有) | 设备指纹变更，请联系客服 |
+| `LICENSE_NETWORK_ERROR` | 网络问题 (客户端独有) | 网络异常，请检查后重试 |
 
 ### 9.2 MCP
 
@@ -983,7 +1002,7 @@ for (k of list.keys) {
 
 ### 12.9 工具集变化
 
-13 个 MCP 工具 (原 11 + 2 新增):
+14 个 MCP 工具 (12 个走 Go + 2 个 renderer 本地):
 1. check_login_status / list_feeds / search_feeds / get_feed_detail
 2. user_profile / my_profile
 3. post_comment_to_feed / reply_comment_in_feed / like_feed / favorite_feed
