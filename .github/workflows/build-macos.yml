@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14   # arm64 runner; 也跑 x64 dmg via electron-builder
+    runs-on: macos-14   # arm64 (Apple Silicon). 仅 build arm64, 避 cross-arch native module 污染
     timeout-minutes: 30
 
     steps:
@@ -30,19 +30,22 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Build Go (current arch, arm64)
+      - name: Build Go (arm64)
         working-directory: xiaohongshu-mcp
         run: go build -o ../app/resources/bin/xiaohongshu-mcp .
 
-      - name: Install app deps
+      - name: Install app deps (force build native from source)
         working-directory: app
+        # 强制 native module 从源码 build, 避免 prebuilt arch 错位
+        env:
+          npm_config_build_from_source: 'true'
         run: npm ci --no-audit
 
-      - name: Build Electron + DMG (arm64 + x64)
+      - name: Build Electron + DMG (arm64 only)
         working-directory: app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build:mac
+        run: ./node_modules/.bin/electron-builder --mac --arm64 --publish never
 
       - name: List artifacts
         working-directory: app

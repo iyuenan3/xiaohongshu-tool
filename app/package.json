@@ -1,6 +1,6 @@
 {
   "name": "xhs-app",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "小红书自运营系统 - Electron 客户端",
   "main": "./out/main/index.js",
@@ -81,15 +81,13 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64",
-            "x64"
+            "arm64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64",
-            "x64"
+            "arm64"
           ]
         }
       ],
