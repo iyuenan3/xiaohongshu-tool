@@ -1,10 +1,7 @@
 name: Build macOS
 
 on:
-  workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:    # 仅手动触发, 节省 macOS runner quota (私仓 free tier 倍率 10x)
 
 permissions:
   contents: write  # 创建 GitHub Release 需要

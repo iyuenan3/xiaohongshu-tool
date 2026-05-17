@@ -1,15 +1,12 @@
 name: Build Windows
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:    # 仅手动触发, 跟 mac workflow 保持一致
     inputs:
       upload_artifact:
         description: 'Upload .exe artifact for download (manual)'
         type: boolean
         default: true
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: write  # 创建 GitHub Release 需要
