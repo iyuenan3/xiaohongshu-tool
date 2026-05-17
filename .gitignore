@@ -70,3 +70,6 @@ xiaohongshu-mcp/xiaohongshu-mcp
 xiaohongshu-mcp/main
 xiaohongshu-mcp/app
 /cookies.json
+
+# Claude Code 运行时
+.claude/
