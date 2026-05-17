@@ -1,6 +1,7 @@
 // 媒体素材库: dialog 选图 / URL 导入 / 本地存储 / SQLite 记录
+// 上传 pipeline: nativeImage.toJPEG(75) 压缩 + 重命名 picture-YYYYMMDD-HHmmss-N.jpg
 
-import { app, dialog, net } from 'electron';
+import { app, dialog, nativeImage, net } from 'electron';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { join, extname, basename } from 'path';
@@ -8,11 +9,7 @@ import log from 'electron-log/main';
 import { getDb } from './db';
 
 const ALLOWED_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp']);
-const MIME_MAP: Record<string, string> = {
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.png': 'image/png', '.webp': 'image/webp',
-  '.gif': 'image/gif', '.bmp': 'image/bmp',
-};
+const JPEG_QUALITY = 75;
 
 export interface MediaAsset {
   id: string;
@@ -25,6 +22,9 @@ export interface MediaAsset {
   height: number | null;
   created_at: number;
   last_used_at: number;
+  tags: string;      // JSON array string
+  description: string | null;
+  analyzed: number;  // 0/1
 }
 
 function assetsDir(): string {
@@ -35,26 +35,51 @@ async function ensureDir(): Promise<void> {
   await fs.mkdir(assetsDir(), { recursive: true });
 }
 
-function detectMime(ext: string): string {
-  return MIME_MAP[ext.toLowerCase()] ?? 'application/octet-stream';
+function pad(n: number, w = 2): string {
+  return String(n).padStart(w, '0');
 }
 
-function insertRecord(rec: Omit<MediaAsset, 'created_at' | 'last_used_at'>): MediaAsset {
+function timestampStr(d = new Date()): string {
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+/** 把任意输入 buffer 用 nativeImage 转 JPEG q75, 不缩尺寸. 失败时返回原 buffer. */
+function toCompressedJpeg(buf: Buffer): { buf: Buffer; width: number | null; height: number | null } {
+  try {
+    const img = nativeImage.createFromBuffer(buf);
+    if (img.isEmpty()) return { buf, width: null, height: null };
+    const size = img.getSize();
+    const out = img.toJPEG(JPEG_QUALITY);
+    return { buf: out, width: size.width || null, height: size.height || null };
+  } catch (e) {
+    log.warn('[assets] nativeImage compress failed, keep raw:', e);
+    return { buf, width: null, height: null };
+  }
+}
+
+function insertRecord(rec: Omit<MediaAsset, 'created_at' | 'last_used_at' | 'tags' | 'description' | 'analyzed'>): MediaAsset {
   const now = Date.now();
-  const full: MediaAsset = { ...rec, created_at: now, last_used_at: now };
+  const full: MediaAsset = {
+    ...rec,
+    created_at: now,
+    last_used_at: now,
+    tags: '[]',
+    description: null,
+    analyzed: 0,
+  };
   getDb()
     .prepare(`INSERT INTO media_assets
-      (id, filename, mime_type, size, source_url, storage_path, width, height, created_at, last_used_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      (id, filename, mime_type, size, source_url, storage_path, width, height, created_at, last_used_at, tags, description, analyzed)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
       full.id, full.filename, full.mime_type, full.size,
       full.source_url, full.storage_path, full.width, full.height,
-      full.created_at, full.last_used_at,
+      full.created_at, full.last_used_at, full.tags, full.description, full.analyzed,
     );
   return full;
 }
 
-/** 弹原生 dialog 选 1~N 张图片, 复制到 userData/assets, 写入 DB. 用户取消时返回 []. */
+/** 弹原生 dialog 选 1~N 张图片, 压缩 + 重命名后存盘 + 入库. */
 export async function pickAndImport(): Promise<MediaAsset[]> {
   await ensureDir();
   const res = await dialog.showOpenDialog({
@@ -65,6 +90,8 @@ export async function pickAndImport(): Promise<MediaAsset[]> {
   if (res.canceled || res.filePaths.length === 0) return [];
 
   const out: MediaAsset[] = [];
+  const ts = timestampStr();
+  let idx = 0;
   for (const src of res.filePaths) {
     try {
       const ext = extname(src).toLowerCase();
@@ -72,22 +99,26 @@ export async function pickAndImport(): Promise<MediaAsset[]> {
         log.warn(`[assets] skip unsupported ext: ${src}`);
         continue;
       }
+      idx++;
+      const raw = await fs.readFile(src);
+      const { buf: jpegBuf, width, height } = toCompressedJpeg(raw);
       const id = randomUUID();
-      const dest = join(assetsDir(), `${id}${ext}`);
-      await fs.copyFile(src, dest);
-      const stat = await fs.stat(dest);
+      const storagePath = join(assetsDir(), `${id}.jpg`);
+      await fs.writeFile(storagePath, jpegBuf);
+      const displayName = `picture-${ts}-${idx}.jpg`;
+
       const rec = insertRecord({
         id,
-        filename: basename(src),
-        mime_type: detectMime(ext),
-        size: stat.size,
+        filename: displayName,
+        mime_type: 'image/jpeg',
+        size: jpegBuf.length,
         source_url: null,
-        storage_path: dest,
-        width: null,
-        height: null,
+        storage_path: storagePath,
+        width,
+        height,
       });
       out.push(rec);
-      log.info(`[assets] imported: ${rec.filename} -> ${dest} (${stat.size} bytes)`);
+      log.info(`[assets] imported: ${basename(src)} -> ${displayName} (${raw.length}B → ${jpegBuf.length}B)`);
     } catch (e) {
       log.error(`[assets] import failed for ${src}:`, e);
     }
@@ -95,31 +126,30 @@ export async function pickAndImport(): Promise<MediaAsset[]> {
   return out;
 }
 
-/** 从 URL 下载 (走 Electron net 走系统代理), 存盘 + 入库. */
+/** 从 URL 下载, 压缩 + 重命名后存盘 + 入库. */
 export async function importFromUrl(url: string): Promise<MediaAsset> {
   await ensureDir();
-  const u = new URL(url);
-  const urlExt = extname(u.pathname).toLowerCase();
-  const ext = ALLOWED_EXTS.has(urlExt) ? urlExt : '.jpg';
-  const id = randomUUID();
-  const dest = join(assetsDir(), `${id}${ext}`);
-
   const resp = await net.fetch(url);
   if (!resp.ok) throw new Error(`download failed: HTTP ${resp.status}`);
-  const buf = Buffer.from(await resp.arrayBuffer());
-  await fs.writeFile(dest, buf);
+  const raw = Buffer.from(await resp.arrayBuffer());
+  const { buf: jpegBuf, width, height } = toCompressedJpeg(raw);
+
+  const id = randomUUID();
+  const storagePath = join(assetsDir(), `${id}.jpg`);
+  await fs.writeFile(storagePath, jpegBuf);
+  const displayName = `picture-${timestampStr()}-1.jpg`;
 
   const rec = insertRecord({
     id,
-    filename: basename(u.pathname) || `from-url${ext}`,
-    mime_type: resp.headers.get('content-type')?.split(';')[0] ?? detectMime(ext),
-    size: buf.length,
+    filename: displayName,
+    mime_type: 'image/jpeg',
+    size: jpegBuf.length,
     source_url: url,
-    storage_path: dest,
-    width: null,
-    height: null,
+    storage_path: storagePath,
+    width,
+    height,
   });
-  log.info(`[assets] imported from URL: ${url} -> ${dest}`);
+  log.info(`[assets] imported from URL: ${url} -> ${displayName} (${raw.length}B → ${jpegBuf.length}B)`);
   return rec;
 }
 
@@ -157,4 +187,23 @@ export async function deleteAsset(id: string): Promise<void> {
     log.warn(`[assets] unlink failed (${row.storage_path}):`, e);
   }
   getDb().prepare(`DELETE FROM media_assets WHERE id = ?`).run(id);
+}
+
+/** 标记一张图为已分析 (写入 LLM 给出的 tag 列表 + 描述). */
+export function setAssetTags(id: string, tags: string[], description: string): void {
+  getDb()
+    .prepare(`UPDATE media_assets SET tags = ?, description = ?, analyzed = 1 WHERE id = ?`)
+    .run(JSON.stringify(tags), description, id);
+}
+
+/** 按 tag / 描述 / 文件名模糊检索. AI 用 search_local_assets 工具调到这里. */
+export function searchAssets(query: string, limit = 10): MediaAsset[] {
+  const q = `%${query}%`;
+  return getDb()
+    .prepare(
+      `SELECT * FROM media_assets
+       WHERE tags LIKE ? OR description LIKE ? OR filename LIKE ?
+       ORDER BY last_used_at DESC LIMIT ?`,
+    )
+    .all(q, q, q, limit) as MediaAsset[];
 }

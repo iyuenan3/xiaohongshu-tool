@@ -17,12 +17,13 @@ export type ToolName =
   | 'like_feed'
   | 'favorite_feed'
   | 'publish_content'
-  | 'publish_with_video';
+  | 'publish_with_video'
+  | 'search_local_assets';
 
 interface ToolBinding {
   schema: OpenAI.Chat.Completions.ChatCompletionTool;
-  /** Go 端 HTTP 调用映射 */
-  http: { method: 'GET' | 'POST'; path: string };
+  /** Go 端 HTTP 调用映射. null = 本地处理 (renderer 直接走 IPC) */
+  http: { method: 'GET' | 'POST'; path: string } | null;
   /** 是否敏感操作 (需用户确认) */
   sensitive: boolean;
 }
@@ -259,6 +260,32 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
     http: { method: 'POST', path: '/api/v1/publish_video' },
     sensitive: true,
   },
+  search_local_assets: {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'search_local_assets',
+        description:
+          '在本地图片素材库中搜索, 返回匹配的图片 (含本地绝对路径). 用户已经预先上传图片到素材库, 每张图都有 tag 和描述. 想发布图文笔记但用户没明确给图片路径时, 用此工具按关键词找候选, 选合适的把 storage_path 填进 publish_content.images.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: '搜索关键词, 匹配图片的 tag/描述/文件名 (中文), 例如 "猫" / "户外" / "咖啡"',
+            },
+            limit: {
+              type: 'integer',
+              description: '返回数量上限, 默认 10',
+            },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    http: null,
+    sensitive: false,
+  },
 };
 
 export const ALL_TOOL_SCHEMAS: OpenAI.Chat.Completions.ChatCompletionTool[] = Object.values(
@@ -271,4 +298,13 @@ export function isSensitive(name: string): boolean {
 
 export function getHttpBinding(name: string): { method: 'GET' | 'POST'; path: string } | null {
   return TOOLS[name as ToolName]?.http ?? null;
+}
+
+export function isLocalTool(name: string): boolean {
+  const t = TOOLS[name as ToolName];
+  return !!t && t.http === null;
+}
+
+export function isRegisteredTool(name: string): boolean {
+  return name in TOOLS;
 }

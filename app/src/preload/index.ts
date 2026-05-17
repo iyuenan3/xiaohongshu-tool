@@ -19,6 +19,9 @@ interface MediaAsset {
   height: number | null;
   created_at: number;
   last_used_at: number;
+  tags: string;          // JSON array string
+  description: string | null;
+  analyzed: number;      // 0/1
 }
 
 const api = {
@@ -93,6 +96,10 @@ const api = {
     delete: (id: string) => ipcRenderer.invoke('assets:delete', id) as Promise<void>,
     getPath: (id: string) => ipcRenderer.invoke('assets:getPath', id) as Promise<string | null>,
     touchUsed: (ids: string[]) => ipcRenderer.invoke('assets:touchUsed', ids) as Promise<{ ok: boolean }>,
+    setTags: (id: string, tags: string[], description: string) =>
+      ipcRenderer.invoke('assets:setTags', id, tags, description) as Promise<{ ok: boolean }>,
+    search: (query: string, limit?: number) =>
+      ipcRenderer.invoke('assets:search', query, limit) as Promise<MediaAsset[]>,
   },
 };
 

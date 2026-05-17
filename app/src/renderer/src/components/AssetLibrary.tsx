@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { loadBYOK, isBYOKConfigured } from '../ai/byok';
+import { analyzeImage } from '../ai/assetAnalyzer';
 
 interface MediaAsset {
   id: string;
@@ -9,6 +11,9 @@ interface MediaAsset {
   storage_path: string;
   created_at: number;
   last_used_at: number;
+  tags: string;
+  description: string | null;
+  analyzed: number;
 }
 
 function formatSize(b: number): string {
@@ -22,6 +27,28 @@ function formatTime(ms: number): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function parseTags(s: string | null | undefined): string[] {
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const blob = await r.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch { return null; }
+}
+
 interface Props {
   active: boolean;
 }
@@ -30,11 +57,12 @@ export default function AssetLibrary({ active }: Props) {
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [urlInput, setUrlInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
-      const list = await window.api.assets.list();
+      const list = await window.api.assets.list() as unknown as MediaAsset[];
       setAssets(list);
     } catch (e) {
       console.error('[assets] list failed:', e);
@@ -81,13 +109,46 @@ export default function AssetLibrary({ active }: Props) {
     }
   };
 
+  const handleAnalyze = async () => {
+    if (busy) return;
+    const cfg = loadBYOK();
+    if (!cfg) { setErr('请先在设置中配置 BYOK (右上 ⚙️). 分析需要支持 vision 的模型 (火山方舟 doubao 等)'); return; }
+    const pending = assets.filter((a) => a.analyzed !== 1);
+    if (pending.length === 0) return;
+
+    setBusy(true); setErr(null);
+    setAnalyzeProgress({ done: 0, total: pending.length });
+    let fails = 0;
+    for (let i = 0; i < pending.length; i++) {
+      const a = pending[i];
+      try {
+        const dataUrl = await fetchAsDataUrl(`xhs-asset://${a.id}`);
+        if (!dataUrl) throw new Error('读取失败');
+        const { tags, description } = await analyzeImage(cfg, dataUrl);
+        await window.api.assets.setTags(a.id, tags, description);
+      } catch (e) {
+        fails++;
+        console.error(`[assets] analyze failed for ${a.filename}:`, e);
+      }
+      setAnalyzeProgress({ done: i + 1, total: pending.length });
+      await refresh();
+    }
+    setAnalyzeProgress(null);
+    setBusy(false);
+    if (fails > 0) setErr(`完成: ${pending.length - fails} 成功, ${fails} 失败 (可能是模型不支持 vision)`);
+  };
+
+  const unanalyzedCount = assets.filter((a) => a.analyzed !== 1).length;
+  const byokOk = isBYOKConfigured();
+
   return (
     <div className="asset-library">
       <header className="asset-library__head">
         <div>
           <h2>素材库</h2>
           <p className="asset-library__sub">
-            发布笔记时使用的图片素材。本地导入或从 URL 拉取,统一存到本地数据库。
+            发布笔记时使用的图片素材。上传时自动压缩 (JPEG q75) + 重命名 picture-YYYYMMDD-HHmmss-N.jpg。
+            AI 通过 tag 检索, 上传后点「补分析」让 LLM 给图片打 tag。
           </p>
         </div>
         <div className="asset-library__count">
@@ -105,15 +166,25 @@ export default function AssetLibrary({ active }: Props) {
             placeholder="或粘贴图片 URL (https://...)"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleImportUrl();
-            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleImportUrl(); }}
             disabled={busy}
           />
           <button onClick={handleImportUrl} disabled={busy || !urlInput.trim()}>
             从 URL 导入
           </button>
         </div>
+        {unanalyzedCount > 0 && (
+          <button
+            onClick={handleAnalyze}
+            disabled={busy || !byokOk}
+            title={byokOk ? '逐张调用 BYOK vision 模型生成 tag + 描述' : '请先配置 BYOK'}
+            className="asset-library__analyze"
+          >
+            {analyzeProgress
+              ? `分析中 ${analyzeProgress.done}/${analyzeProgress.total}…`
+              : `🪄 补分析 ${unanalyzedCount} 张`}
+          </button>
+        )}
       </section>
 
       {err && <div className="asset-library__error">{err}</div>}
@@ -124,25 +195,37 @@ export default function AssetLibrary({ active }: Props) {
         </div>
       ) : (
         <div className="asset-grid">
-          {assets.map((a) => (
-            <div key={a.id} className="asset-card">
-              <div className="asset-card__thumb">
-                <img src={`xhs-asset://${a.id}`} alt={a.filename} />
-                <button
-                  className="asset-card__del"
-                  onClick={() => handleDelete(a.id, a.filename)}
-                  title="删除"
-                >✕</button>
-              </div>
-              <div className="asset-card__info">
-                <div className="asset-card__name" title={a.filename}>{a.filename}</div>
-                <div className="asset-card__meta">
-                  {formatSize(a.size)} · {formatTime(a.created_at)}
-                  {a.source_url && <span className="asset-card__url" title={a.source_url}> · URL</span>}
+          {assets.map((a) => {
+            const tags = parseTags(a.tags);
+            return (
+              <div key={a.id} className="asset-card">
+                <div className="asset-card__thumb">
+                  <img src={`xhs-asset://${a.id}`} alt={a.filename} />
+                  <button
+                    className="asset-card__del"
+                    onClick={() => handleDelete(a.id, a.filename)}
+                    title="删除"
+                  >✕</button>
+                  {a.analyzed !== 1 && <span className="asset-card__badge" title="尚未分析 / 没有 tag">○</span>}
+                </div>
+                <div className="asset-card__info">
+                  <div className="asset-card__name" title={a.filename}>{a.filename}</div>
+                  <div className="asset-card__meta">
+                    {formatSize(a.size)} · {formatTime(a.created_at)}
+                    {a.source_url && <span className="asset-card__url" title={a.source_url}> · URL</span>}
+                  </div>
+                  {tags.length > 0 && (
+                    <div className="asset-card__tags" title={a.description ?? ''}>
+                      {tags.map((t) => <span key={t} className="asset-tag">{t}</span>)}
+                    </div>
+                  )}
+                  {a.description && (
+                    <div className="asset-card__desc" title={a.description}>{a.description}</div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

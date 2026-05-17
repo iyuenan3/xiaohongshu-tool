@@ -11,6 +11,7 @@ import { licenseManager } from './license';
 import { checkForUpdatesNow } from './updater';
 import {
   pickAndImport, importFromUrl, listAssets, deleteAsset, getAssetPath, touchUsed,
+  setAssetTags, searchAssets,
 } from './assets';
 
 interface BrowserActions {
@@ -101,4 +102,9 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
     touchUsed(ids);
     return { ok: true };
   });
+  ipcMain.handle('assets:setTags', (_, id: string, tags: string[], description: string) => {
+    setAssetTags(id, tags, description);
+    return { ok: true };
+  });
+  ipcMain.handle('assets:search', (_, query: string, limit?: number) => searchAssets(query, limit));
 }

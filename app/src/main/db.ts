@@ -52,10 +52,20 @@ export function initDb(): Database.Database {
       width         INTEGER,
       height        INTEGER,
       created_at    INTEGER NOT NULL,
-      last_used_at  INTEGER NOT NULL
+      last_used_at  INTEGER NOT NULL,
+      tags          TEXT DEFAULT '[]',
+      description   TEXT,
+      analyzed      INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_media_assets_last_used ON media_assets(last_used_at DESC);
   `);
+
+  // 老 db 升级: 给 media_assets 加 tags/description/analyzed 列 (SQLite 不支持 ALTER IF NOT EXISTS)
+  const cols = inst.prepare('PRAGMA table_info(media_assets)').all() as Array<{ name: string }>;
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('tags')) inst.exec(`ALTER TABLE media_assets ADD COLUMN tags TEXT DEFAULT '[]'`);
+  if (!names.has('description')) inst.exec(`ALTER TABLE media_assets ADD COLUMN description TEXT`);
+  if (!names.has('analyzed')) inst.exec(`ALTER TABLE media_assets ADD COLUMN analyzed INTEGER DEFAULT 0`);
   db = inst;
   return inst;
 }

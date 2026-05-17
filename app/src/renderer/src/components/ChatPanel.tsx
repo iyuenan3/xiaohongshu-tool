@@ -107,6 +107,19 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   }, [display, phase, currentTool]);
 
   const callTool = async (name: string, args: unknown): Promise<unknown> => {
+    // 本地处理: search_local_assets 不走 Go, 直接查 SQLite
+    if (name === 'search_local_assets') {
+      const a = (args ?? {}) as { query?: string; limit?: number };
+      const list = await window.api.assets.search(a.query ?? '', a.limit ?? 10);
+      return list.map((x) => ({
+        id: x.id,
+        filename: x.filename,
+        tags: safeParseTags(x.tags),
+        description: x.description,
+        path: x.storage_path,
+        analyzed: x.analyzed === 1,
+      }));
+    }
     const binding = getHttpBinding(name);
     if (!binding) throw new Error(`unknown tool: ${name}`);
     return window.api.goApi(binding.method, binding.path, args);
@@ -182,17 +195,24 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     setPhase('thinking');
     setCurrentTool('');
 
-    // 构造发给 LLM 的实际文本: 附件路径以隐藏指令形式追加
+    // 附件: 同时构造路径文本 (给 publish_content 用) + base64 data URL (给 vision 模型看)
     let promptForLLM = userText;
+    const imageDataUrls: string[] = [];
     if (sentAttachments.length > 0) {
       const paths: string[] = [];
       for (const a of sentAttachments) {
-        const p = await window.api.assets.getPath(a.id);
-        if (p) paths.push(p);
+        try {
+          const p = await window.api.assets.getPath(a.id);
+          if (p) paths.push(p);
+          const dataUrl = await fetchAsDataUrl(`xhs-asset://${a.id}`);
+          if (dataUrl) imageDataUrls.push(dataUrl);
+        } catch (e) {
+          console.error('[chat] attachment read failed:', e);
+        }
       }
       if (paths.length > 0) {
-        promptForLLM += '\n\n[系统: 用户已附加 ' + paths.length + ' 张图片素材, 绝对路径如下。如本轮要调用 publish_content, 请把这些路径作为 images 参数的值;若不发布则忽略。]\n'
-          + paths.map((p) => '- ' + p).join('\n');
+        promptForLLM += '\n\n[附件: 用户已上传 ' + paths.length + ' 张图片 (本消息内已附图供你查看)。如本轮要调用 publish_content, 请把以下绝对路径作为 images 参数:\n'
+          + paths.map((p) => '- ' + p).join('\n') + ']';
         await window.api.assets.touchUsed(sentAttachments.map((a) => a.id));
       }
     }
@@ -215,6 +235,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         cfg,
         history,
         userInput: promptForLLM,
+        userImageDataUrls: imageDataUrls,
         onEvent: handleEvent,
         onToolCall: callTool,
         onConfirm: async (info) => confirmRef.current?.show(info) ?? false,
@@ -457,6 +478,28 @@ const ToolCallItem = memo(function ToolCallItem({ tc }: { tc: ToolCallView }) {
 function prettyJson(s: string): string {
   try { return JSON.stringify(JSON.parse(s), null, 2); }
   catch { return s; }
+}
+
+function safeParseTags(s: string | null | undefined): string[] {
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s);
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const blob = await r.blob();
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch { return null; }
 }
 
 function toDisplay(m: ChatMessage): DisplayMessage {

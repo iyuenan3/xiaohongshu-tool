@@ -1,7 +1,7 @@
 // Tool Calling Loop. 用 openai-node 直连 LLM, 流式 + tool_calls 累计, 调本地 MCP, 多轮迭代。
 
 import OpenAI from 'openai';
-import { ALL_TOOL_SCHEMAS, getHttpBinding, isSensitive, type ToolName } from './tools';
+import { ALL_TOOL_SCHEMAS, isRegisteredTool, isSensitive, type ToolName } from './tools';
 import type { BYOKConfig } from './byok';
 
 export type ChatMessage =
@@ -68,6 +68,12 @@ export interface RunAgentOptions {
   cfg: BYOKConfig;
   history: ChatMessage[];
   userInput: string;
+  /**
+   * 仅本轮: 附加图片 base64 data URL (例如 "data:image/jpeg;base64,...").
+   * 用 OpenAI vision multi-part user content 传给 LLM. 不进入 history (避免持久化爆量,
+   * 后续轮 LLM 通过 assistant 之前的文字回复保留对图的理解).
+   */
+  userImageDataUrls?: string[];
   onEvent: (e: AgentEvent) => void;
   onToolCall: ToolCaller;
   onConfirm: ConfirmHandler;
@@ -84,13 +90,25 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
   });
 
   const systemPrompt = await buildSystemPrompt();
+  // 本轮 user message: 含图时用 multi-part array (text + image_url), 否则纯字符串
+  const imageUrls = opts.userImageDataUrls ?? [];
+  const userMessageForLLM: OpenAI.Chat.Completions.ChatCompletionMessageParam = imageUrls.length > 0
+    ? {
+        role: 'user',
+        content: [
+          { type: 'text', text: opts.userInput },
+          ...imageUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } })),
+        ],
+      }
+    : { role: 'user', content: opts.userInput };
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
     ...opts.history.map(toOpenAIMessage),
-    { role: 'user', content: opts.userInput },
+    userMessageForLLM,
   ];
 
-  // 返回给调用方持久化的轻量历史 (不含 system, 不含 tool_calls 实例对象)
+  // 返回给调用方持久化的轻量历史: user 消息仅存文字 (图不入 history 避免持久化爆)
   const newHistory: ChatMessage[] = [...opts.history, { role: 'user', content: opts.userInput }];
 
   // Loop
@@ -210,8 +228,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
         }
       }
 
-      // 检查工具是否注册
-      if (!getHttpBinding(name)) {
+      // 检查工具是否注册 (含本地 local tool)
+      if (!isRegisteredTool(name)) {
         const err = `工具 ${name} 不存在或未注册`;
         messages.push({ role: 'tool', tool_call_id: tc.id, content: err });
         newHistory.push({ role: 'tool', tool_call_id: tc.id, content: err });
