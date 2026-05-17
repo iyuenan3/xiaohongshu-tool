@@ -1,6 +1,6 @@
 {
   "name": "xhs-app",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "小红书自运营系统 - Electron 客户端",
   "main": "./out/main/index.js",
@@ -50,6 +50,7 @@
     "productName": "小红书自运营",
     "copyright": "Copyright © 2026",
     "artifactName": "xhs-app-${version}-${arch}.${ext}",
+    "afterPack": "scripts/ad-hoc-sign.cjs",
     "directories": {
       "output": "release/${version}"
     },
