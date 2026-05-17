@@ -14,9 +14,10 @@
 
 ```
 xiaohongshu-tool/
-├── PRD.{md,html}              v0.3 产品需求
-├── SPEC.{md,html}             v0.1 技术规格
-├── ROADMAP.{md,html}          v0.2 10 周时间线
+├── PRD.md                     v0.5 产品需求 (v0.2-v0.3 增量功能)
+├── SPEC.md                    v0.2 技术规格 (§12 增量模块)
+├── ROADMAP.md                 v0.4 路线图 (§12 M5+ 待规划)
+│                              注: HTML 已删 (v0.5 起 md 为唯一源)
 ├── INFRA.md                   含 Cloudflare Account ID 等 (.gitignore)
 ├── app/                       Electron 客户端
 │   ├── src/main/              主进程: index/ipc/cdp/go-subprocess/db/conv/rate
@@ -152,6 +153,6 @@ pkill -f electron-vite; pkill -f "Electron.app/Contents/MacOS/Electron"; pkill -
 - 决策题选择题为主（2-4 个选项 + 标注"(推荐)"），不要纯开放式问题
 - 不要"已经做了很多，要不要休息"主动停下，凌晨 3 点后再询问
 - 错误处理先 grep dev log 找现场，不要凭直觉猜
-- 文档驱动：大改方向后 6 份文档（3 md + 3 html）同步更新
+- 文档驱动：大改方向后 3 份 md (PRD/SPEC/ROADMAP) + INFRA.md 同步更新 (HTML 自 v0.5 已删, md 为唯一源)
 
 更多细节见 `~/.claude/projects/-Users-maxwell-Desktop-Claude-Project-xiaohongshu-tool/memory/`。
