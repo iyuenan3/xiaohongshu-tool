@@ -77,4 +77,69 @@ try {
 // LIC-07 (clear) skip on purpose
 r.skip('LIC-07 license.clear()', '会破坏 dev 激活态, 跳过');
 
+// LIC-08: push 通道 (license:changed) E2E
+// 流程: clear → 100ms 内 DOM 出现 .activation-card → activate(LICENSE.code) → 100ms 内 .activation-card 消失 + .tabbar 出现
+// 不走 Page.reload, 完全依赖主进程 push.
+try {
+  // 先抓取 baseline (理论上现在 main UI 已渲染)
+  const baseline = await evalFn(`() => ({
+    hasActivation: !!document.querySelector('.activation-card'),
+    hasTabbar: !!document.querySelector('.tabbar__tab'),
+  })`);
+  r.ok(baseline?.hasTabbar === true && baseline?.hasActivation === false,
+    `LIC-08 baseline: main UI rendered (no .activation-card, has .tabbar)`,
+    baseline);
+
+  // 注入 hook: 累计 push 事件次数
+  await evalFn(`() => {
+    window.__lic_pushEvents = [];
+    window.__lic_unsub = window.api.license.onChanged((state) => {
+      window.__lic_pushEvents.push({ status: state?.status, ts: Date.now() });
+    });
+    return true;
+  }`);
+
+  // Step 1: clear
+  await evalFn(`async () => await window.api.license.clear()`);
+  // 等 DOM 更新 (主要给 React render 一点时间)
+  await new Promise((res) => setTimeout(res, 300));
+  const afterClear = await evalFn(`() => ({
+    hasActivation: !!document.querySelector('.activation-card'),
+    hasTabbar: !!document.querySelector('.tabbar__tab'),
+    pushCount: window.__lic_pushEvents?.length || 0,
+    lastStatus: window.__lic_pushEvents?.slice(-1)?.[0]?.status,
+  })`);
+  r.ok(afterClear?.pushCount >= 1, `LIC-08b clear() 触发 push (count=${afterClear?.pushCount})`, afterClear);
+  r.ok(afterClear?.lastStatus === 'unactivated', `LIC-08c push 最新 status=unactivated`, afterClear?.lastStatus);
+  r.ok(afterClear?.hasActivation === true, `LIC-08d 300ms 内 DOM 出现 .activation-card`, afterClear);
+  r.ok(afterClear?.hasTabbar === false, `LIC-08e 300ms 内 .tabbar 消失`, afterClear);
+
+  // Step 2: activate
+  const activateRes = await evalFn(`async () => await window.api.license.activate(${JSON.stringify(LICENSE.code)})`);
+  r.ok(activateRes?.status === 'active', `LIC-08f activate(${LICENSE.code}) 返 status=active`, activateRes);
+  await new Promise((res) => setTimeout(res, 300));
+  const afterActivate = await evalFn(`() => ({
+    hasActivation: !!document.querySelector('.activation-card'),
+    hasTabbar: !!document.querySelector('.tabbar__tab'),
+    pushCount: window.__lic_pushEvents?.length || 0,
+    lastStatus: window.__lic_pushEvents?.slice(-1)?.[0]?.status,
+  })`);
+  r.ok(afterActivate?.pushCount >= 2, `LIC-08g activate() 再次触发 push (count=${afterActivate?.pushCount})`, afterActivate);
+  r.ok(afterActivate?.lastStatus === 'active', `LIC-08h push 最新 status=active`, afterActivate?.lastStatus);
+  r.ok(afterActivate?.hasActivation === false, `LIC-08i 300ms 内 .activation-card 消失`, afterActivate);
+  r.ok(afterActivate?.hasTabbar === true, `LIC-08j 300ms 内 .tabbar 重新出现`, afterActivate);
+
+  // Step 3: unsubscribe 应可清理
+  const unsubRes = await evalFn(`() => {
+    if (typeof window.__lic_unsub === 'function') {
+      window.__lic_unsub();
+      return 'ok';
+    }
+    return 'no-unsub';
+  }`);
+  r.ok(unsubRes === 'ok', `LIC-08k onChanged 返回 unsubscribe function`, unsubRes);
+} catch (e) {
+  r.ok(false, `LIC-08 push 通道测试 throw`, e.message);
+}
+
 r.summary(() => ws.close());

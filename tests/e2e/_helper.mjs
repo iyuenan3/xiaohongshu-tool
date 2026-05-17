@@ -1,7 +1,9 @@
 // Common helper for E2E tests
 // Usage: import { connect, evalFn, sleep, makeReporter, ADMIN, WORKER, LICENSE } from './_helper.mjs'
 
-export const CDP_URL = 'http://127.0.0.1:53759/json';
+// CDP port may change every dev restart. We probe a small list of candidates.
+// Add new port at the top after each dev restart if it differs.
+export const CDP_PORT_CANDIDATES = [60334, 53759];
 export const GO_BASE = 'http://127.0.0.1:54092';
 export const WORKER = 'https://xhslicense.maxwellii.com';
 export const ADMIN = 'LFW50BqUFVzJwqb/vqFoGPJqSEtlnx9wq/FY7vVBP8U=';
@@ -13,15 +15,42 @@ export const LICENSE = {
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Probe CDP candidates and return the first one that responds.
+ */
+async function probeCdpPort() {
+  for (const port of CDP_PORT_CANDIDATES) {
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/json`, {
+        signal: AbortSignal.timeout(800),
+      });
+      if (r.ok) return port;
+    } catch {}
+  }
+  return null;
+}
+
+/**
  * Open CDP WebSocket connection to renderer + Runtime.enable.
  * Optionally ensure main UI is loaded (no activation card). Some tests
  * (e.g. license / IPC surface) only need preload bridge so they don't care.
  *
+ * v0.2 (B-001 fixed): when requireMainUI is set we just *wait* for `.tabbar__tab`
+ * to appear within `mainUiTimeoutMs`. The renderer pushes license state via
+ * `license:changed` IPC, so the activation page should clear automatically. We
+ * never call Page.reload anymore — the previous reload workaround was masking
+ * the original bug.
+ *
  * @param {object} opts
- * @param {boolean} opts.requireMainUI - if true, page.reload + wait for .tabbar
- * @param {number} opts.reloadTimeoutMs - max wait for tabbar after reload
+ * @param {boolean} opts.requireMainUI - if true, wait for .tabbar__tab
+ * @param {number} opts.mainUiTimeoutMs - max wait time (default 5000ms)
  */
-export async function connect({ requireMainUI = false, reloadTimeoutMs = 4000 } = {}) {
+export async function connect({ requireMainUI = false, mainUiTimeoutMs = 5000 } = {}) {
+  const port = await probeCdpPort();
+  if (!port) {
+    console.error(`[fatal] no CDP candidate responded (tried ${CDP_PORT_CANDIDATES.join(', ')})`);
+    process.exit(2);
+  }
+  const CDP_URL = `http://127.0.0.1:${port}/json`;
   let targets;
   try {
     targets = await (await fetch(CDP_URL)).json();
@@ -77,20 +106,18 @@ export async function connect({ requireMainUI = false, reloadTimeoutMs = 4000 } 
   }
 
   if (requireMainUI) {
+    // Wait for .tabbar__tab to appear (no reload). The renderer mounts, calls
+    // license.status() async, then sets state → main UI renders. Also the
+    // main process pushes `license:changed` for any state mutation.
     let ready = await evalFn(`() => !!document.querySelector('.tabbar__tab')`);
+    const t0 = Date.now();
+    while (!ready && Date.now() - t0 < mainUiTimeoutMs) {
+      await sleep(100);
+      ready = await evalFn(`() => !!document.querySelector('.tabbar__tab')`);
+    }
     if (!ready) {
-      // KNOWN BUG: license.status=active but UI stuck on activation page.
-      // Reloading triggers a fresh mount that renders main UI correctly.
-      await send('Page.reload', { ignoreCache: false });
-      const t0 = Date.now();
-      while (Date.now() - t0 < reloadTimeoutMs) {
-        await sleep(250);
-        ready = await evalFn(`() => !!document.querySelector('.tabbar__tab')`);
-        if (ready) break;
-      }
-      if (!ready) {
-        console.error('[fatal] requireMainUI: tabbar still missing after reload');
-      }
+      console.error(`[fatal] requireMainUI: .tabbar__tab not appeared within ${mainUiTimeoutMs}ms`);
+      process.exit(2);
     }
   }
   return { ws, send, evalFn, renderer };

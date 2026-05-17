@@ -15,7 +15,7 @@
 
 ## 1. 产品定位
 
-一句话：**一个内置 AI 助手的小红书桌面浏览器，登录即用、完全本地化、BYOK 驱动 11 个原生 MCP 工具完成创作 / 发布 / 运营全流程。**
+一句话：**一个内置 AI 助手的小红书桌面浏览器，登录即用、完全本地化、BYOK 驱动 14 个工具 (12 个 Go MCP + 2 个 renderer 本地) 完成创作 / 发布 / 运营全流程。**
 
 - 形态：基于 Electron + Chromium 内核的专用浏览器
 - 内嵌：`xiaohongshu-mcp` Go 服务（不对外暴露）
@@ -377,7 +377,7 @@ value: {
 | 阶段 | 周期 | 产出 |
 |---|---|---|
 | **M1 PoC** | 1-2 周 | Electron 单窗口 + Go 子进程 + CDP 联调成功 + `publish_content` 单工具跑通 |
-| **M2 内核完成** | 2-3 周 | 11 个 MCP 工具全跑通 + 侧边栏 Chat（BYOK 火山方舟一个 Provider 起步） |
+| **M2 内核完成** | 2-3 周 | 11 个 MCP 工具全跑通 + 侧边栏 Chat（BYOK 火山方舟一个 Provider 起步）；v0.2/v0.3 后扩为 12 Go + 2 local = 14 |
 | **M3 商业化** | 2 周 | Cloudflare Worker 激活服务 + 客户端激活流程 + 加固 |
 | **M4 跨平台 + 自动更新** | 1 周 | macOS / Windows 无证书打包 + electron-updater + 首次启动指引文档 |
 | **M5 公测打磨** | 1-2 周 | 小范围灰度 + bug fix + 文档 |

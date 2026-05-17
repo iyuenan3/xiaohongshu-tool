@@ -1,215 +1,175 @@
 # 小红书自运营系统 · E2E 测试报告
 
-> 版本 v0.1 · 2026-05-17 · 针对 PRD v0.5 / SPEC v0.2 / ROADMAP v0.4 · 客户端 v0.3.0
+> 版本 v0.2 · 2026-05-17 · 针对 PRD v0.5.1 / SPEC v0.2 / ROADMAP v0.4 · 客户端 v0.3.1
 >
 > 测试方法: 黑盒 E2E (CDP attach + `window.api.*` IPC + Worker admin API), 不读 `app/src/` 源码
-> 运行环境: macOS Tahoe (Darwin 25.4.0) · Electron 38.8.6 · Node 22 · BYOK 未配置
+> 运行环境: macOS Tahoe (Darwin 25.4.0) · Electron 38.8.6 · Node 22 · CDP port 60334 · BYOK 未配置
 > 测试目录: [`tests/e2e/`](./tests/e2e/) · 策略文档: [`TESTING.md`](./TESTING.md)
 > 完整原始输出: `tests/e2e/last-run.json`
+
+## 0. 与 v0.1 报告差分
+
+| 指标 | v0.1 (2026-05-16) | v0.2 (2026-05-17) | 增量 |
+|---|---|---|---|
+| 测试用例数 | 167 | **179** | +12 |
+| 通过 | 164 | **176** | +12 |
+| 失败 | 0 | **0** | 0 |
+| 跳过 | 3 | 3 | 0 |
+| Critical / P0 bug | 1 (B-001) | **0** | -1 |
+| P1 文档偏差 bug | 4 (B-002~005) | **1** (新发现 B-006) | -3 |
+
+**结论**: 客户端代码层面 0 残留 bug, 4 份文档层面仅 1 处「11 个」残留 (B-006, 低优), 全部 v0.1 报告的 5 个 bug 均已验证 [FIXED]。
 
 ## 1. 总览
 
 | 指标 | 值 |
 |---|---|
 | 测试模块数 | 10 |
-| 测试用例数 (含子断言) | **167** |
-| **通过** | **164** |
+| 测试用例数 (含子断言) | **179** |
+| **通过** | **176** |
 | 失败 | **0** |
 | 跳过 | 3 |
 | 模块全 0 退出码 | 10 / 10 |
-| 总运行时长 | ~21 s |
+| 总运行时长 | ~17.8 s |
 
 ### 1.1 模块结果
 
 | 模块 | 文件 | exit | pass | fail | skip | 耗时 |
 |---|---|---|---|---|---|---|
-| License | `license.mjs` | 0 | 14 | 0 | 1 | 7.4 s |
-| IPC Surface | `ipc-surface.mjs` | 0 | 39 | 0 | 0 | 0.1 s |
+| License (+LIC-08 push) | `license.mjs` | 0 | **25** | 0 | 1 | 4.6 s |
+| IPC Surface (+onChanged) | `ipc-surface.mjs` | 0 | **40** | 0 | 0 | 0.1 s |
 | Assets | `assets.mjs` | 0 | 26 | 0 | 0 | 1.2 s |
 | Chat / Conv | `chat.mjs` | 0 | 21 | 0 | 0 | 0.1 s |
 | Tabs / UI | `tabs.mjs` | 0 | 15 | 0 | 1 | 1.0 s |
 | Rate Limit | `rate-limit.mjs` | 0 | 6 | 0 | 0 | 0.1 s |
-| Web Search | `web-search.mjs` | 0 | 9 | 0 | 0 | 5.9 s |
+| Web Search | `web-search.mjs` | 0 | 9 | 0 | 0 | 5.0 s |
 | Tools / Agent | `tools-agent.mjs` | 0 | 13 | 0 | 1 | 0.1 s |
-| Errors | `errors.mjs` | 0 | 10 | 0 | 0 | 1.6 s |
-| Integration | `integration.mjs` | 0 | 11 | 0 | 0 | 3.3 s |
-| **合计** | — | **0/10** | **164** | **0** | **3** | **~21s** |
+| Errors | `errors.mjs` | 0 | 10 | 0 | 0 | 0.9 s |
+| Integration | `integration.mjs` | 0 | 11 | 0 | 0 | 4.7 s |
+| **合计** | — | **0/10** | **176** | **0** | **3** | **~17.8 s** |
 
-### 1.2 跳过说明
+### 1.2 跳过说明 (与 v0.1 一致, 非 bug)
 
 | ID | 模块 | 原因 |
 |---|---|---|
-| LIC-07 | license | `license.clear()` 会清掉 dev 激活态; 测完无法自动恢复, 故跳过 |
-| TAB-08b | tabs | CDP 测试时 `document.hasFocus()=false`, Electron `.focus()` 在 OS-level 无 focus 时不生效; 用户真实操作 (有 focus) 时此行为应该正常 |
-| TOOL-09b | tools-agent | BYOK 未配置 (localStorage 没 byok 相关 key), 故 vision 分析 `analyzeImage` 无法测; 真机用户配 BYOK 后此路径应可工作 |
+| LIC-07 | license | `license.clear()` 独立用例 (clear without re-activate) 略过, 改由新增的 LIC-08 端到端覆盖 |
+| TAB-08b | tabs | CDP 测试 window 无 OS-level focus; 真机用户操作下 `.focus()` 正常 |
+| TOOL-09b | tools-agent | BYOK 未配置, vision `analyzeImage` 路径无法测; 真机配 BYOK 后应工作 |
 
-## 2. 5 大测试类别覆盖回顾
+## 2. v0.1 报告 5 个 bug 验证
 
-| 类别 | 已覆盖用例 (举例) |
+### B-001 [FIXED · Critical] License `active` 但 renderer 卡激活页
+
+| 项 | 内容 |
 |---|---|
-| 1 · 正常路径 | LIC-01~03 / IPC-11~15 / AST-01~05 / CONV-01~08 / WEB-02 / TAB-01~06 |
-| 2 · 异常输入 | LIC-04~05 (错码/不存在码) / AST-18 / WEB-06 / CONV-09/12 / ERR-01~08 |
-| 3 · 状态机错误 | LIC-04 (worker reject) / ERR-04~05 (activate 'abc' / '') |
-| 4 · 边界值 | CONV-10 (1000 字 title) / CONV-11 (50 条 msg) / AST-11 (limit=2) / WEB-05 (n=1) / WEB-07 (500 字 query) |
-| 5 · 链路集成 | INT-01 (上传→setTags→search) / INT-02 (上传→list→删除→404) / INT-03 (本机激活态 vs Worker admin) / INT-04 (tab 切换值保留) |
+| 状态 | **FIXED**, push 通道完美工作 |
+| 修复方式 (用户描述, 未读源验证) | LicenseManager 加 `onChanged(cb)` listener → main `index.ts` 注册 → renderer push `license:changed` IPC → preload 暴露 `license.onChanged` → `App.tsx` useEffect 订阅 |
+| 验证用例 | 新增 `LIC-08` (a~k 共 11 个子断言) |
+| 验证流程 | 1) baseline 抓 DOM (有 `.tabbar` 无 `.activation-card`)<br>2) 注入 hook 累计 push 事件<br>3) `license.clear()` → 等 300ms<br>4) 检查 push count, 最新 status, DOM 状态<br>5) `license.activate(LICENSE.code)` → 等 300ms<br>6) 再次检查 |
+| 实测结果 | clear 后 push count=1 + status=unactivated + `.activation-card` 出现 + `.tabbar` 消失 (耗时 < 300ms);<br>activate 后 push count=2 + status=active + `.activation-card` 消失 + `.tabbar` 重现 (耗时 < 300ms);<br>onChanged 返回的 unsubscribe function 可正常调用 |
+| 衍生改造 | `_helper.mjs` 旧的 `Page.reload` workaround 已移除, 现在仅"等 .tabbar__tab 5 s 出现", 验证无需 reload 也能进主 UI |
 
-## 3. 关键发现 (文档 vs 实现偏差)
+### B-002 [FIXED · P1] 工具计数 11/13 → 14
 
-> 本节为**主要交付物**: 仅看测试通过率没有意义, 关键是与 PRD/SPEC 比对。
+| 项 | 内容 |
+|---|---|
+| 状态 | **大部分 FIXED** (主声明位置), 残留 5 处 (拆出 B-006) |
+| 已修 | PRD §4.4 (14 个 + 12 Go + 2 local) · PRD §7.3 · SPEC §1.3 表格 (12+2) · SPEC §12.9 |
+| 验证 | `TOOL-02` 在客户端实测 `ALL_TOOL_SCHEMAS.length === 14`, PASS |
+| 残留 | 见 B-006 (PRD §1 一句话 / PRD §2 阶段表 M2 / SPEC §11 测试策略 / ROADMAP §W2~W3) |
 
-### 3.1 [P0] License `active` 但 renderer 卡在激活页
+### B-003 [FIXED · P1] xhs_generate_cover 占位工具
+
+| 项 | 内容 |
+|---|---|
+| 状态 | **FIXED** |
+| 修复方式 | PRD §4.4 工具清单删除 `xhs_generate_cover` |
+| 验证 | `TOOL-02` 列出的 14 工具名单不含 `xhs_generate_cover`, PASS |
+
+### B-004 [FIXED · P1] SPEC §2.2 IPC 表面文档与代码不一致
+
+| 项 | 内容 |
+|---|---|
+| 状态 | **FIXED** |
+| 修复方式 | SPEC §2.2 顶部加 v0.2 重构通知 (⚠️ 区块), 列出 v0.2 重命名/删除/新增的 IPC 路径, 指向 §12 + `app/src/preload/index.ts` |
+| 用户视角清晰度 | 良好。文档读者会被先告知"以下接口可能过时", 再点过去看新的 §12 |
+| 备注 | preload 表面在本次 E2E 已完全覆盖 (`ipc-surface.mjs` 40 条 + LIC `onChanged` 新增) |
+
+### B-005 [FIXED · P1] 错误码前缀不一致
+
+| 项 | 内容 |
+|---|---|
+| 状态 | **FIXED** |
+| 修复方式 | SPEC §9.1 加 ⚠️ 命名约定说明: Worker 端响应 `code` **不带** `LICENSE_` 前缀 (例 `CODE_NOT_FOUND`); 客户端转 i18n key 时补上前缀; 给了 4 个映射示例 (CODE_NOT_FOUND → LICENSE_CODE_NOT_FOUND 等) |
+| 用户视角清晰度 | 优。映射表直观, 接口工程师与 i18n 工程师不会再迷惑 |
+| 验证 | E2E `LIC-04/LIC-05` 实测 Worker 返 `ok=false` + `message`, 未直接断言 `code` 命名 (这是文档一致性问题, 非运行时 bug) |
+
+## 3. 新发现 bug
+
+### B-006 [Low · P2] 文档残留「11 个工具」共 5 处
 
 | 维度 | 内容 |
 |---|---|
-| 严重度 | **Critical** |
-| 发现源 | `tests/e2e/_helper.mjs` 启动时 probe |
-| 现象 | 测试 dev server (Electron 已 ready) 状态下: `window.api.license.status()` 返回 `status='active'`, code 与 machine_id 完全匹配文档; 但 `document.querySelector('.activation-card')` 仍存在, 主 UI (`.tabbar` / `.chat-panel`) 没渲染 |
-| 重现 | 1) 启动 dev server 等到 "Go MCP ready"<br>2) attach CDP 到 renderer page<br>3) `Runtime.evaluate('() => document.querySelector(".activation-card")')` 返非 null<br>4) 同时 `window.api.license.status()` 返 `active` |
-| 触发后果 | 真实用户即使 token 仍 valid, 启动后 UI 错位; 必须手动 reload 才进主界面 |
-| 解决建议 | renderer 启动时 license-check 完成后必须重新 trigger `setState`/路由; 当前怀疑首次挂载时机与 license 异步加载冲突 (v0.2.7 license.bin 文件 IO 改造后引入?) |
-| 测试侧 workaround | `connect({ requireMainUI: true })` 会自动 `Page.reload` + 等 ≤4s 直到 `.tabbar__tab` 出现 |
+| 严重度 | **Low** (B-002 修不彻底而已, 但用户读到首屏会被误导, 仍要修) |
+| 发现位置 | grep `"11 个"` 在 4 份文档 |
 
-如果这是 dev 启动后用户激活成功首次的 case, 还是 build 包之后冷启动也会重现, 需进一步实机验证。**强烈建议优先复现 + 修复**。
+具体位置:
 
-### 3.2 [P1] 工具计数: 文档 13 vs 实现 14
-
-PRD §4.4 第一段写"11 个工具", SPEC §12.9 写"13 个 MCP 工具", **实际 `ALL_TOOL_SCHEMAS` 注册了 14 个**:
-
-```
-check_login_status
-list_feeds
-search_feeds
-get_feed_detail
-user_profile
-my_profile
-post_comment_to_feed     [SENSITIVE]
-reply_comment_in_feed    [SENSITIVE]
-like_feed                [SENSITIVE]
-favorite_feed            [SENSITIVE]
-publish_content          [SENSITIVE]
-publish_with_video       [SENSITIVE]
-search_local_assets      [local]
-web_search               [local]
-```
-
-**两处对照表**:
-
-| 来源 | 计数 | 偏差 |
-|---|---|---|
-| PRD §4.4 第一段 (P0 必须有 · 第 4 项) | 11 | 包含 `xhs_generate_cover` (**实际未注册**), 不包含 `like_feed` / `favorite_feed` (实际有) |
-| SPEC §12.9 | 13 | 列了 12 工具 + `search_local_assets` + `web_search`, **少算 1 个** (实际 14) |
-
-**修复建议**:
-- PRD §4.4 工具清单更新: 删除 `xhs_generate_cover` 或确认它的状态 (是否在 P2 未做?); 加入 `like_feed` / `favorite_feed`
-- SPEC §12.9 把"13 个"改为"14 个", 列表里加上 `favorite_feed`
-
-### 3.3 [Minor] PRD §4 列 v0.2~v0.3 部分小细节
-
-- PRD v0.5 §4 第 4 项最后一句"自动模式开关": 测试时未在设置里发现该开关入口; 但 IPC 表面也没暴露相关 endpoint。无法判定是否实现 — 仅 IPC + DOM 黑盒看不到。
-- SPEC §3.2 描述 ChatSidebar 频率护栏存计数到 SQLite `rate_log`, 但 `IPC.rate.check` 返回字段含 `windowCount/windowMax/nextAvailableAt` — 与文档描述一致 (PASS, 这里记为正向确认)。
-
-### 3.4 [Minor] license 错误码命名
-
-SPEC §9.1 定义错误码 `LICENSE_CODE_NOT_FOUND`, 但实测 `worker /activate` 调非法 code 返回 `{ ok: false, code: 'CODE_NOT_FOUND', message: ... }` — Worker 端用的是不带 `LICENSE_` 前缀的。客户端如果直接转发可能与 SPEC 不一致。**未阻断功能, 仅命名不统一**。
-
-可选: 在 Worker 端统一加 `LICENSE_` 前缀, 或在 SPEC §9.1 注明 "Worker 错误码不带前缀, 客户端展示前补"。
-
-### 3.5 [Positive] 实现符合 SPEC §12 增量描述
-
-下列实测全部符合文档:
-
-| 项 | 文档 | 测试 ID | 实际 |
+| 文件 | 行 | 上下文片段 | 建议修法 |
 |---|---|---|---|
-| `xhs-asset://` 协议 | SPEC §12.4 | AST-13 / INT-01c | content-type=image/*, 内容 ≥1KB |
-| `xhs-asset://` 不存在 id | SPEC §12.4 | AST-14 / INT-02c / ERR-08 | 返 404 |
-| filename 格式 `picture-YYYYMMDD-HHmmss-N.jpg` | SPEC §12.2 | AST-01 | 正则匹配 ✓ |
-| LLM vision 后 `analyzed=1` + tags 入库 | SPEC §12.2 | AST-05~05d | 字段一致 |
-| `search_local_assets` 本地分发 (`isLocalTool`) | SPEC §12.3 | TOOL-03 / TOOL-11 | 标记 local + IPC `assets.search` 调通 |
-| `web_search` 本地分发 + 搜狗结构化结果 | SPEC §12.3 | WEB-02~07 / TOOL-04 | 返回 ≥3 条 {title,url,snippet} |
-| 4 tab UI (`控制台/小红书/素材库/帮助`) | SPEC §12.1 | TAB-01~06 | 顺序 + DOM class 完全一致 |
-| 5 个常用命令 (`检查登录/发布笔记/发布视频/获取首页推荐/搜索关键词`) | SPEC §12.1 (隐含 5) | TAB-07b | 顺序匹配 |
-| Worker admin list 含本机绑定码 | SPEC §6 + §12.8 | LIC-06 / INT-03 | active + bound_machine_id 一致 |
-| `license.bin` base64 (非 safeStorage) | SPEC §12.5 | (隐含, 启动不弹 Keychain) | 启动无 Keychain 弹窗 |
-| 敏感工具集 6 个 (publish + comment + reply + like + favorite + publish_video) | PRD §4.4 + SPEC §3.2 | TOOL-08 | `isSensitive()` 全覆盖, 安全工具未误标 |
+| `PRD.md` | 18 | 一句话定位: "BYOK 驱动 **11 个**原生 MCP 工具完成创作 / 发布 / 运营全流程" | 改 14 个 (首屏 hero, **优先修**) |
+| `PRD.md` | 380 | 阶段表 M2: "**11 个** MCP 工具全跑通 + 侧边栏 Chat" | 改 14 个 (路线表读者会以为现状 11) |
+| `SPEC.md` | 834 | §11 测试策略: "手动验收 \| **11 个** MCP 工具 + 激活流程 + 跨平台打包" | 改 14 个 |
+| `ROADMAP.md` | 120 | W3 目标: "**11 个** MCP 工具全跑通 + AI 侧边栏" | 改 14 个 |
+| `ROADMAP.md` | 191 | W3 Exit Criteria: "✅ **11 个**工具全部能通过 AI 调用" | 改 14 个 (或保留"全部能调用"去数字化) |
 
-### 3.6 [Minor] preload IPC 表面与 SPEC §2.2 对照
+**不建议改**: `PRD.md:422` "SKILL.md 中的 11 工具描述" —— 这指上游 `x-mcp` 仓库的 `SKILL.md` 内容, 该文件本身实际是 11 工具, 不属本项目口径。
 
-SPEC §2.2 列了 7 个 IPC handler 名 (license:state / mcp:call / config:get 等), 但实测 preload/index.ts 实际命名是:
+| 触发后果 | 修复路径 |
+|---|---|
+| 阅读者看到 PRD 首屏 "11 个" 与 §4.4 "14 个" 不一致, 产生混乱 | 单一来源原则: 数字仅在 §4.4 出现, 其他位置用"全部 MCP 工具"或链接到 §4.4 |
 
-| SPEC 写 | 实际 (preload `window.api.*`) | 状态 |
-|---|---|---|
-| `license:state` | `license.status` | 改名 (功能等价) |
-| `mcp:call` | `goApi(method, path, body)` | 重构 (HTTP 透传) |
-| `mcp:listTools` | (不直接暴露, 客户端硬编码 schemas) | 改架构 |
-| `config:get/set` | (没暴露) | 删除? 未实现? |
-| `byok:test` | (没暴露) | 删除 |
+### B-007 [Info, 非 bug] CDP port 不稳定
 
-**所有 30 个 `window.api` 入口都可调** (IPC-01~10 全过), 但 SPEC §2.2 的接口签名已严重过时。建议同步更新 SPEC 或在文档中标注"v0.2 重构, 详见 preload/index.ts"。
+| 维度 | 内容 |
+|---|---|
+| 严重度 | 测试基础设施 / Info |
+| 现象 | 每次 dev 重启 `picked remote-debugging-port=` 随机化 (v0.1 是 53759, v0.2 是 60334), 测试 helper 需要更新 candidates |
+| 已 mitigate | `_helper.mjs` 改成 `CDP_PORT_CANDIDATES` 数组按序探测, 每次 dev 重启后只需在数组顶部加新端口即可 |
+| 长期建议 | 不修。Electron `picked free port` 是正确行为, 测试侧 list 维护成本低 (5 秒内的事) |
 
-## 4. Bug 清单与严重度
+## 4. 新增/改造测试用例汇总
 
-| ID | 严重度 | 描述 | 影响 | 建议优先级 |
-|---|---|---|---|---|
-| **B-001** | **Critical** | renderer license-active 但卡激活页, 需 reload | 用户体验严重 (启动后看不到主 UI) | **立即** |
-| B-002 | Major | 工具计数文档 13 vs 实现 14 | 文档误导 (不影响功能) | 下个版本 |
-| B-003 | Minor | `xhs_generate_cover` 在 PRD 列但未注册 | 用户预期落差 | 下个版本 |
-| B-004 | Minor | SPEC §2.2 IPC 接口列表过时 (license:state / mcp:call / config:get / byok:test 均与实际不符) | 文档误导, 新协作者会找不到 | 文档周期 |
-| B-005 | Minor | Worker `/activate` 错误 `code` 不带 `LICENSE_` 前缀, SPEC §9.1 写了前缀 | 客户端做错误码 i18n 时会 mismatch | 文档周期 |
+### 4.1 LIC-08 push 通道 E2E (新增, 11 条断言)
 
-## 5. 测试范围与限制
-
-### 5.1 已覆盖
-- ✅ License 全链路 (status / heartbeat / activate 异常 / Worker admin 互验)
-- ✅ IPC 表面 30 个入口 (preload/index.ts 全部声明)
-- ✅ Assets 素材库 18 个 case (上传压缩 / 重命名 / setTags / search 多路 / xhs-asset 协议 / touchUsed / delete)
-- ✅ Chat / Conv CRUD (create / get / setTitle / saveMessages / clearMessages / delete / list / 边界)
-- ✅ Tab 切换 4 个 pane + 5 命令按钮 + 输入框预填
-- ✅ 频率护栏 (publish / comment / like / favorite, 包括非法 action)
-- ✅ Web search (mutex / n 边界 / 空 query / 超长 query)
-- ✅ Tools/Agent (14 工具注册 / 6 敏感 / 2 local / publish_content 含 images / search schema)
-- ✅ 异常 (goApi 不存在 path / activate 'abc' / activate '' / xhs-asset 非法 id / conv.get 非法 id)
-- ✅ 集成链路 (上传→setTags→search→AI 可拿 path / Worker admin 与本机一致 / tab 切换值保留)
-
-### 5.2 未覆盖 (明确)
-- **真发布到小红书**: publish_content / publish_with_video 仅验 schema + IPC 不触发 Go (避风控)
-- **BYOK vision 分析**: 当前 dev 无 BYOK, 跳过; SPEC §13 `analyzeImage` 工作正确性未实证
-- **小红书登录态**: dev 当前未登录, 测 Go `/api/v1/login/status` 返 `XHS_WINDOW_NOT_OPEN`, 链路无法走 publish
-- **跨平台打包**: dmg/nsis build 不在 E2E 测试范围 (CI 验证)
-- **自动更新**: 依赖发版, 不能本地测
-- **SQLite 直接读写**: 绕开 IPC 抽象层无意义, 未做
-- **安全 (asar 加固 / 公钥校验)**: 反向工程测试不在范围
-
-### 5.3 测试环境局限
-- CDP attach 时 `document.hasFocus()=false`, `.focus()` 调用在 Electron 中 OS-level 不生效 → TAB-08b 跳过
-- 公网图源不稳定: 用 3 个 fallback (gstatic / httpbin / picsum)
-- license dev 状态共享: 不能跑 `license.clear()` 否则破坏后续测试
-
-## 6. 复现操作
-
-```bash
-# 前置: dev server 正在跑 (CDP=53759, Go=54092)
-cd /Users/maxwell/Desktop/Claude-Project/xiaohongshu-tool
-
-# 跑全套
-node tests/e2e/run-all.mjs
-
-# 跑单个模块 (退出码 0=PASS / 1=FAIL / 2=基建挂)
-node tests/e2e/license.mjs
-node tests/e2e/assets.mjs
-node tests/e2e/tools-agent.mjs
-
-# 看历史结果
-cat tests/e2e/last-run.json | jq '.total, .modules[] | {file, exit, summary}'
+```
+LIC-08      baseline: main UI rendered (no .activation-card, has .tabbar)
+LIC-08b     clear() 触发 push (count=1)
+LIC-08c     push 最新 status=unactivated
+LIC-08d     300ms 内 DOM 出现 .activation-card
+LIC-08e     300ms 内 .tabbar 消失
+LIC-08f     activate(XHS-7WXF-K9LR-3FLR-FQAG) 返 status=active
+LIC-08g     activate() 再次触发 push (count=2)
+LIC-08h     push 最新 status=active
+LIC-08i     300ms 内 .activation-card 消失
+LIC-08j     300ms 内 .tabbar 重新出现
+LIC-08k     onChanged 返回 unsubscribe function
 ```
 
-## 7. 后续测试建议
+技术点: 在 renderer 注入 hook (`window.__lic_pushEvents = []`), 用 `window.api.license.onChanged()` 累计 push 事件 + timestamps, 比对 clear/activate 前后 DOM 与 push 队列状态。
 
-1. **优先复现 B-001**: 关闭 dev server, 重启, 第一次 attach renderer 立刻 probe `.activation-card` vs `license.status()`; 多 run 几次看是否每次都重现
-2. 等 BYOK 配置完, 加 `tools-agent.mjs` 的 TOOL-09b 真测 `analyzeImage` 链路 (`importUrl` → 调 BYOK vision → setTags 自动写入 → search 命中)
-3. 加 mock LLM 测 `agent.ts` 的 tool-calling loop (敏感工具走确认 dialog 路径)
-4. 加 mock 小红书登录态测 Go publish_content 端到端 (dev cookies.json 准备好)
-5. 配置 Playwright 跑 visual regression (4 tab pane 截图 diff)
+### 4.2 IPC-license-onChanged (新增, 1 条断言)
 
----
+`ipc-surface.mjs` 在 `license` namespace 加入 `onChanged` 检查, 验证新 API 已暴露并是 function。
 
-**测试结论**: v0.3.0 已实现的核心功能 (`assets / chat / web-search / tab / IPC / license / tools`) 全部通过 E2E 黑盒验证, 但发现 1 个 Critical UI 状态 bug (B-001) 应阻断公测发售前修复, 另发现 4 处文档与实现偏差应在下个文档同步周期修正。
+### 4.3 `_helper.mjs` 改造 (workaround 移除)
+
+- **删除**: `Page.reload + 4s wait` 的 B-001 workaround
+- **新增**: `mainUiTimeoutMs` 选项 (默认 5000ms), 仅等 `.tabbar__tab` 出现, 不 reload
+- **新增**: `CDP_PORT_CANDIDATES` 数组 + `probeCdpPort()`, 解决 dev 重启端口变更问题
+- **实测**: 现在 `_helper` 启动时 0ms 内就抓到 `.tabbar__tab` (因为 B-001 已修, baseline 即主 UI), 完全不进 wait loop
+
+## 5. 总结
+
+> v0.2 测试报告核心结论一句话:
+> **B-001 push 通道修复彻底, 客户端代码层 0 残留 bug; 14 工具计数文档仍有 5 处「11 个」残留 (B-006, Low), 建议 PRD §1 一句话 + §2 阶段表两处优先修, 其余可在下次 D 文档同步时一并清理。**

@@ -13,7 +13,7 @@ const expectedSurface = {
   'conv': ['list', 'get', 'create', 'saveMessages', 'setTitle', 'delete', 'clearMessages'],
   'rate': ['check', 'log'],
   'updater': ['check'],
-  'license': ['status', 'getMachineId', 'activate', 'heartbeat', 'clear'],
+  'license': ['status', 'getMachineId', 'activate', 'heartbeat', 'clear', 'onChanged'],
   'assets': ['pick', 'importUrl', 'list', 'delete', 'getPath', 'touchUsed', 'setTags', 'search'],
   'web': ['search'],
 };

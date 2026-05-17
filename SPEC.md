@@ -831,7 +831,7 @@ Renderer 统一捕获、统一展示。
 |---|---|---|
 | 单元测试 | License 加解密、频率护栏、token 验签 | Vitest |
 | 集成测试 | Go subprocess + IPC + License Worker mock | Playwright + Vitest |
-| 手动验收 | 11 个 MCP 工具 + 激活流程 + 跨平台打包 | checklist |
+| 手动验收 | 14 个工具 (12 Go + 2 local) + 激活流程 + 跨平台打包 | checklist |
 
 不做覆盖率指标，关注关键路径不回归即可。
 
