@@ -11,7 +11,17 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14   # arm64 (Apple Silicon). 仅 build arm64, 避 cross-arch native module 污染
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14    # Apple Silicon
+            arch: arm64
+            go_arch: arm64
+          - os: macos-13    # Intel
+            arch: x64
+            go_arch: amd64
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
     steps:
@@ -30,38 +40,39 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Build Go (arm64)
+      - name: Build Go (${{ matrix.arch }})
         working-directory: xiaohongshu-mcp
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.go_arch }}
         run: go build -o ../app/resources/bin/xiaohongshu-mcp .
 
       - name: Install app deps (skip prebuild-install)
         working-directory: app
-        # --ignore-scripts 跳过 better-sqlite3 的 prebuild-install (它默认拉 prebuilt 不验证 arch)
-        # 紧跟 install-app-deps 用 Electron ABI + 当前 runner arch 从源码 rebuild
         run: npm ci --no-audit --ignore-scripts
 
-      - name: Rebuild native modules for Electron (arm64)
+      - name: Rebuild native modules for Electron (${{ matrix.arch }})
         working-directory: app
-        run: ./node_modules/.bin/electron-builder install-app-deps --arch=arm64
+        run: ./node_modules/.bin/electron-builder install-app-deps --arch=${{ matrix.arch }}
 
       - name: Build Electron renderer + main + preload
         working-directory: app
         run: ./node_modules/.bin/electron-vite build
 
-      - name: Package DMG (arm64 only)
+      - name: Package DMG (${{ matrix.arch }})
         working-directory: app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./node_modules/.bin/electron-builder --mac --arm64 --publish never
+        run: ./node_modules/.bin/electron-builder --mac --${{ matrix.arch }} --publish never
 
       - name: List artifacts
         working-directory: app
-        run: ls -lh release/*/*.dmg release/*/*.zip release/*/*.yml
+        run: ls -lh release/*/*.dmg release/*/*.zip release/*/*.yml 2>&1
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: xhs-app-macos
+          name: xhs-app-macos-${{ matrix.arch }}
           path: |
             app/release/*/*.dmg
             app/release/*/*.zip

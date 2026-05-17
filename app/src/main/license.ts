@@ -1,4 +1,4 @@
-import { app, safeStorage, net } from 'electron';
+import { app, net } from 'electron';
 import { machineIdSync } from 'node-machine-id';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
@@ -100,30 +100,26 @@ async function verifyToken(token: string): Promise<TokenPayload | null> {
   }
 }
 
+// 文件存储 (base64 编码): license token + machine_id 绑定. 安全保障由服务端 verify
+// machine_id 提供, 客户端不再加密 (省去 Keychain 弹窗 UX 损失). 旧 safeStorage 加密
+// 数据无法解读 → 当未激活处理, 用户重新输激活码即可.
 function loadStored(): StoredLicense | null {
   const p = licensePath();
   if (!existsSync(p)) return null;
   try {
     const buf = readFileSync(p);
     if (buf.length === 0) return null;
-    if (!safeStorage.isEncryptionAvailable()) {
-      log.warn('[license] safeStorage unavailable; treating as unactivated');
-      return null;
-    }
-    const plain = safeStorage.decryptString(buf);
+    const plain = Buffer.from(buf.toString('utf8'), 'base64').toString('utf8');
     return JSON.parse(plain) as StoredLicense;
   } catch (e) {
-    log.warn(`[license] loadStored failed: ${e}`);
+    log.warn(`[license] loadStored failed (旧 safeStorage 数据将被忽略): ${e}`);
     return null;
   }
 }
 
 function saveStored(data: StoredLicense): void {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('safeStorage encryption is not available on this platform');
-  }
-  const enc = safeStorage.encryptString(JSON.stringify(data));
-  writeFileSync(licensePath(), enc);
+  const enc = Buffer.from(JSON.stringify(data), 'utf8').toString('base64');
+  writeFileSync(licensePath(), enc, 'utf8');
 }
 
 function clearStored(): void {

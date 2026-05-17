@@ -1,6 +1,6 @@
 {
   "name": "xhs-app",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "description": "小红书自运营系统 - Electron 客户端",
   "main": "./out/main/index.js",
@@ -78,18 +78,8 @@
       "category": "public.app-category.utilities",
       "artifactName": "xhs-app-${version}-mac-${arch}.${ext}",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "arm64"
-          ]
-        }
+        { "target": "dmg" },
+        { "target": "zip" }
       ],
       "identity": null,
       "hardenedRuntime": false,
@@ -97,7 +87,13 @@
     },
     "dmg": {
       "writeUpdateInfo": true,
-      "sign": false
+      "sign": false,
+      "contents": [
+        { "x": 130, "y": 200, "type": "file" },
+        { "x": 410, "y": 200, "type": "link", "path": "/Applications" },
+        { "x": 270, "y": 360, "type": "file", "path": "build/install-mac.command", "name": "首次安装.command" }
+      ],
+      "window": { "width": 540, "height": 460 }
     },
     "publish": [
       {
