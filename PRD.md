@@ -1,6 +1,6 @@
 # 小红书自运营系统 PRD
 
-> 版本 v0.4 · 2026-05-16 · 路线 A（完全本地化 + BYOK + 无证书发布）
+> 版本 v0.5 · 2026-05-17 · 路线 A（完全本地化 + BYOK + 无证书发布）
 
 ## 0. 版本变更记录
 
@@ -9,7 +9,8 @@
 | v0.1 | 2026-05-15 | 初稿（路线 B：服务端反代 LLM + 卖 token） |
 | v0.2 | 2026-05-15 | 重大调整：切换到路线 A（完全本地化 + BYOK）。卖 token 业务剥离为独立项目 |
 | v0.3 | 2026-05-16 | 决策无证书发布：砍掉 Apple 公证 + Win 代码签名，接受首次启动用户教育成本 |
-| **v0.4** | 2026-05-16 | **M3 决策拍板：D1 挂牌 ¥399 客服议价、D2 不提供试用、D4 个人收款。M3 服务端 5 接口 + admin CLI 实现完成（E2E 测试 11/11 通过）** |
+| v0.4 | 2026-05-16 | M3 决策拍板：D1 挂牌 ¥399 客服议价、D2 不提供试用、D4 个人收款。M3 服务端 5 接口 + admin CLI 实现完成（E2E 测试 11/11 通过） |
+| **v0.5** | 2026-05-17 | **v0.2 ~ v0.3 系列功能 ship：4-tab UI 重构 / 智能素材库 (压缩 + LLM vision 打 tag) / 📎 附件 + xhs-asset:// 协议 / 联网搜索 (搜狗 hidden BrowserWindow) / 网页管理后台 (Worker /admin) / dmg 内嵌「首次安装.command」+ 0 Keychain. 中转站方案 (E)：待用户决策** |
 
 ## 1. 产品定位
 
@@ -121,6 +122,60 @@
 - 数据导出 / 备份
 - 自定义 system prompt（高级用户）
 - 多账号支持（如果商业模式验证后扩展，且解决风控关联）
+
+### v0.2 ~ v0.3 增量功能（已上线）
+
+> v0.5 PRD 加入这批 ship 完的功能。对应 git tag `v0.2.0` ~ `v0.3.0`。
+
+12. **4-tab UI 重构**（v0.2.0）
+    - tabbar：控制台 / 小红书 / 素材库 / 帮助
+    - 控制台 25/75 分栏：左 (5 常用命令 + 会话列表) + 右 (聊天消息流 + 输入框)
+    - 会话 CRUD：SQLite 存 / 新建 / 切换 / 重命名 / 删除 / 清空消息
+    - 工具调用默认折叠 (错误自动展开)
+    - thinking indicator：思考 / 调用中 / 文字流时各显示
+
+13. **智能素材库**（v0.2.0 + v0.2.2 vision）
+    - 上传 pipeline：nativeImage.toJPEG(75) 压缩 (不缩尺寸) + 重命名 `picture-YYYYMMDD-HHmmss-N.jpg`
+    - LLM vision 打 tag：素材库顶部「🪄 补分析 N 张」按钮，逐张调 BYOK vision 模型生成 3-5 个中文 tag + 一句描述
+    - MCP tool `search_local_assets(query)`：本地处理（不走 Go），按 tag / 描述 / 文件名模糊匹配，AI 拿到候选选 path 塞 `publish_content.images`
+    - 📎 附件 picker modal：从素材库多选，发送时附件路径同时以文本注入 (publish_content.images 用) + base64 image_url 注入 (LLM vision 看图)
+    - 自定义协议 `xhs-asset://{id}`：renderer 在 http://localhost 上加载本地图片，绕过 file:// 跨域限制
+
+14. **联网搜索**（v0.3.0）
+    - MCP tool `web_search(query, n)`：hidden BrowserWindow + 搜狗 HTML 抓取 (executeJavaScript 拿 `div.vrwrap`)
+    - 零外部依赖（无 cheerio、无 API key、无配额）/ 国内直连 / 全 LLM 通用
+    - 串行化 mutex 防并发开多窗 + 15s timeout + 失败结构化兜底
+    - 真 Chrome UA 覆盖 Electron 默认 UA，绕反爬
+    - 用户场景：AI 帮查热点 / 创作素材 / 不确定事实
+
+15. **网页管理后台**（Worker /admin）
+    - https://xhslicense.maxwellii.com/admin
+    - 同源调 admin API 避 CORS，ADMIN_TOKEN 是唯一防线
+    - 两个 tab：发码 (数量 + 过期 + 备注) / 列表 (filter + 吊销 + 换绑)
+    - 行内按钮：吊销 (软删除 revoked + 原因) / 换绑 (新 machine_id)
+
+16. **macOS 首启零命令**（v0.2.7）
+    - dmg 内嵌 `首次安装.command` + Applications 拖拽快捷
+    - 用户双击 .command 自动 `xattr -cr` 解 quarantine + 启动应用
+    - 不再让用户跑命令行
+    - 配合 ad-hoc codesign（无 Apple Developer ID）
+
+17. **客户端零钥匙串弹窗**（v0.2.7）
+    - license.ts 不再用 macOS Keychain (safeStorage)，改文件 base64 编码
+    - 安全保障由服务端 verify machine_id 提供 (拷文件到别机器也激活不了)
+    - 老 Keychain 用户启动会失效需重激活 (一次性 UX 损失)
+
+### 商业化 · 中转站方案（待决策 D6）
+
+> v0.5 新议题。用户提出: 想发"API key"给客户开箱即用,但客户端不能存上游 LLP key (会被破解)。
+
+3 条候选路线 (详见 ROADMAP M5+ 排期讨论):
+
+- B · Worker LLM Gateway: client 用激活码 Bearer 调 Worker, Worker 转发上游 LLM (key 在 Worker secret)
+- D · 混合: 默认 Worker, 高级用户切 BYOK (落地最优)
+- 用户 BYOK 兜底: 现状, 用户输自己的 baseURL/key
+
+待用户最终选 + 排期。涉及成本测算 (每激活码月度 token 配额) + 上游选型 (doubao / DeepSeek / OpenAI)。
 
 ## 5. 系统架构
 
@@ -339,6 +394,9 @@ value: {
 |---|---|---|---|
 | D3 | 产品全名（中英文）+ 域名 | 影响品牌；可选官网 | W10（M5 公测前） |
 | D5 | 支持渠道（微信群 / 邮件 / GitHub Issues） | 影响客服压力 | W10（M5 公测前） |
+| D6 | 中转站方案（默认走 Worker 转发 LLM）落地与否 | 决定客户体验 (开箱即用 vs BYOK) + 服务端成本 | 公测前 |
+| D7 | mac Intel build 是否保留 | 私仓 GH Actions macOS quota 倍率 10x，Intel runner 卡 queue | 公测前 |
+| D8 | 仓库公私 | private 现状 vs public 解决 macOS quota + 利于品牌曝光，无重大泄密 | 公测前 |
 
 ## 11. 附录：现有代码资产清单
 

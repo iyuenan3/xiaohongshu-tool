@@ -1,6 +1,12 @@
 # 小红书自运营系统 SPEC
 
-> 技术规格说明书 v0.1 · 2026-05-16 · 配套 PRD v0.2
+> 技术规格说明书 v0.2 · 2026-05-17 · 配套 PRD v0.5
+>
+> **v0.2 变更**: v0.2.0~v0.3.0 系列 ship 完毕,在文末追加 §12 增量模块章节 (素材库 / 联网搜索 / 自定义协议 / 网页管理后台 / mac 打包流水线).
+> v0.1 部分内容仍 valid, 但部分被取代:
+> - §2.2 `license.ts` 改用文件 base64 (§12.5 详述)
+> - §3.2 ChatSidebar.tsx → ChatPanel.tsx + ConsolePane / CommandPalette / ConversationList (§12.1 详述)
+> - 11 工具变 13 工具 (新增 `search_local_assets` + `web_search` §12.3)
 
 ## 0. 文档定位
 
@@ -810,6 +816,186 @@ Renderer 统一捕获、统一展示。
 
 不做覆盖率指标，关注关键路径不回归即可。
 
+## 12. v0.2 ~ v0.3 增量模块（已上线）
+
+> 对应 git tag `v0.2.0` ~ `v0.3.0`。原 §2-§9 仍有效, 这里只列**新增 / 修改**部分。
+
+### 12.1 Renderer 重构: 控制台 4-tab 架构
+
+```
+App.tsx
+├── tabbar [控制台 / 小红书 / 素材库 / 帮助]
+├── ConsolePane.tsx  (控制台容器, hoist state)
+│   ├── CommandPalette.tsx       (左上 · 5 常用命令: 预填 prompt)
+│   ├── ConversationList.tsx     (左下 · 会话列表 + 新建/重命名/删除)
+│   └── ChatPanel.tsx            (右 · 消息流 + 输入框 + 📎 附件)
+│       ├── AttachmentPicker.tsx (modal 多选素材)
+│       ├── ConfirmDialog.tsx
+│       └── 内嵌 ToolCallItem    (默认折叠 / 错误自动展开)
+├── AssetLibrary.tsx (素材库 tab)
+├── HelpPanel.tsx     (帮助 tab)
+└── <webview src="xiaohongshu.com" partition="persist:xhs"> (小红书 tab)
+```
+
+**控制台布局**:`grid-template-columns: 25% 1fr` (左 25% 命令+会话 / 右 75% 聊天)
+
+**会话 state machine**:
+- ConsolePane 持有 `convId / conversations[]` (SQLite 来源)
+- ChatPanel.useEffect([convId]) 监听切换,加载该对话历史
+- `chatRef.setDraft(text)` 暴露给 CommandPalette,把命令文案塞入输入框 + `___` 占位光标定位
+
+### 12.2 智能素材库 (main + renderer)
+
+**main/assets.ts**:
+```ts
+pickAndImport()              // dialog 选图 → nativeImage.toJPEG(75) 压缩 (不缩尺寸) + 重命名 picture-YYYYMMDD-HHmmss-N.jpg + DB insert
+importFromUrl(url)           // net.fetch 下载 → 同 pipeline
+listAssets() → MediaAsset[]
+getAssetPath(id) → string
+touchUsed(ids[])             // 更新 last_used_at
+deleteAsset(id)              // 删文件 + DB
+setAssetTags(id, tags[], description)  // analyzed=1
+searchAssets(query, limit=10) → MediaAsset[]  // LIKE on tags/description/filename
+```
+
+**DB schema** (新增列, ALTER 升级):
+```sql
+ALTER TABLE media_assets ADD COLUMN tags TEXT DEFAULT '[]';
+ALTER TABLE media_assets ADD COLUMN description TEXT;
+ALTER TABLE media_assets ADD COLUMN analyzed INTEGER DEFAULT 0;
+```
+
+**renderer/ai/assetAnalyzer.ts**:
+```ts
+analyzeImage(cfg: BYOKConfig, imageDataUrl: string) → { tags: string[]; description: string }
+// LLM vision call, prompt 要求严格 JSON 返回, fallback 解析失败时退化 description=raw
+```
+
+**IPC**:
+- `assets:pick` / `assets:importUrl(url)` / `assets:list` / `assets:delete(id)` / `assets:getPath(id)` / `assets:touchUsed(ids[])` / `assets:setTags(id, tags, description)` / `assets:search(query, limit)`
+
+### 12.3 新 MCP 工具 (本地处理, `http: null`)
+
+**`search_local_assets(query, limit)`**:
+- ChatPanel.callTool special-case → `window.api.assets.search()`
+- 返 `[{ id, filename, tags, description, path, analyzed }]`,AI 拿 path 塞 publish_content.images
+
+**`web_search(query, n)`** (v0.3.0):
+- ChatPanel.callTool special-case → `window.api.web.search()`
+- main/web-search.ts 用 hidden BrowserWindow + executeJavaScript 抓搜狗 div.vrwrap
+- 串行化 mutex 防并发开多窗,15s timeout,失败结构化兜底
+- 真 Chrome UA 覆盖 Electron 默认 UA
+
+### 12.4 自定义协议 `xhs-asset://`
+
+**main/index.ts**:
+```ts
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'xhs-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
+]);
+
+protocol.handle('xhs-asset', async (req) => {
+  const id = new URL(req.url).hostname;
+  const path = getAssetPath(id);
+  if (!path) return new Response('not found', { status: 404 });
+  return net.fetch(pathToFileURL(path).toString());
+});
+```
+
+renderer 用 `<img src="xhs-asset://{id}">` 加载本地图片,绕过 `file://` 在 http://localhost 上的 mixed-content / CORS 限制。
+
+### 12.5 license.ts 简化 (去 safeStorage)
+
+**之前** (v0.2.6 及前): `safeStorage.encryptString(json)` → macOS Keychain 加密。首启弹「访问钥匙串机密内容」密码框,体验差。
+
+**v0.2.7+**:
+```ts
+function saveStored(data) {
+  writeFileSync(licensePath(), Buffer.from(JSON.stringify(data)).toString('base64'), 'utf8');
+}
+function loadStored() {
+  return JSON.parse(Buffer.from(readFileSync(licensePath()), 'base64').toString('utf8'));
+}
+```
+
+老 Keychain 数据无法解 (decoding fails) → 当未激活处理,用户重新输激活码即可。**安全保障由服务端 verify machine_id 提供** (拷文件到别机器也激活不了)。
+
+### 12.6 macOS 打包流水线 (无证书 + 首启零命令)
+
+**ad-hoc codesign** (`app/scripts/ad-hoc-sign.cjs`):
+```js
+// electron-builder afterPack hook
+execFileSync('codesign', ['--force', '--deep', '--sign', '-', appPath]);
+```
+解决 macOS Tahoe 对 unsigned binary 报「已损坏」(主 binary 签上,但 quarantine 仍要解)。
+
+**dmg 内嵌 `首次安装.command`** (`app/dmg-resources/install-mac.command`):
+- shell 脚本: `xattr -cr /Applications/小红书自运营.app` 移除 quarantine
+- 弹原生 dialog 确认 + 自动启动应用
+
+**package.json dmg.contents**:
+```json
+"dmg": {
+  "contents": [
+    { "x": 130, "y": 200, "type": "file" },
+    { "x": 410, "y": 200, "type": "link", "path": "/Applications" },
+    { "x": 270, "y": 360, "type": "file", "path": "dmg-resources/install-mac.command", "name": "首次安装.command" }
+  ]
+}
+```
+
+> ⚠️ 注意: 脚本必须放在**非 `build/`** 目录, `.gitignore` 排除 `build/` 整目录, 否则脚本不进 git, build 找不到文件挂掉。
+
+### 12.7 构建 workflow 仅手动触发 (v0.3.0+)
+
+私仓 GH Actions macOS runner 倍率 10x, free tier 容易耗。yml 改:
+```yaml
+on:
+  workflow_dispatch:    # 删 push: tags: 'v*'
+```
+
+发版流程:
+```bash
+git tag v0.x.y -a -m "..."
+git push origin v0.x.y         # 仅留 tag 标记, 不 trigger build
+gh workflow run "Build macOS" --ref main --repo iyuenan3/xiaohongshu-tool
+gh workflow run "Build Windows" --ref main --repo iyuenan3/xiaohongshu-tool
+```
+
+### 12.8 网页管理后台 (Worker /admin)
+
+**worker/src/admin-ui.ts**: 一个 HTML 文件 export 字符串, GET /admin 返回。
+
+- 同源调 admin API (POST /admin/codes / POST /admin/revoke / POST /admin/rebind / **GET /admin/codes** v0.2.2 新增)
+- ADMIN_TOKEN 通过 localStorage 缓存, 首次 prompt 输入
+- 两个 tab: 发码 (数量/过期/备注) / 列表 (status filter + machine_id 子串 + 行内 [吊销] [换绑])
+
+**`handleAdminList(req, env)`** (worker/src/handlers/admin.ts):
+```ts
+const list = await env.LICENSES.list({ prefix: 'code:', limit });
+for (k of list.keys) {
+  const rec = JSON.parse(await env.LICENSES.get(k.name));
+  if (statusFilter && rec.status !== statusFilter) continue;
+  if (search && !rec.bound_machine_id?.includes(search)) continue;
+  codes.push({ ...rec, code: k.name.slice(5) });
+}
+```
+
+### 12.9 工具集变化
+
+13 个 MCP 工具 (原 11 + 2 新增):
+1. check_login_status / list_feeds / search_feeds / get_feed_detail
+2. user_profile / my_profile
+3. post_comment_to_feed / reply_comment_in_feed / like_feed / favorite_feed
+4. publish_content / publish_with_video
+5. **search_local_assets** (renderer 本地) ← v0.2.2
+6. **web_search** (renderer 本地) ← v0.3.0
+
+**system prompt** 加工具选择提示:
+- 查近期事件/创作素材 → 优先 web_search
+- 发图文笔记没明确图 → search_local_assets
+- 浏览/操作小红书 → list_feeds / search_feeds / ...
+
 ---
 
-**文档结束 · SPEC v0.1**
+**文档结束 · SPEC v0.2**

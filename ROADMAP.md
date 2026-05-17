@@ -1,6 +1,14 @@
 # 小红书自运营系统 ROADMAP
 
-> 路线图 v0.3 · 2026-05-16 · 配套 PRD v0.4 + SPEC v0.1
+> 路线图 v0.4 · 2026-05-17 · 配套 PRD v0.5 + SPEC v0.2
+>
+> **v0.4 变更**: 实际开发节奏远超原 10 周计划。M1~M4 全部完成,M5 (公测打磨) 的核心功能也已 ship (v0.2.0 ~ v0.3.0): 4-tab UI / 智能素材库 / 联网搜索 / dmg 引导 / 网页管理后台 / 7 次发版迭代修各种 build pipeline 问题。
+> M5+ 阶段当前讨论新方向: **LLM Gateway 中转站方案** (用户提出, 待最终决策, 见 §12)。
+>
+> 实际版本里程碑:
+> - v0.1.0 (M3 商业化收尾) - 已 ship
+> - v0.2.0 ~ v0.2.7 (UI 重构 + 素材库 + vision + mac 打包流水线 7 次迭代) - 已 ship
+> - v0.3.0 (联网搜索) - 已 ship
 
 ## 0. 总览
 
@@ -396,8 +404,69 @@ LLM 费用由用户自付（BYOK），不计入。
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | v0.1 | 2026-05-16 | 初稿（基于 PRD v0.2 + SPEC v0.1） |
-| **v0.2** | 2026-05-16 | **配套 PRD v0.3 无证书决策：M4 缩短为 1 周；发售提前到 2026-07-26；成本从 ¥3,000 降至 ~¥100** |
+| v0.2 | 2026-05-16 | 配套 PRD v0.3 无证书决策：M4 缩短为 1 周；发售提前到 2026-07-26；成本从 ¥3,000 降至 ~¥100 |
+| v0.3 | 2026-05-16 | M3 W6 提前完成（License Worker 服务端 + admin CLI + E2E 11/11）。D1/D2/D4 决策拍板 |
+| **v0.4** | 2026-05-17 | **v0.2.0~v0.3.0 系列 ship 完毕 (7 次迭代发版)，M5 核心功能上线。新增 §12 M5+ 待规划 (中转站 / Intel build / 仓库公私 / 上游 LLM 选型)** |
+
+## 12. M5+ 待规划
+
+> v0.3.0 已 ship 后,以下功能由用户最新提出, 待决策与排期。
+
+### 12.1 LLM Gateway 中转站 (D6)
+
+**动机**: 用户大概率不知道怎么配 BYOK,期望"激活后开箱即用",但客户端硬编码 LLM key 会被破解。
+
+**3 条候选路径**:
+
+| 方案 | 实现 | 月成本 (你付) | 用户体验 |
+|---|---|---|---|
+| A · 现状 BYOK | 用户自填 baseURL/key | 0 | 高门槛 |
+| **B · 服务端反代 (推荐)** | client 用激活码 Bearer 调你的 Worker, key 留 Worker secret | 按 token 量 (doubao ¥1-6/用户/月) | 开箱即用 |
+| C · 混合 (默认服务端 + 可切 BYOK) | 综合 | 同 B | 99% 默认走你的, 1% 高级用户切 |
+
+**配额建议** (B/C 路径): 激活码 ¥399 一次性 → 月度 500K~1M tokens, 超额买 "加油包" 商业化或自动降级 deepseek。
+
+**实施依赖**:
+- 选定上游 (doubao Coding Plan 推荐, 支持 vision + tool calling, 国内稳)
+- Worker 加 `/v1/chat/completions` endpoint (stream + tool_calls 透传)
+- 加 `usage:CODE:YYYYMM` KV 计数 + 超额 429 + 提示
+- client 改 byok.ts: 激活后默认填 hardcoded Worker URL + 激活码作 key
+
+**预计工程量**: 1-2 天
+
+### 12.2 mac Intel 支持 (D7)
+
+**现状**: yml matrix arm64 + x64 双 job, 私仓 GH Actions Intel runner (macos-13) free tier quota 倍率 10x, 卡 queue 1h+。
+
+**选项**:
+- 接受卡 queue, 月初 quota 重置后再 build
+- 砍 x64 (单 arm64), Intel 用户拿不到包
+- 仓库改 public (free macOS minutes 无 quota, 见 D8)
+
+### 12.3 仓库公私 (D8)
+
+**现状**: private. 优点是源码不公开,缺点是 macOS GH runner 受 quota 限。
+
+**改 public 后**:
+- 无 quota 限制 (公仓 free)
+- 利于品牌曝光
+- 敏感的 INFRA.md / ADMIN_TOKEN 已 gitignore 不暴露
+- 客户偷代码自己 build → 没有合法激活码 + Worker 配额仍跑不起来
+
+**评估倾向**: 公开,跟"开源前端 + 服务收费"的现代商业模式契合。
+
+### 12.4 接口架构调整 (B 路径落地后)
+
+- 删除客户端 BYOK Settings (或藏到 advanced 模式)
+- 激活成功后自动写入 byok config (baseURL = `https://xhsproxy.maxwellii.com/v1`, key = 激活码)
+- 同步部署一个 LLM Gateway Worker (复用 license KV 做激活码验证)
+- vision / web_search 调用都走同一 Worker (统一管理)
+
+### 12.5 Build pipeline 改善
+
+- workflow 已改 `workflow_dispatch` 仅手动触发 (省 quota)
+- 发版流程标准化: 本地 typecheck + e2e → tag → gh workflow run → release
 
 ---
 
-**文档结束 · ROADMAP v0.2**
+**文档结束 · ROADMAP v0.4**
