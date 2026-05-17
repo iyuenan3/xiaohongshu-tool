@@ -91,7 +91,7 @@
       "contents": [
         { "x": 130, "y": 200, "type": "file" },
         { "x": 410, "y": 200, "type": "link", "path": "/Applications" },
-        { "x": 270, "y": 360, "type": "file", "path": "build/install-mac.command", "name": "首次安装.command" }
+        { "x": 270, "y": 360, "type": "file", "path": "dmg-resources/install-mac.command", "name": "首次安装.command" }
       ],
       "window": { "width": 540, "height": 460 }
     },
