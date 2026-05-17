@@ -101,6 +101,12 @@ const api = {
     search: (query: string, limit?: number) =>
       ipcRenderer.invoke('assets:search', query, limit) as Promise<MediaAsset[]>,
   },
+
+  // 联网搜索 (搜狗 HTML)
+  web: {
+    search: (query: string, n?: number) =>
+      ipcRenderer.invoke('web:search', query, n) as Promise<Array<{ title: string; url: string; snippet: string }>>,
+  },
 };
 
 if (process.contextIsolated) {

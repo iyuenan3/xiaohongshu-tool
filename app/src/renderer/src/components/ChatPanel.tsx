@@ -120,6 +120,11 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         analyzed: x.analyzed === 1,
       }));
     }
+    // 本地处理: web_search 走 hidden BrowserWindow + 搜狗 DOM 抓取
+    if (name === 'web_search') {
+      const a = (args ?? {}) as { query?: string; n?: number };
+      return await window.api.web.search(a.query ?? '', a.n ?? 5);
+    }
     const binding = getHttpBinding(name);
     if (!binding) throw new Error(`unknown tool: ${name}`);
     return window.api.goApi(binding.method, binding.path, args);

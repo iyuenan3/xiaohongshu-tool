@@ -18,7 +18,8 @@ export type ToolName =
   | 'favorite_feed'
   | 'publish_content'
   | 'publish_with_video'
-  | 'search_local_assets';
+  | 'search_local_assets'
+  | 'web_search';
 
 interface ToolBinding {
   schema: OpenAI.Chat.Completions.ChatCompletionTool;
@@ -277,6 +278,34 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
             limit: {
               type: 'integer',
               description: '返回数量上限, 默认 10',
+            },
+          },
+          required: ['query'],
+        },
+      },
+    },
+    http: null,
+    sensitive: false,
+  },
+  web_search: {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'web_search',
+        description:
+          '联网搜索互联网获取实时信息 (搜狗, 国内直连, 免费). 用于查询当前热点 / 近期事件 / 产品信息 / 创作素材 / 模型训练数据未覆盖的内容. 中文 query 优先. 返回每条含 title/url/snippet (snippet 是摘要 ≤300 字).',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: '搜索关键词, 中文优先, 3-10 字最佳. 例如 "秋季穿搭流行色 2026" / "iPhone 17 评测" / "露营装备清单"',
+            },
+            n: {
+              type: 'integer',
+              description: '返回结果数, 1-10, 默认 5',
+              minimum: 1,
+              maximum: 10,
             },
           },
           required: ['query'],

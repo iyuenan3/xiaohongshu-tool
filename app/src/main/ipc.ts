@@ -13,6 +13,7 @@ import {
   pickAndImport, importFromUrl, listAssets, deleteAsset, getAssetPath, touchUsed,
   setAssetTags, searchAssets,
 } from './assets';
+import { searchWeb } from './web-search';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -107,4 +108,7 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
     return { ok: true };
   });
   ipcMain.handle('assets:search', (_, query: string, limit?: number) => searchAssets(query, limit));
+
+  // 联网搜索 (隐藏 BrowserWindow + 搜狗 DOM 抓取)
+  ipcMain.handle('web:search', (_, query: string, n?: number) => searchWeb(query, n));
 }

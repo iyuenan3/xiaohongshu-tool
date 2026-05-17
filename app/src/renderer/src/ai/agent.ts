@@ -28,7 +28,12 @@ const SYSTEM_PROMPT_BASE = `你是小红书内容创作与运营助手, 通过 1
 3. 发布内容: 标题 ≤ 20 字, content 不能包含 # 开头的标签, 标签放 tags 参数 (不加 #), 图片 1-9 张
 4. 用户要求"批量"或"频繁"操作时, 提醒频率风控 (建议每天发布 ≤ 3 篇, 间隔 ≥ 30 分钟)
 5. 一次只调一个工具, 等结果后再继续
-6. 对话用中文, 简洁不啰嗦`;
+6. 对话用中文, 简洁不啰嗦
+
+工具选择提示:
+- 用户问"现在/最近 X 是什么" / "查一下 Y" / 不确定的事实 / 创作素材时, 优先用 web_search 搜全网 (免费, 国内直连)
+- 发图文笔记但用户没明确给图片路径时, 用 search_local_assets 从素材库找候选
+- 浏览/操作小红书内容时, 用 list_feeds / search_feeds / get_feed_detail 等小红书工具`;
 
 async function buildSystemPrompt(): Promise<string> {
   let prompt = SYSTEM_PROMPT_BASE;
