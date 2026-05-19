@@ -1,8 +1,17 @@
 import type { Env } from './types';
 import { handleActivate } from './handlers/activate';
 import { handleHeartbeat } from './handlers/heartbeat';
-import { handleAdminCodes, handleAdminRevoke, handleAdminRebind, handleAdminList } from './handlers/admin';
+import {
+  handleAdminCodes,
+  handleAdminList,
+  handleAdminOverdue,
+  handleAdminRebind,
+  handleAdminResume,
+  handleAdminRevoke,
+  handleAdminSuspend,
+} from './handlers/admin';
 import { handleVersion } from './handlers/version';
+import { handleQuota } from './handlers/quota';
 import { ADMIN_HTML } from './admin-ui';
 import { err } from './util';
 
@@ -19,6 +28,8 @@ export default {
           return await handleHeartbeat(req, env);
         case 'GET /version':
           return await handleVersion(req, env);
+        case 'GET /quota':
+          return await handleQuota(req, env);
         case 'POST /admin/codes':
           return await handleAdminCodes(req, env);
         case 'GET /admin/codes':
@@ -27,9 +38,15 @@ export default {
           return await handleAdminRevoke(req, env);
         case 'POST /admin/rebind':
           return await handleAdminRebind(req, env);
+        case 'POST /admin/suspend':
+          return await handleAdminSuspend(req, env);
+        case 'POST /admin/resume':
+          return await handleAdminResume(req, env);
+        case 'GET /admin/overdue':
+          return await handleAdminOverdue(req, env);
         case 'GET /':
           return new Response(
-            JSON.stringify({ ok: true, service: 'xhs-license', version: '0.1.0' }),
+            JSON.stringify({ ok: true, service: 'xhs-license', version: '0.6.0' }),
             { headers: { 'content-type': 'application/json; charset=utf-8' } },
           );
         case 'GET /admin':

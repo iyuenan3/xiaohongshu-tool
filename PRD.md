@@ -1,6 +1,6 @@
 # 小红书自运营系统 PRD
 
-> 版本 v0.5 · 2026-05-17 · 路线 A（完全本地化 + BYOK + 无证书发布）
+> 版本 v0.6 · 2026-05-19 · 路线 A 升级（完全本地化 + **自营 LLM 中转** + 无证书发布）
 
 ## 0. 版本变更记录
 
@@ -10,39 +10,42 @@
 | v0.2 | 2026-05-15 | 重大调整：切换到路线 A（完全本地化 + BYOK）。卖 token 业务剥离为独立项目 |
 | v0.3 | 2026-05-16 | 决策无证书发布：砍掉 Apple 公证 + Win 代码签名，接受首次启动用户教育成本 |
 | v0.4 | 2026-05-16 | M3 决策拍板：D1 挂牌 ¥399 客服议价、D2 不提供试用、D4 个人收款。M3 服务端 5 接口 + admin CLI 实现完成（E2E 测试 11/11 通过） |
-| v0.5 | 2026-05-17 | v0.2 ~ v0.3 系列功能 ship：4-tab UI 重构 / 智能素材库 (压缩 + LLM vision 打 tag) / 📎 附件 + xhs-asset:// 协议 / 联网搜索 (搜狗 hidden BrowserWindow) / 网页管理后台 (Worker /admin) / dmg 内嵌「首次安装.command」+ 0 Keychain. 中转站方案 (E)：待用户决策 |
-| **v0.5.1** | 2026-05-17 | **黑盒 E2E 测试 (subagent 跑 164/167 pass) 发现 5 个 bug, 修完: B-001 license 状态变化 push 通道 (代码改); B-002 工具计数 11/13 → 14 (PRD §4.4 + SPEC §12.9); B-003 删 xhs_generate_cover 占位 (PRD §4.4); B-004 SPEC §2.2 加 v0.2 重构通知; B-005 §9.1 错误码前缀约定明确 (Worker 不带 LICENSE_)** |
+| v0.5 | 2026-05-17 | v0.2 ~ v0.3 系列功能 ship：4-tab UI 重构 / 智能素材库 / 📎 附件 + xhs-asset:// 协议 / 联网搜索 / 网页管理后台 / dmg 内嵌「首次安装.command」+ 0 Keychain. 中转站方案 (E)：待用户决策 |
+| v0.5.1 | 2026-05-17 | 黑盒 E2E 测试 (subagent 跑 164/167 pass) 发现 5 个 bug, 修完: B-001 license 状态变化 push 通道; B-002 工具计数 11/13 → 14; B-003 删 xhs_generate_cover 占位; B-004 SPEC §2.2 加 v0.2 重构通知; B-005 §9.1 错误码前缀约定明确 |
+| **v0.6** | **2026-05-19** | **D6 拍板：自营 LLM 中转方案 (newapi 网关 + 一码一 newapi user + bind XHS Plan)。商业模式：软件一次性买断 + LLM 月费另收 (newapi VIP Plan monthly reset, 维护者运营时定价)。未续费 → token suspend + chat 锁 + 15 天后 revoke (分级停用)。BYOK 默认 UI 隐藏, dev 模式暗号解锁逃生口。详见 §6.7 + SPEC §12.10** |
 
 ## 1. 产品定位
 
-一句话：**一个内置 AI 助手的小红书桌面浏览器，登录即用、完全本地化、BYOK 驱动 14 个工具 (12 个 Go MCP + 2 个 renderer 本地) 完成创作 / 发布 / 运营全流程。**
+一句话：**一个内置 AI 助手的小红书桌面浏览器，登录即用、完全本地化、零配置 LLM (自营 newapi 中转 + auto-llm 智能调度) 驱动 14 个工具 (12 个 Go MCP + 2 个 renderer 本地) 完成创作 / 发布 / 运营全流程。**
 
 - 形态：基于 Electron + Chromium 内核的专用浏览器
 - 内嵌：`xiaohongshu-mcp` Go 服务（不对外暴露）
-- AI：侧边栏 Chat，用户自带大模型 API Key（BYOK），客户端直连大模型
-- 商业模式：一次性买断 + 激活码授权
-- 零服务端（仅 Cloudflare Workers 上的轻量激活服务，免费）
+- AI：侧边栏 Chat，**自营 LLM 中转 (newapi 网关 + auto-llm 智能调度)，客户零配置；BYOK 默认 UI 隐藏，dev 模式暗号解锁逃生口**
+- 商业模式：软件一次性买断 + 激活码授权 + LLM 服务费月续 (未续费 → 分级停用)
+- 服务端：Cloudflare Worker 激活服务 + 自营 newapi 中转站 (alicloud-sh)
 
 ## 2. 目标用户
 
 | 用户画像 | 核心诉求 | 我们的解决 |
 |---|---|---|
 | 个人高频创作者 | 一键发笔记、AI 写文案、操作可视化 | Electron 壳 + AI 侧边栏 |
-| 隐私敏感者 | 数据不出本机、Cookie 不流转 | 完全本地化，零云端 |
-| 技术友好型用户 | BYOK 自管、不愿被云中转 | 直连自己的大模型账号 |
+| 隐私敏感者 | 数据不出本机、Cookie 不流转 | 完全本地化，仅 LLM 调用走自营中转 (跟厂商 BYOK 同性质) |
+| **零配置型用户** | **买完即用，不想注册火山方舟/DeepSeek 账号** | **激活即聊, LLM 服务费按月续, 维护者后台运维** |
 
-**注**：原 PRD v0.1 的"MCN 工作室"用户群因"仅支持 1 个小红书账号"决策而退出目标用户。
+**注 1**：原 PRD v0.1 的"MCN 工作室"用户群因"仅支持 1 个小红书账号"决策而退出目标用户。
+
+**注 2**：v0.6 起 BYOK 不再是默认对外卖点 (UI 隐藏)，dev 模式暗号解锁后仍可用作逃生口 (中转站宕机 / 客户特殊需求 / 内部调试)。
 
 ## 3. 竞品对比
 
 | 维度 | xiaohongshu-mcp Docker | x-mcp 插件版 | **本方案** |
 |---|---|---|---|
 | 部署门槛 | 高（Docker/Go） | 低（装插件） | **极低（装应用）** |
-| 云依赖 | 无 | 强依赖 aredink | **无（除激活服务）** |
+| 云依赖 | 无 | 强依赖 aredink | **轻 (激活 + LLM 中转)** |
 | 操作可见 | 无头不可见 | 在日常 Chrome 可见 | **专用窗口可见** |
-| AI 内置 | 无 | 无 | **侧边栏 Chat（BYOK）** |
+| AI 内置 | 无 | 无 | **侧边栏 Chat (零配置, 自营 LLM 中转)** |
 | 隔离性 | 进程级 | 与日常浏览混用 | **应用级独立** |
-| 商业化 | 开源免费 | 免费 + 云端付费 token | **付费 + 激活码绑机器** |
+| 商业化 | 开源免费 | 免费 + 云端付费 token | **软件一次性买断 + 激活码绑机器 + LLM 月续费** |
 
 ## 4. 核心功能
 
@@ -58,14 +61,11 @@
    - 监听 `127.0.0.1:<random>`，不绑定 0.0.0.0，**不对外暴露**
    - Go 端改造：新增 `--cdp-endpoint` 参数，让 `go-rod` 通过 CDP attach 到 Electron BrowserWindow
 
-3. **AI 侧边栏（BYOK 直连）**
+3. **AI 侧边栏（v0.6 起：中转默认 + BYOK 逃生口）**
    - 右侧常驻可折叠面板
-   - 支持 3 类 Provider：
-     - 火山方舟（`https://ark.cn-beijing.volces.com/api/v3`）
-     - DeepSeek 官方（`https://api.deepseek.com/v1`）
-     - OpenAI 兼容自定义（baseURL + key 用户填）
-   - API Key 用 Electron `safeStorage` 加密存储（macOS Keychain / Windows DPAPI）
-   - 不预设默认模型，引导用户从 Provider 选择
+   - **默认中转模式**: 激活后 Worker `/activate` 下发 `llm: { base_url, api_key, model: "auto-llm" }`, 客户端写 `license.json`, agent 直接调用, 用户零配置 (详见 §6.7)
+   - **BYOK 逃生口** (Dev 模式, UI 隐藏): 暗号 `doubleLyuzhouwudidashuaige` 在 Settings 反馈框 onChange 检测解锁, 解锁后显示 BYOK 配置区, 仍支持火山方舟 / DeepSeek / OpenAI 兼容自定义 (详见 §7)
+   - License + LLM 配置用 file base64 编码存储（v0.2.7 起改文件存储, 不再用 macOS Keychain）
    - 流式响应（SSE，OpenAI 兼容 chat.completions）
    - 页面上下文感知：能读取当前激活 webContents 的 URL/标题/简化 DOM 作为 prompt 上下文
    - 客户端持有 conversation history（SQLite，存 `app.getPath('userData')`）
@@ -171,17 +171,19 @@
     - 安全保障由服务端 verify machine_id 提供 (拷文件到别机器也激活不了)
     - 老 Keychain 用户启动会失效需重激活 (一次性 UX 损失)
 
-### 商业化 · 中转站方案（待决策 D6）
+### 商业化 · 中转站方案（v0.6 D6 已拍板）
 
-> v0.5 新议题。用户提出: 想发"API key"给客户开箱即用,但客户端不能存上游 LLP key (会被破解)。
+✅ **方案 X · 一码一 newapi user + bind XHS Plan** (newapi 网关 + 月度自动 reset)
 
-3 条候选路线 (详见 ROADMAP M5+ 排期讨论):
+落地详见 §6.7 「LLM 中转站架构 (D6)」, 技术实现详见 [SPEC §12.10](./SPEC.md), 实施 checklist 详见 [ROADMAP §13 M6](./ROADMAP.md)。
 
-- B · Worker LLM Gateway: client 用激活码 Bearer 调 Worker, Worker 转发上游 LLM (key 在 Worker secret)
-- D · 混合: 默认 Worker, 高级用户切 BYOK (落地最优)
-- 用户 BYOK 兜底: 现状, 用户输自己的 baseURL/key
-
-待用户最终选 + 排期。涉及成本测算 (每激活码月度 token 配额) + 上游选型 (doubao / DeepSeek / OpenAI)。
+核心:
+- 自营 newapi 网关 (基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api), 已部署 alicloud-sh)
+- 每激活码 = newapi 一个 user (username=`xhs-<激活码末两段小写>`, e.g. `xhs-wx2a-bcdf`, 13 字符) + bind XHS Plan (id=2, 月度 reset) + 一个 token (name=username, model_limits=`auto-llm`)
+- **多租户隔离**: newapi 实例同时服务其他应用 (lijunfeng 等), Worker 仅管理 `xhs-` 前缀 user / XHS Plan / xhs group, 写操作前 `assertXhsTenant()` 护栏验证, 详见 SPEC §12.10.13
+- 客户端零配置: base_url / api_key / model 由 Worker `/activate` 下发, 客户输完激活码即聊
+- 未续费分级停用 (suspend 15 天软停 → revoke 硬停), 详见 §6.7
+- BYOK 入口隐藏: Settings 反馈框输入暗号解锁 dev 模式 (具体暗号见 `~/.secrets/xhs-secrets.txt`)
 
 ## 5. 系统架构
 
@@ -246,12 +248,12 @@
 
 | 维度 | 决策 |
 |---|---|
-| 模式 | **一次性买断** |
-| 价格 | **挂牌 ¥399，实际成交价由客服 1V1 议价**（v0.4 D1 拍板） |
-| 试用版 | **无**（仅提供 demo 视频 + 截图）（v0.4 D2 拍板） |
-| 含更新 | 1 年内更新免费，1 年后买更新订阅（V2 决定） |
-| 收款 | **MVP 个人名义收款**（微信/支付宝转账），首月销量 > 30 单后再升级个体工商户（v0.4 D4 拍板） |
-| LLM 费用 | **用户自付**（用户自己开通火山方舟/DeepSeek 账号） |
+| 模式 | **软件一次性买断 + LLM 月续费 (松绑定 + 分级停用)** |
+| 价格 | **挂牌 ¥399，实际成交价由客服 1V1 议价**（v0.4 D1 拍板）|
+| LLM 服务费 | **按月续费, 维护者运营时定价**（v0.6 D6 拍板。auto-llm 智能调度, 月初 newapi 自动 reset quota; 未续费 → token suspend + chat 锁 + 15 天后 revoke。详见 §6.7）|
+| 试用版 | **无**（仅提供 demo 视频 + 截图）（v0.4 D2 拍板）|
+| 含更新 | 1 年内更新免费，1 年后买更新订阅（V2 决定）|
+| 收款 | **MVP 个人名义收款**（微信/支付宝转账），首月销量 > 30 单后再升级个体工商户（v0.4 D4 拍板）|
 
 ### 6.2 激活码生成与发放
 
@@ -292,45 +294,118 @@
 - 你执行：`curl /admin/rebind -d '{"code":"XXX","new_machine_id":"YYY"}'`
 - 策略：**每年 3 次免费，超出 ¥99/次**（文案明示）
 
+### 6.7 LLM 中转站架构（v0.6 D6 拍板）
+
+#### 商业模式
+
+- **软件一次性买断 + LLM 服务费月续**: 软件 ¥399 一次性 (永久 license), LLM 服务费按月续 (具体金额由 Maxwell 跟客户协商, 不写文档)
+- **自动续费 vs 手动停用**:
+  - 默认 = 自动续费 (newapi `XHS Plan` 原生 monthly reset, 月初自动恢复 quota)
+  - 客户没付月费 → Maxwell **手动**调 Worker `/admin/suspend` → newapi token disable + license.status="suspended"
+  - 客户续费 → Maxwell 调 `/admin/resume` → token enable + license.status 恢复 "active"
+- **分级停用** (松绑定, 防误伤"软件买断"语义):
+  - 短期 (≤ 15 天 suspended): 软件能开, chat 锁死 + banner 提示续费, 其他功能 (浏览/手动发布/查素材) 正常
+  - 长期 (> 15 天 suspended 未恢复): Maxwell 手动 `/admin/revoke` → license 永久失效, 软件硬停
+- **配额机制**: 客户绑 `XHS Plan` (newapi 原生 monthly reset), Maxwell 后台配 `total_amount` 调整 cap, 具体数值不写文档
+- 选型: 自营 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 中转 (alicloud-sh 部署, Caddy 反代。**域名 `llm.maxwellii.com` 走 LE 合法证书** (Worker 跨境用); **IP `139.196.157.57` 走 Caddy 自签 sni-fallback** (客户端国内用, DPI 拦 SNI 必须 IP)。详见 [newapi-proxy/USAGE.md](../newapi-proxy/USAGE.md))
+
+#### 用户体验
+
+- **零配置激活**: 输入激活码 → 主进程 license push 通道下发 LLM 配置 (base_url + api_key + model) → 立即可聊
+- **强制 auto-llm 智能调度**: 客户端 model 字段写死 `auto-llm` (newapi token model_limits 锁死), 火山方舟自动在豆包/Kimi/DeepSeek/GLM/MiniMax 间挑最优, 价格最低
+- **配额可视**: Settings 显示"本月剩余 ¥X / ¥Y, 下月 1 日 00:00 自动重置", 启动 + 每次 chat 完成异步刷新
+- **配额耗尽硬阻断**: chat 输入框 disable, Send 按钮置灰, 顶部 banner "本月额度已用完, 下月 1 日 00:00 自动重置, 联系客服微信 xxx 临时加额"
+- **suspended (未续费) 软停**: chat 输入框 disable, Send 置灰, banner "AI 服务已暂停, 请联系客服续费 LLM 服务", dev 暗号入口仍可用
+
+#### Dev 模式逃生口（隐藏）
+
+- **触发**: Settings 反馈框 (常驻 UI, 主用途给客服反馈问题), 输入暗号 `doubleLyuzhouwudidashuaige`, onChange 实时检测 → 弹 dialog "已解锁开发者模式"
+- **能力**: 解锁后 Settings 出现 BYOK 配置区 (baseURL / API Key / model), 可在中转 / BYOK 间切换
+- **持久化**: `license.json` 加 `dev_mode: true` 标志, 重启保留
+- **存储**: `license.json` 加 `byok: { base_url, api_key, model }` 字段, 跟 `llm` 字段并列
+- **agent 选择**: `license.dev_mode === true ? license.byok : license.llm`
+- **使用场景**: 中转站宕机应急 / 客户要 Claude/GPT-4 等中转不支持的模型 / 内部 debug
+
+#### 失败兜底
+
+| 场景 | 处理 |
+|---|---|
+| Worker → newapi 网络/超时 | 重试 3 次, 仍失败 → `/activate` 返回 `llm: null`, 客户端 dialog "中转暂不可用, 暗号切 BYOK" |
+| newapi 自身宕机 | 同上 |
+| 客户端 SSL handshake 失败 | dialog "网络异常, 请检查 IP 或暗号切 BYOK" |
+| 配额耗尽 | dialog + 输入框 disable, 仅 dev mode 入口可用 |
+
+#### 跟其他模块的关系
+
+- **激活码生命周期**: 发码同步建 newapi user + sub + token (强一致回滚), 吊销同步 disable newapi token, 换绑不动 newapi (LLM key 跟 machine 解耦)
+- **base_url 动态下发**: Worker `/activate` + `/heartbeat` 都返回最新 `llm.base_url`, 客户端检测变化 → push renderer 更新 → Maxwell 改 IP 后客户端最迟 heartbeat 周期 (1h) 内自动 catch
+- **客户端 SSL**: 主进程 `app.on('certificate-error')` 仅对 `139.196.157.57` 放行 (Caddy 自签证书), 其他 HTTPS 仍严格验证
+
 ### 6.5 License Server（Cloudflare Workers）
 
 接口设计：
 
 ```
 用户端:
-  POST /activate    { code, machine_id }    → { token, valid_until }
-  POST /heartbeat   { token }                → { ok, latest_version, revoked? }
+  POST /activate    { code, machine_id }    → { token, valid_until, status, llm }
+  POST /heartbeat   { token }                → { ok, status, llm, latest_version, revoked? }
+  GET  /quota?code&sig                       → { remain_cny, total_cny, used_cny, next_reset_at }    (v0.6 D6)
 
 管理端 (Bearer ADMIN_TOKEN):
   POST /admin/codes  { quantity, notes }      → { codes: [...] }
   POST /admin/revoke { code, reason }         → { ok }
   POST /admin/rebind { code, new_machine_id } → { ok }
+  POST /admin/suspend{ code, reason }         → { ok }    (v0.6 D6: 软停, token disable + status=suspended)
+  POST /admin/resume { code }                 → { ok }    (v0.6 D6: 恢复, token enable + status=active)
 ```
+
+**heartbeat 周期**: 客户端 24h 一次主动调 /heartbeat (代码常量 HEARTBEAT_INTERVAL_MS)。**suspend 后客户端实际感知**靠两条路径取早:
+- 主路径 (即时): 用户调 LLM 时 newapi token 已 disable → 401/403 → agent.ts catch → 立即 refreshLicense + 锁 chat
+- 兜底路径 (最多 24h): 下次 heartbeat 同步 status → 锁 chat
+
+离线 + 不调 LLM 时 license 不更新, 但此场景下用户也无法用 AI 功能, 业务无损。
 
 KV 数据结构：
 
 ```
 key: code:XHS-XXXX-XXXX-XXXX-XXXX
 value: {
-  status: 'unused' | 'active' | 'revoked',
+  status: 'unused' | 'active' | 'suspended' | 'revoked',  // v0.6 D6 加 suspended
   bound_machine_id: string | null,
   bound_at: ISO timestamp,
   expire_at: ISO timestamp,
   rebind_count: number,
-  notes: string
+  notes: string,
+  // v0.6 D6 加 (完整 schema 详见 SPEC §6.4)
+  newapi_user_id: number | null,
+  newapi_sub_id: number | null,
+  newapi_token_id: number | null,
+  api_key_encrypted: string | null,
+  suspended_at: ISO timestamp | null,
+  suspend_reason: string | null,         // 仅运营内部, 客户端不展示
+  resumed_at: ISO timestamp | null,
+  revoked_at: ISO timestamp | null
 }
 ```
 
 成本：Cloudflare Workers 免费版（10w 请求/天 + 100k KV 读/天）足够你年用户量级。
 
-## 7. BYOK 大模型接入
+## 7. LLM 接入（v0.6 起：中转默认 + BYOK 逃生口）
 
 ### 7.1 配置 UI
 
-- **首次启动引导**：激活码输入 → AI 配置（选 Provider + 填 API Key + 选模型）→ 完成
-- **设置页**：随时可改
+- **默认状态 (中转模式)**: 用户**无需任何 LLM 配置**, 激活后 Worker /activate 下发完整 LLM 配置 (base_url + api_key + model), 自动写 `license.llm`
+- **Dev 模式 (BYOK 逃生口)**: 暗号 `doubleLyuzhouwudidashuaige` 解锁后, Settings 出现 BYOK 配置区, 允许填 baseURL / API Key / model 并切换
 
 ### 7.2 Provider 支持
+
+**中转模式 (默认)**:
+
+| 端点 | URL | 模型 |
+|---|---|---|
+| OpenAI 兼容 | `https://139.196.157.57/v1` (Worker 下发) | 强制 `auto-llm` (火山方舟智能调度, 自动选豆包/Kimi/GLM/MiniMax/DeepSeek 最优) |
+
+**BYOK 模式 (Dev 模式可见)**:
 
 | Provider | baseURL | 注册指引 |
 |---|---|---|
@@ -376,33 +451,35 @@ value: {
 
 | 阶段 | 周期 | 产出 |
 |---|---|---|
-| **M1 PoC** | 1-2 周 | Electron 单窗口 + Go 子进程 + CDP 联调成功 + `publish_content` 单工具跑通 |
-| **M2 内核完成** | 2-3 周 | 11 个 MCP 工具全跑通 + 侧边栏 Chat（BYOK 火山方舟一个 Provider 起步）；v0.2/v0.3 后扩为 12 Go + 2 local = 14 |
-| **M3 商业化** | 2 周 | Cloudflare Worker 激活服务 + 客户端激活流程 + 加固 |
-| **M4 跨平台 + 自动更新** | 1 周 | macOS / Windows 无证书打包 + electron-updater + 首次启动指引文档 |
-| **M5 公测打磨** | 1-2 周 | 小范围灰度 + bug fix + 文档 |
+| **M1 PoC** | 1-2 周 | Electron 单窗口 + Go 子进程 + CDP 联调成功 + `publish_content` 单工具跑通 (✅ 已完成) |
+| **M2 内核完成** | 2-3 周 | 11 个 MCP 工具全跑通 + 侧边栏 Chat (BYOK 火山方舟起步, v0.2/v0.3 后扩为 12 Go + 2 local = 14) (✅ 已完成) |
+| **M3 商业化** | 2 周 | Cloudflare Worker 激活服务 + 客户端激活流程 + 加固 (✅ 已完成) |
+| **M4 跨平台 + 自动更新** | 1 周 | macOS / Windows 无证书打包 + electron-updater + 首次启动指引文档 (✅ 已完成) |
+| **M5 公测打磨** | 1-2 周 | UI 重构 / 智能素材库 / 联网搜索 / 12 次发版迭代 (✅ 已完成) |
+| **M6 LLM Gateway 实施** | 2-3 天 | **D6 自营 newapi 中转 (方案 X 一码一 user + bind XHS Plan)。详见 ROADMAP §13** (🔧 进行中 2026-05-19) |
+| **M7 公测发售** | 待 D3/D5 决策 | 种子用户灰度 + 首发 (⏳ pending) |
 
-总计 ~10 周到首版可售卖（v0.3 无证书后再省 1 周）。
+总计: M1-M5 + M6 D6 实施完成后, M7 公测发售 (待 D3 产品名/D5 客服渠道 决策)。
 
 ## 10. 待决策清单（剩余）
 
-### 已拍板（v0.4 / 2026-05-16）
+### 已拍板
 
 | 编号 | 议题 | 决策 |
 |---|---|---|
-| ✅ D1 | 售价 | 挂牌 ¥399 + 客服议价 |
-| ✅ D2 | 试用版 | 无（仅 demo 视频/截图） |
-| ✅ D4 | 法律主体 | 个人名义（首月销量验证后升级个体户） |
+| ✅ D1 | 售价 | 挂牌 ¥399 + 客服议价（v0.4 / 2026-05-16） |
+| ✅ D2 | 试用版 | 无（仅 demo 视频/截图）（v0.4 / 2026-05-16） |
+| ✅ D4 | 法律主体 | 个人名义（首月销量验证后升级个体户）（v0.4 / 2026-05-16） |
+| ✅ **D6** | **LLM 中转站方案** | **方案 X · 一码一 newapi user + bind XHS Plan, 软件买断 + LLM 月续费 + 未续 15 天软停 → revoke 硬停（v0.6 / 2026-05-19）。详见 §6.7** |
 
 ### 待决策
 
 | 编号 | 议题 | 影响 | 截止 |
 |---|---|---|---|
-| D3 | 产品全名（中英文）+ 域名 | 影响品牌；可选官网 | W10（M5 公测前） |
-| D5 | 支持渠道（微信群 / 邮件 / GitHub Issues） | 影响客服压力 | W10（M5 公测前） |
-| D6 | 中转站方案（默认走 Worker 转发 LLM）落地与否 | 决定客户体验 (开箱即用 vs BYOK) + 服务端成本 | 公测前 |
-| D7 | mac Intel build 是否保留 | 私仓 GH Actions macOS quota 倍率 10x，Intel runner 卡 queue | 公测前 |
-| D8 | 仓库公私 | private 现状 vs public 解决 macOS quota + 利于品牌曝光，无重大泄密 | 公测前 |
+| D3 | 产品全名（中英文）+ 域名 | 影响品牌；可选官网 | M7 公测前 |
+| D5 | 支持渠道（微信群 / 邮件 / GitHub Issues） | 影响客服压力 | M7 公测前 |
+| D7 | mac Intel build 是否保留 | 私仓 GH Actions macOS quota 倍率 10x，Intel runner 卡 queue | M7 公测前 |
+| D8 | 仓库公私 | private 现状 vs public 解决 macOS quota + 利于品牌曝光，无重大泄密 | M7 公测前 |
 
 ## 11. 附录：现有代码资产清单
 
@@ -434,4 +511,4 @@ value: {
 
 ---
 
-**文档结束 · v0.2**
+**文档结束 · v0.6**

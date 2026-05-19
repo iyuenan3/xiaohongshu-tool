@@ -106,6 +106,34 @@ async function bootstrap(): Promise<void> {
   await app.whenReady();
   electronApp.setAppUserModelId('com.xhs.app');
 
+  // v0.6 D6: cert-error 动态放行 newapi 中转 IP (Caddy 自签 sni-fallback)
+  // allowedHosts 从 license.llm.base_url 动态解析, 兜底硬编码 IP
+  app.on('certificate-error', (event, _webContents, url, _error, _cert, callback) => {
+    const allowed = new Set<string>(['139.196.157.57']);
+    // 同步读 license cache (loadStored 已在 cacheLoaded 时初始化)
+    try {
+      // void Promise: 不 await, 同步用 cached llm config 即可 (cacheLoaded 在 getStatus 时已 load)
+      void licenseManager.getActiveLlm().then((llm) => {
+        if (llm?.base_url) {
+          try { allowed.add(new URL(llm.base_url).hostname); } catch { /* ignore */ }
+        }
+      });
+    } catch { /* ignore, fall back to default */ }
+
+    try {
+      const host = new URL(url).hostname;
+      if (allowed.has(host)) {
+        event.preventDefault();
+        callback(true);    // trust this self-signed cert (newapi 中转 IP)
+        log.info(`[cert] trust self-signed for ${host}`);
+        return;
+      }
+    } catch { /* fall through */ }
+
+    callback(false);    // reject all other invalid certs (preserve security)
+    log.warn(`[cert] reject invalid cert for ${url}`);
+  });
+
   // 启动 banner: app/OS/electron/chromium/cpu/memory/displays/locale/timezone/license 一次性 dump
   // 便于客服收到日志后立即识别用户环境, 不用再追问"你 win 还是 mac"
   await logEnvironment();

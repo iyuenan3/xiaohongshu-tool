@@ -91,7 +91,7 @@
       "contents": [
         { "x": 130, "y": 200, "type": "file" },
         { "x": 410, "y": 200, "type": "link", "path": "/Applications" },
-        { "x": 270, "y": 360, "type": "file", "path": "dmg-resources/install-mac.command", "name": "首次安装.command" }
+        { "x": 270, "y": 360, "type": "file", "path": "dmg-resources/无法正常打开请看我.txt", "name": "无法正常打开请看我.txt" }
       ],
       "window": { "width": 540, "height": 460 }
     },

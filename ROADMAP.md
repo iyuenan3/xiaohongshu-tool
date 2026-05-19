@@ -1,26 +1,31 @@
 # 小红书自运营系统 ROADMAP
 
-> 路线图 v0.4 · 2026-05-17 · 配套 PRD v0.5 + SPEC v0.2
+> 路线图 v0.5 · 2026-05-19 · 配套 PRD v0.6 + SPEC v0.3
 >
-> **v0.4 变更**: 实际开发节奏远超原 10 周计划。M1~M4 全部完成,M5 (公测打磨) 的核心功能也已 ship (v0.2.0 ~ v0.3.0): 4-tab UI / 智能素材库 / 联网搜索 / dmg 引导 / 网页管理后台 / 7 次发版迭代修各种 build pipeline 问题。
-> M5+ 阶段当前讨论新方向: **LLM Gateway 中转站方案** (用户提出, 待最终决策, 见 §12)。
+> **v0.5 变更 (2026-05-19)**: D6 LLM Gateway 中转站方案拍板, M6 新增独立 milestone (一码一 newapi user + bind XHS Plan 自营中转, 详见 §13)。M5 已结, M7 (公测发售) 排到 M6 之后, 依赖 D3/D5 决策。
+>
+> **v0.4 变更 (2026-05-17)**: 实际开发节奏远超原 10 周计划。M1~M4 全部完成, M5 (公测打磨) 的核心功能也已 ship (v0.2.0 ~ v0.3.0): 4-tab UI / 智能素材库 / 联网搜索 / dmg 引导 / 网页管理后台 / 7 次发版迭代修各种 build pipeline 问题。
 >
 > 实际版本里程碑:
 > - v0.1.0 (M3 商业化收尾) - 已 ship
 > - v0.2.0 ~ v0.2.7 (UI 重构 + 素材库 + vision + mac 打包流水线 7 次迭代) - 已 ship
-> - v0.3.0 (联网搜索) - 已 ship
+> - v0.3.0 ~ v0.3.2 (联网搜索 / E2E bug 修 / 更新策略 + 内测日志) - 已 ship
+> - v0.6.0 (D6 LLM Gateway 实施) - **进行中 M6 (2026-05-19+)**
+> - v0.7.0 (公测发售 M7) - 待 D3/D5 决策
 
 ## 0. 总览
 
-| 阶段 | 周次 | 日历范围 | 主目标 |
-|---|---|---|---|
-| **M1 PoC** | W1-W2 | 2026-05-18 → 2026-05-31 | 验证 CDP attach 架构 + 单工具跑通 |
-| **M2 内核完成** | W3-W5 | 2026-06-01 → 2026-06-21 | 11 工具全跑通 + AI 侧边栏 |
-| **M3 商业化** | W6-W7 | 2026-06-22 → 2026-07-05 | License 系统全链路 |
-| **M4 跨平台 + 自动更新** | W8 | 2026-07-06 → 2026-07-12 | macOS + Windows **无证书**打包 + 自动更新 |
-| **M5 公测打磨** | W9-W10 | 2026-07-13 → 2026-07-26 | 种子用户灰度 + 首发 |
+| 阶段 | 周次 | 日历范围 | 主目标 | 状态 |
+|---|---|---|---|---|
+| **M1 PoC** | W1-W2 | 2026-05-18 → 2026-05-31 | 验证 CDP attach 架构 + 单工具跑通 | ✅ |
+| **M2 内核完成** | W3-W5 | 2026-06-01 → 2026-06-21 | 11 工具全跑通 + AI 侧边栏 | ✅ |
+| **M3 商业化** | W6-W7 | 2026-06-22 → 2026-07-05 | License 系统全链路 | ✅ |
+| **M4 跨平台 + 自动更新** | W8 | 2026-07-06 → 2026-07-12 | macOS + Windows **无证书**打包 + 自动更新 | ✅ |
+| **M5 公测打磨** | W9-W10 | 2026-07-13 → 2026-07-26 | UI 重构 / 素材库 / 联网搜索 / 12 次发版迭代 | ✅ |
+| **M6 LLM Gateway 实施** | 2026-05-19 → 2026-05-22 | (并入实际开发节奏, 2-3 天) | **D6 自营中转站, 一码一 newapi user + bind XHS Plan + suspend/resume 机制** | 🔧 |
+| **M7 公测发售** | 待 D3/D5 决策 | TBD | 种子用户灰度 + 首发 | ⏳ |
 
-**首版预计发售**：2026-07-26 ± 1 周
+**首版预计发售**：M6 完成后, 待 D3/D5 决策再排
 
 **说明**：周计划，关键节点拆到日级（标 `🔑` 的为关键路径里程碑，失败会延期整个项目）。
 
@@ -410,29 +415,11 @@ LLM 费用由用户自付（BYOK），不计入。
 
 ## 12. M5+ 待规划
 
-> v0.3.0 已 ship 后,以下功能由用户最新提出, 待决策与排期。
+> v0.3.0 已 ship 后, 以下功能由用户最新提出。D6 已拍板进入 M6 实施 (§13), 其他仍待决策。
 
-### 12.1 LLM Gateway 中转站 (D6)
+### 12.1 ~~LLM Gateway 中转站 (D6)~~  → 见 §13 M6 实施
 
-**动机**: 用户大概率不知道怎么配 BYOK,期望"激活后开箱即用",但客户端硬编码 LLM key 会被破解。
-
-**3 条候选路径**:
-
-| 方案 | 实现 | 月成本 (你付) | 用户体验 |
-|---|---|---|---|
-| A · 现状 BYOK | 用户自填 baseURL/key | 0 | 高门槛 |
-| **B · 服务端反代 (推荐)** | client 用激活码 Bearer 调你的 Worker, key 留 Worker secret | 按 token 量 (doubao ¥1-6/用户/月) | 开箱即用 |
-| C · 混合 (默认服务端 + 可切 BYOK) | 综合 | 同 B | 99% 默认走你的, 1% 高级用户切 |
-
-**配额建议** (B/C 路径): 激活码 ¥399 一次性 → 月度 500K~1M tokens, 超额买 "加油包" 商业化或自动降级 deepseek。
-
-**实施依赖**:
-- 选定上游 (doubao Coding Plan 推荐, 支持 vision + tool calling, 国内稳)
-- Worker 加 `/v1/chat/completions` endpoint (stream + tool_calls 透传)
-- 加 `usage:CODE:YYYYMM` KV 计数 + 超额 429 + 提示
-- client 改 byok.ts: 激活后默认填 hardcoded Worker URL + 激活码作 key
-
-**预计工程量**: 1-2 天
+**已拍板 (2026-05-19)**: 方案 X · 一码一 newapi user + bind XHS Plan, 软件买断 + LLM 月续费 + 未续 15 天软停 → revoke 硬停。详见 §13 (本路线图) + PRD §6.7 + SPEC §12.10。
 
 ### 12.2 mac Intel 支持 (D7)
 
@@ -455,17 +442,116 @@ LLM 费用由用户自付（BYOK），不计入。
 
 **评估倾向**: 公开,跟"开源前端 + 服务收费"的现代商业模式契合。
 
-### 12.4 接口架构调整 (B 路径落地后)
+### 12.4 ~~接口架构调整 (B 路径落地后)~~ — 已被方案 X 替代
 
-- 删除客户端 BYOK Settings (或藏到 advanced 模式)
-- 激活成功后自动写入 byok config (baseURL = `https://xhsproxy.maxwellii.com/v1`, key = 激活码)
-- 同步部署一个 LLM Gateway Worker (复用 license KV 做激活码验证)
-- vision / web_search 调用都走同一 Worker (统一管理)
+原 B 路径 (Worker 自做 LLM Gateway + 反代上游) 已在 D6 拍板时弃用, 改走方案 X (自营 newapi 中转), 见 §13 M6 实施。本节内容过时, 不再适用。
 
 ### 12.5 Build pipeline 改善
 
 - workflow 已改 `workflow_dispatch` 仅手动触发 (省 quota)
 - 发版流程标准化: 本地 typecheck + e2e → tag → gh workflow run → release
+
+---
+
+## 13. M6 · LLM Gateway 实施 (D6 已拍板, 2026-05-19 起)
+
+**目标**: 把 D6 自营中转 + LLM 月续费 + suspend/resume 分级停用机制落地, 详细 spec 见 PRD §6.7 + SPEC §12.10。
+
+### 一次性 Setup (Maxwell 操作, 阻塞性前置)
+
+**newapi 端**:
+- [x] 验证火山方舟 Pro Coding Plan ×2 + 阿里百炼 Pro ×1 渠道**已配置且 enabled** ✅ (2026-05-19)
+- [x] 验证 newapi 已配 `auto-llm` model alias ✅ (2026-05-19)
+- [x] 建 `xhs` group ✅ (2026-05-19, ratio=1)
+- [x] 建 `XHS Plan` ✅ (2026-05-19, id=2, total_amount=68493151 占位, max_purchase_per_user=0)
+- [x] 拷贝 `XHS_PLAN_ID=2` 写入 `~/.secrets/xhs-secrets.txt` ✅
+- [N/A] 清空 newapi xhs-* 前缀测试 user/token — 暂无 xhs- 前缀残留, 不需操作; 其他租户 (maxwell/lijunfeng) 一律保留
+
+**Caddy 端 (newapi-proxy 项目, 可能要同步改)**:
+- [ ] 确认 Caddyfile 配 `tls internal` + sni-fallback 让 IP `139.196.157.57` HTTPS 用自签证书 (Let's Encrypt 不签公网 IP, 必须自签兜底)
+- [ ] 域名 `llm.maxwellii.com` 仍走 LE 合法证书 (Worker 跨境访问用)
+
+**Cloudflare 端**:
+- [x] 清空所有 Cloudflare KV 测试激活码 ✅ (2026-05-19, 7 个 code:* 删除, 保留 config:latest_version / config:release_notes)
+- [ ] Worker secrets 注入完 6 项 (见 §13 Worker 改动 → 配置, 跟 Worker 代码改动一起做)
+- [ ] `wrangler deploy` 部署
+
+### Worker 改动 (~600 行)
+
+新增:
+- [ ] `worker/src/newapi.ts` — newapi client 封装 (createUser / bindSubscription / createToken / deleteUser / deleteToken / updateTokenStatus / invalidateSubscription / getUserSubscriptions / **`assertXhsTenant(env, userId)`** 多租户隔离护栏)
+
+修改:
+- [ ] `POST /admin/codes` — 同步建 newapi 3 件套 + 强一致回滚
+- [ ] `POST /activate` — 响应加 `llm: { base_url, api_key, model }` + `status` 字段
+- [ ] `POST /heartbeat` — 响应加 `llm` + `status` (允许 Maxwell 改 IP / suspend 后客户端 catch)
+- [ ] `POST /admin/revoke` — 同步 disable newapi token (status=2) + KV status=revoked
+- [ ] `POST /admin/rebind` — 不动 newapi (LLM 跟 machine 解耦); suspended/revoked 状态拒绝换绑
+
+新端点:
+- [ ] `GET /quota?code=...&sig=...` — Worker 中转查 subscription quota
+- [ ] **`POST /admin/suspend`** (v0.6 D6) — 软停: 检查 KV status==='active' (否则返回 INVALID_STATE + current + hint) + newapi token disable + KV status=suspended + 记 suspended_at + suspend_reason
+- [ ] **`POST /admin/resume`** (v0.6 D6) — 恢复: 检查 KV status==='suspended' (否则返回 INVALID_STATE + current + hint) + newapi token enable + KV status=active + 记 resumed_at, **不补 quota** (suspend 期已用部分不返还)
+- [ ] **`POST /activate`** (v0.6 D6 调整) — 入口加 status 过滤: revoked/suspended 拒绝重激活 (防清重装绕过), unused → 绑机+active, active+match → 重激活同机
+- [ ] **`POST /heartbeat`** (v0.6 D6 调整) — 响应加 `status` + `suspend_reason` + `llm` 字段, 客户端 diff 触发 license 更新
+
+Admin UI (`worker/src/admin-ui.ts`):
+- [ ] 列表行加 "暂停 / 恢复" 操作按钮 (status=active 显示暂停; status=suspended 显示恢复)
+- [ ] status filter 加 "suspended"
+- [ ] 列表显示 suspended_at + suspend_reason (suspended 状态时)
+- [ ] 显示距离 15 天硬停的剩余天数 (运营参考), ≤ 3 天用红色高亮
+- [ ] 加 "超期清单" tab (`GET /admin/overdue` 端点, 列出所有 suspended_at + 15d < now 的码), 周末巡检用
+
+配置:
+- [ ] Worker secrets 6 项: NEW_API_BASE_URL / NEW_API_ACCESS_TOKEN / NEW_API_USER_ID / XHS_PLAN_ID / XHS_NEWAPI_GROUP / XHS_LLM_BASE_URL
+
+### 客户端改动 (~400 行)
+
+主进程:
+- [ ] `src/main/index.ts` — `app.on('certificate-error')` 仅对 139.196.157.57 放行
+- [ ] `src/main/license.ts` — license.json schema 加 `llm` / `byok` / `dev_mode` 字段, push 通道 payload 扩展
+- [ ] `src/main/ipc.ts` — 加 `llm:getQuota` IPC
+
+Renderer:
+- [ ] `src/renderer/src/ai/byok.ts` → 读 license.llm (默认), dev mode 下读 license.byok
+- [ ] `src/renderer/src/ai/agent.ts` — 写死 model='auto-llm' (中转模式), catch `insufficient_quota` → 锁 + dialog, catch `401/403` → refreshLicense + suspend dialog
+- [ ] `src/renderer/src/components/Settings.tsx`:
+  - 加 "AI 调用额度" 区块 (启动 + chat 完成后异步刷新)
+  - 加 "故障排查 / 反馈" 区块 (常驻反馈框, onChange 检测暗号解锁 dev, 暗号见 `~/.secrets/xhs-secrets.txt`)
+  - dev 模式后显示 BYOK 配置区 + 切换开关
+- [ ] `src/renderer/src/components/ChatPanel.tsx` — **isChatLocked 状态机**: license.status===revoked 或 ===suspended 或 quota.remain_cny ≤ 0 三种触发都 disable 输入框 + Send 置灰 + banner (文案各不同, 详见 SPEC §12.10.9)
+
+### 联调 + 测试
+
+- [ ] 黑盒 E2E: 发码 → 激活 → chat → newapi UI quota 减 → 配额耗尽 dialog → 暗号解锁 BYOK → 切换 BYOK 调用通过
+- [ ] cert-error 测试: cert 不放行 IP 应拒绝, 放行 IP 应连通
+- [ ] heartbeat base_url 变更测试: 改 Worker secret XHS_LLM_BASE_URL + redeploy, heartbeat 后客户端自动 catch
+- [ ] 强一致回滚测试: newapi 故意宕机, /admin/codes 应整体失败, 不留半残资源
+- [ ] **suspend/resume 测试** (v0.6 D6): /admin/suspend → newapi token disabled + KV status=suspended + heartbeat 返回 status → ChatPanel 锁 + suspend banner; /admin/resume → token enable + status=active + heartbeat 返回 → ChatPanel 立即解锁
+- [ ] **revoke 测试** (v0.6 D6): /admin/revoke → status=revoked + heartbeat 返回 → 全应用 revoked banner
+- [ ] **多租户隔离测试** (v0.6 D6, SPEC §12.10.13): 构造 KV `{newapi_user_id: 1}` (maxwell root) 或 `{newapi_user_id: 2}` (lijunfeng) 调 /admin/suspend → assertXhsTenant 应拒绝, 不影响其他租户; 正常 xhs- user → 通过
+
+### 工程量预估
+
+| 任务 | 时间 |
+|---|---|
+| Worker 改动 + 部署 + cert/secret 联调 | 1 天 |
+| 客户端改动 + dev 模式联调 + cert-error 适配 | 1 天 |
+| 黑盒 E2E + 文档同步 + buffer | 0.5-1 天 |
+| **合计** | **2-3 天** |
+
+> 注: 初估 1.5-2 天偏紧, ~1000 行新增 + cert 联调 + dev mode UX 调试经验上至少 2 天, 加 buffer 取 2-3 天。
+
+### Exit Criteria
+
+- [ ] 测试激活码走完整流程 (发码 → 激活 → chat → quota 减) 无错
+- [ ] BYOK dev 模式暗号解锁链路通过
+- [ ] 配额耗尽 UX 正确 (输入框 disable + banner + 暗号入口仍可用)
+- [ ] PRD/SPEC/ROADMAP/INFRA 同步更新完成
+
+### Blocker
+
+- [ ] 一次性 setup 完成 (Maxwell 建 xhs group / XHS Plan / 清测试码 / 给 plan_id)
 
 ---
 

@@ -55,3 +55,31 @@ export function generateCode(): string {
 export function isValidCode(code: string): boolean {
   return /^XHS-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code);
 }
+
+// v0.6 D6: newapi api_key AES-GCM 加密 (key 从 SIGNING_PRIVATE_KEY 派生)
+// 用途: KV 存 api_key 用密文, 即便 admin token 泄露读 KV 也拿不到明文 sk-xxx
+
+async function deriveAesKey(privateKeyB64: string): Promise<CryptoKey> {
+  const raw = b64.decode(privateKeyB64);
+  // SHA-256(SIGNING_PRIVATE_KEY) 派生 32 字节 AES key (跟签名 key 解耦)
+  const hash = await crypto.subtle.digest('SHA-256', raw);
+  return crypto.subtle.importKey('raw', hash, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+export async function encryptApiKey(apiKey: string, privateKeyB64: string): Promise<string> {
+  const key = await deriveAesKey(privateKeyB64);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, utf8.encode(apiKey));
+  // 输出格式: base64(iv) + '.' + base64(ciphertext)
+  return b64.encode(iv) + '.' + b64.encode(new Uint8Array(ciphertext));
+}
+
+export async function decryptApiKey(encrypted: string, privateKeyB64: string): Promise<string> {
+  const parts = encrypted.split('.');
+  if (parts.length !== 2) throw new Error('invalid encrypted api_key format');
+  const iv = b64.decode(parts[0]);
+  const ciphertext = b64.decode(parts[1]);
+  const key = await deriveAesKey(privateKeyB64);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return utf8.decode(new Uint8Array(plaintext));
+}

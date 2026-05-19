@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { loadBYOK, isBYOKConfigured } from '../ai/byok';
+import { loadActiveLLM } from '../ai/byok';
 import { analyzeImage } from '../ai/assetAnalyzer';
 
 interface MediaAsset {
@@ -111,8 +111,8 @@ export default function AssetLibrary({ active }: Props) {
 
   const handleAnalyze = async () => {
     if (busy) return;
-    const cfg = loadBYOK();
-    if (!cfg) { setErr('请先在设置中配置 BYOK (右上 ⚙️). 分析需要支持 vision 的模型 (火山方舟 doubao 等)'); return; }
+    const cfg = await loadActiveLLM();
+    if (!cfg) { setErr('AI 未就绪. 请先激活软件; 或在设置中解锁开发者模式配置 BYOK (vision 模型如火山方舟 doubao)'); return; }
     const pending = assets.filter((a) => a.analyzed !== 1);
     if (pending.length === 0) return;
 
@@ -139,7 +139,16 @@ export default function AssetLibrary({ active }: Props) {
   };
 
   const unanalyzedCount = assets.filter((a) => a.analyzed !== 1).length;
-  const byokOk = isBYOKConfigured();
+  // v0.6 D6: 兼容旧 "byok" 命名 (此处含义实际是"LLM 已就绪"), 异步查
+  const [byokOk, setByokOk] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    loadActiveLLM().then((c) => { if (alive) setByokOk(c !== null); });
+    const unsub = window.api.license.onChanged?.(() => {
+      loadActiveLLM().then((c) => { if (alive) setByokOk(c !== null); });
+    });
+    return () => { alive = false; unsub?.(); };
+  }, []);
 
   return (
     <div className="asset-library">

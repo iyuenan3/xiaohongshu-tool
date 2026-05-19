@@ -4,19 +4,24 @@
 
 ## 一句话
 
-基于 Electron + Chromium 内核的小红书桌面浏览器，内嵌 `xiaohongshu-mcp` Go 服务，AI 侧边栏通过用户自带的大模型 API（BYOK）操作 11 个小红书业务工具。**完全本地化、无证书发布**、一次性买断 + 激活码授权。
+基于 Electron + Chromium 内核的小红书桌面浏览器，内嵌 `xiaohongshu-mcp` Go 服务，AI 侧边栏走**自营 newapi 中转**操作 14 个小红书业务工具 (12 Go + 2 renderer 本地)。**软件一次性买断 + LLM 月续费**、激活码授权、无证书发布。
 
 ## 路线（不要再讨论）
 
-**路线 A** · 完全本地化 + BYOK + 无证书发布。不卖 token（已剥离独立项目）、不做服务端反代、不申请 Apple/Win 代码签名。唯一服务端是 Cloudflare Worker 激活服务（M3 启动）。
+**路线 A · v0.6 升级版** · 完全本地化客户端 + 自营 LLM 中转 + 无证书发布。
+- 客户端: BYOK 入口默认 UI 隐藏 (dev 模式暗号解锁逃生口), 默认走自营 newapi 中转
+- 服务端: Cloudflare Worker (激活, M3 启动) + 自营 newapi 中转站 (LLM 网关, M6 启动, 部署在 alicloud-sh)
+- 不卖 token (已剥离独立项目); 不申请 Apple/Win 代码签名 (无证书)
+- 商业模式: 软件一次性买断 + LLM 服务费月续 (维护者运营时定价, 具体不写文档); 未续费分级停用 (15 天软停 → revoke 硬停)
+- newapi `XHS Plan` 原生 monthly reset 等同于 "自动续费"; 客户没付月费 → Maxwell 手动 `/admin/suspend` 停 token
 
 ## 目录结构
 
 ```
 xiaohongshu-tool/
-├── PRD.md                     v0.5 产品需求 (v0.2-v0.3 增量功能)
-├── SPEC.md                    v0.2 技术规格 (§12 增量模块)
-├── ROADMAP.md                 v0.4 路线图 (§12 M5+ 待规划)
+├── PRD.md                     v0.6 产品需求 (+§6.7 D6 中转架构)
+├── SPEC.md                    v0.3 技术规格 (+§12.10 D6 中转技术 spec)
+├── ROADMAP.md                 v0.5 路线图 (+§13 M6 D6 实施)
 │                              注: HTML 已删 (v0.5 起 md 为唯一源)
 ├── INFRA.md                   含 Cloudflare Account ID 等 (.gitignore)
 ├── app/                       Electron 客户端
@@ -62,9 +67,16 @@ gh workflow run "Build Windows" --ref main -f release_tag=v0.3.2 --repo iyuenan3
 # 发激活码 (worker admin CLI)
 cd worker && WORKER_URL="https://xhslicense.maxwellii.com" \
   ADMIN_TOKEN="<INFRA.md>" node scripts/xhs-license.mjs issue -c 1 -n "备注"
+
+# 触发"发现新版本"提醒 (v0.3.2 起客户端启动 8s 后调 /version)
+cd worker && ./node_modules/.bin/wrangler kv key put "config:latest_version" "0.x.y" \
+  --namespace-id=a42560054b8241e89ddbe9317d35af21
+# 顺手改 release_notes (改这俩不需要 deploy worker, 立即生效)
+cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "..." \
+  --namespace-id=a42560054b8241e89ddbe9317d35af21
 ```
 
-## 进度（截止 2026-05-17 晚）
+## 进度（截止 2026-05-20）
 
 - [x] M1 PoC（CDP attach + publish_content E2E 已真实发到小红书）
 - [x] M2 W3-W5（AI 侧边栏 + Tool Calling + 11 工具 + SQLite + 频率护栏）
@@ -72,8 +84,16 @@ cd worker && WORKER_URL="https://xhslicense.maxwellii.com" \
 - [x] **M4 macOS dmg 打包**（identity:null 无证书 + Windows nsis 跨平台 build）
 - [x] **M5 polish (v0.2.x ~ v0.3.x)** — 4-tab UI + 智能素材库 + vision tag + 联网搜索 + 网页管理后台 + 7 次 mac 打包流水线 fix
 - [x] **E2E 黑盒测试** — subagent 18 min ship 176/176 pass + 6 bug 全修
-- [ ] M5+ 公测发售 (待 D3/D5 决策)
-- [ ] M5+ 中转站方案 (D6 待决: BYOK / Worker Gateway / 混合)
+- [x] **v0.3.2 ship (2026-05-17)** — Worker /version + 联系客服 dialog / 内测日志体系 (启动 banner + renderer 透传 + agent 埋点 + Settings 导出按钮) / 修 search_feeds 卡死 root cause
+- [x] **D6 LLM Gateway spec out + 2 轮 subagent review 修完** (2026-05-19, 方案 X 一码一 newapi user + bind XHS Plan + suspend/resume + 多租户隔离, N1~N10 全拍)
+- [x] **D6 一次性 setup ✅** (2026-05-19, newapi xhs group + XHS Plan id=2 + KV 测试码清空 + ~/.secrets/ 备份)
+- [x] **D6 Worker 代码完成 + deploy ✅** (2026-05-19, 8 项 secret 全注入, v0.6.0 deploy 到 xhslicense.maxwellii.com)
+- [x] **D6 客户端代码完成 ✅** (2026-05-19, typecheck 通过, 含 cert-error + license schema + Settings + ChatPanel + agent catch)
+- [ ] **D6 阻塞: Cloudflare Tunnel** (Worker → newapi 525 SSL 失败, 已转发提示词给 newapi-proxy 项目装 cloudflared + 出 llm-cf.maxwellii.com 域名)
+- [ ] **朋友 v0.3.2 复现测试** (win, 已私发 setup.exe, 等他 export log)
+- [ ] **mac install.command 悖论修复** (working tree 已改, 用 `无法正常打开请看我.txt` 替代, 等下次 ship)
+- [ ] **publish_content TipTap 修复 ship** (本地修了未打 tag, 待 D6 完成后一起 v0.6.0 ship)
+- [ ] M7 公测发售 (待 D3/D5 决策)
 
 ## 已拍板 + 待决策
 
@@ -84,18 +104,33 @@ cd worker && WORKER_URL="https://xhslicense.maxwellii.com" \
 | D4 法律主体 | 个人名义 | ✅ |
 | D3 产品名 / 域名 | 影响品牌 | ⏳ |
 | D5 客服渠道 | 影响压力 | ⏳ |
-| **D6 LLM Gateway 中转站** | 服务端反代 LLM, 配额管理 (用户主动提议) | ⏳ |
+| **D6 LLM Gateway 中转站** | 自营 newapi 网关, 配额管理 | ✅ **方案 X + M6 代码完成 deploy 完成 (2026-05-19)**, 卡 Cloudflare Tunnel (Worker → newapi 525, 已交 newapi-proxy 项目装 cloudflared) |
 | **D7 mac Intel build** | macOS quota 倍率 10x 卡 queue | ⏳ |
 | **D8 仓库公私** | private 现状 (用户已拒改 public) | ⏳ (临时维持 private) |
 | **更新策略** | 不 auto-update, Worker /version + 联系客服 dialog (方案 C) | ✅ 已实施 (2026-05-17) |
 
-## 部署事实（2026-05-16）
+## 部署事实（2026-05-19, v0.6.0 Worker deploy, 客户端未 ship）
 
 - Worker URL（fallback）：`https://xhs-license.liyuenan93.workers.dev`
 - Custom Domain（客户端默认）：`https://xhslicense.maxwellii.com`
+- Worker 端点 (v0.6 D6 加): POST/GET /admin/codes · POST /admin/revoke · POST /admin/rebind · **POST /admin/suspend · POST /admin/resume · GET /admin/overdue** · POST /activate (加 status+llm) · POST /heartbeat (加 status+llm) · GET /version · **GET /quota?code&sig** · GET /admin
 - KV namespace ID：`a42560054b8241e89ddbe9317d35af21`
-- Secrets：SIGNING_PRIVATE_KEY + ADMIN_TOKEN 已注入（值见 INFRA.md gitignored）
+- KV config keys (`config:*`): `latest_version`(0.3.2) / `min_version`(0.1.0) / `support_contact`(微信:maxwellii...) / `release_notes`(v0.3.2 改动列表)
+- **Worker Secrets (8 项 M6 注入完毕)**：
+  - M3: SIGNING_PRIVATE_KEY + ADMIN_TOKEN
+  - M6: NEW_API_BASE_URL + NEW_API_ACCESS_TOKEN + NEW_API_USER_ID=1 + XHS_PLAN_ID=2 + XHS_NEWAPI_GROUP=xhs + XHS_LLM_BASE_URL=`https://139.196.157.57/v1`
+  - 真值备份: `~/.secrets/xhs-secrets.txt` (chmod 600, gitignored)
+- **newapi 资源 (M6 setup)**: xhs group ratio=1 + XHS Plan id=2 total_amount=68493151 (placeholder ¥1000/月)
 - 首发码发码 CLI：`worker/scripts/xhs-license.mjs`，详见 `worker/DEPLOY.md`
+- GH Release v0.3.2: https://github.com/iyuenan3/xiaohongshu-tool/releases/tag/v0.3.2 (含 mac arm64 dmg/zip + win Setup.exe, Intel x64 still in queue)
+- **客户端 v0.6 working tree**: license.ts/byok.ts/Settings.tsx/ChatPanel.tsx/agent.ts/main/cert-error/preload 全改完, typecheck 通过, 未打 tag
+
+## 多租户隔离 (newapi 共享租户, 2026-05-19 起)
+
+newapi 实例 `https://llm.maxwellii.com` 同时服务 xhs / lijunfeng / maxwell 自用. **xhs 只管 `xhs-` 前缀资源**:
+- 所有 Worker newapi 写操作前 `assertXhsTenant(env, userId)` 验证 user.username 以 `xhs-` 开头
+- 不动: maxwell-homepage / 测试 / liyuenan / lijunfeng / VIP Plan(id=1) / default group / vip group
+- 详见 SPEC §12.10.13 + memory [[feedback_pitfalls]] 坑 24
 
 ## 关键技术约束（架构红线）
 

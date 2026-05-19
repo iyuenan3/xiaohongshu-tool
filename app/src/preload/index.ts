@@ -8,6 +8,25 @@ interface StoredMsg {
   tool_call_id?: string;
 }
 
+// v0.6 D6
+interface LlmConfigP {
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+interface LicenseStateP {
+  status: 'unactivated' | 'active' | 'suspended' | 'expired' | 'revoked' | 'mismatch' | 'error';
+  code?: string;
+  machine_id?: string;
+  valid_until?: number;
+  message?: string;
+  llm?: LlmConfigP | null;
+  byok?: LlmConfigP;
+  dev_mode?: boolean;
+  suspend_reason?: string | null;
+}
+
 interface MediaAsset {
   id: string;
   filename: string;
@@ -66,37 +85,35 @@ const api = {
 
   // License
   license: {
-    status: () => ipcRenderer.invoke('license:status') as Promise<{
-      status: 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
-      code?: string;
-      machine_id?: string;
-      valid_until?: number;
-      message?: string;
-    }>,
+    status: () => ipcRenderer.invoke('license:status') as Promise<LicenseStateP>,
     getMachineId: () => ipcRenderer.invoke('license:machineId') as Promise<string>,
-    activate: (code: string) => ipcRenderer.invoke('license:activate', code) as Promise<{
-      status: 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
-      code?: string;
-      message?: string;
-    }>,
+    activate: (code: string) => ipcRenderer.invoke('license:activate', code) as Promise<LicenseStateP>,
     heartbeat: () => ipcRenderer.invoke('license:heartbeat') as Promise<{
       ok: boolean;
       revoked?: boolean;
+      status?: 'active' | 'suspended' | 'revoked';
       latest_version?: string;
       message?: string;
     }>,
     clear: () => ipcRenderer.invoke('license:clear') as Promise<{ ok: boolean }>,
-    onChanged: (cb: (state: {
-      status: 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
-      code?: string;
-      machine_id?: string;
-      valid_until?: number;
-      message?: string;
-    }) => void) => {
-      const handler = (_e: unknown, state: Parameters<typeof cb>[0]) => cb(state);
+    onChanged: (cb: (state: LicenseStateP) => void) => {
+      const handler = (_e: unknown, state: LicenseStateP) => cb(state);
       ipcRenderer.on('license:changed', handler);
       return () => { ipcRenderer.removeListener('license:changed', handler); };
     },
+  },
+
+  // v0.6 D6: LLM 中转 + BYOK + 配额
+  llm: {
+    getActive: () => ipcRenderer.invoke('llm:getActive') as Promise<LlmConfigP | null>,
+    getQuota: () => ipcRenderer.invoke('llm:getQuota') as Promise<{
+      remain_cny: number;
+      total_cny: number;
+      used_cny: number;
+      next_reset_at: number;
+    } | null>,
+    setDevMode: (enabled: boolean) => ipcRenderer.invoke('llm:setDevMode', enabled) as Promise<void>,
+    setByok: (byok: LlmConfigP) => ipcRenderer.invoke('llm:setByok', byok) as Promise<void>,
   },
 
   // 媒体素材库

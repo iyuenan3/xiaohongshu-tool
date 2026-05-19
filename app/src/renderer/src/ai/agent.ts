@@ -175,7 +175,29 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
       }
     } catch (e) {
       rlog.error('agent', `LLM stream failed at round ${round}: ${safeJson(e)}`);
-      onEvent({ type: 'error', error: String(e) });
+      // v0.6 D6: 分场景 catch
+      const err = e as { status?: number; error?: { code?: string }; message?: string };
+      const status = err?.status;
+      const code = err?.error?.code;
+      let userMsg = String(e);
+      if (code === 'insufficient_quota' || status === 429) {
+        userMsg = '本月 AI 调用额度已用完, 下月 1 日 00:00 自动重置. 急需使用请联系客服微信 xxx 临时加额.';
+      } else if (status === 401 || status === 403) {
+        // 可能是 suspend (token disabled) / api_key 真坏 / 网络异常等. heartbeat 一次同步 status
+        try {
+          const hb = await window.api.license.heartbeat();
+          if (hb.status === 'suspended') {
+            userMsg = 'AI 服务已暂停, 请联系客服续费 LLM 服务, 续费后立即恢复.';
+          } else if (hb.status === 'revoked') {
+            userMsg = '软件已停用, 如有疑问请联系客服微信 xxx.';
+          } else {
+            userMsg = 'AI 服务连接失败 (401/403), 请稍后重试或联系客服反馈.';
+          }
+        } catch {
+          userMsg = 'AI 服务连接失败 (401/403), 请稍后重试或联系客服反馈.';
+        }
+      }
+      onEvent({ type: 'error', error: userMsg });
       return newHistory;
     }
 

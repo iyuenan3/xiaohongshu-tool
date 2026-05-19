@@ -97,7 +97,9 @@ export const ADMIN_HTML = `<!doctype html>
   }
   .status-pill.unused { background: var(--gold-soft); color: var(--gold); }
   .status-pill.active { background: var(--green-soft); color: var(--green); }
+  .status-pill.suspended { background: #ffe4cc; color: #c97300; }
   .status-pill.revoked { background: var(--accent-soft); color: var(--red-deep); }
+  .countdown-warn { color: var(--accent); font-weight: 600; }
   .meta { font-size: 11px; color: var(--ink-mute); margin-top: 4px; }
   .empty { padding: 40px; text-align: center; color: var(--ink-mute); }
 </style>
@@ -111,6 +113,7 @@ export const ADMIN_HTML = `<!doctype html>
   <nav class="tabs">
     <button data-tab="issue" class="active">发码</button>
     <button data-tab="list">列表 / 改</button>
+    <button data-tab="overdue">超期 (>15天)</button>
   </nav>
   <main>
     <section class="pane active" id="pane-issue">
@@ -132,6 +135,7 @@ export const ADMIN_HTML = `<!doctype html>
             <option value="">全部</option>
             <option value="unused">unused 未使用</option>
             <option value="active">active 已激活</option>
+            <option value="suspended">suspended 已暂停</option>
             <option value="revoked">revoked 已吊销</option>
           </select>
         </label>
@@ -141,6 +145,15 @@ export const ADMIN_HTML = `<!doctype html>
         <span id="list-summary" class="meta"></span>
       </div>
       <div id="list-table"></div>
+    </section>
+
+    <section class="pane" id="pane-overdue">
+      <h2>超期清单 (suspended > 15 天)</h2>
+      <div class="row">
+        <button class="primary" id="btn-overdue-refresh">刷新</button>
+        <span id="overdue-summary" class="meta"></span>
+      </div>
+      <div id="overdue-table"></div>
     </section>
   </main>
   <div id="toast" class="toast"></div>
@@ -185,6 +198,7 @@ document.querySelectorAll('nav.tabs button').forEach(b => {
     b.classList.add('active');
     document.getElementById('pane-' + b.dataset.tab).classList.add('active');
     if (b.dataset.tab === 'list') refreshList();
+    else if (b.dataset.tab === 'overdue') refreshOverdue();
   };
 });
 
@@ -232,11 +246,31 @@ function renderTable(codes) {
     const mid = c.bound_machine_id ? '<span class="mono" title="' + esc(c.bound_machine_id) + '">…' + esc(c.bound_machine_id.slice(-12)) + '</span>' : '<span style="color:var(--ink-mute)">-</span>';
     const reason = c.revoked_reason ? ' <span style="color:var(--red-deep)">[' + esc(c.revoked_reason) + ']</span>' : '';
     const notes = (c.notes || '') + reason;
-    const status = '<span class="status-pill ' + c.status + '">' + c.status + '</span>';
-    const actions = c.status === 'revoked'
-      ? '<span style="color:var(--ink-mute);font-size:11px">-</span>'
-      : '<button class="danger" data-action="revoke" data-code="' + esc(c.code) + '">吊销</button> '
-      + '<button class="secondary" data-action="rebind" data-code="' + esc(c.code) + '">换绑</button>';
+    const statusPill = '<span class="status-pill ' + c.status + '">' + c.status + '</span>';
+    // suspended 状态显示剩余天数 + reason
+    let statusExtra = '';
+    if (c.status === 'suspended' && c.suspended_at) {
+      const elapsed = (Date.now() - new Date(c.suspended_at).getTime()) / (24 * 3600 * 1000);
+      const remain = 15 - elapsed;
+      const cls = remain <= 3 ? ' class="countdown-warn"' : '';
+      statusExtra = '<div class="meta"' + cls + '>软停 ' + Math.floor(elapsed) + ' 天 / 距硬停 ' + Math.max(0, Math.ceil(remain)) + ' 天'
+        + (c.suspend_reason ? ' | ' + esc(c.suspend_reason) : '') + '</div>';
+    }
+    let actions;
+    if (c.status === 'revoked') {
+      actions = '<span style="color:var(--ink-mute);font-size:11px">-</span>';
+    } else if (c.status === 'suspended') {
+      actions = '<button class="primary" data-action="resume" data-code="' + esc(c.code) + '">恢复</button> '
+        + '<button class="danger" data-action="revoke" data-code="' + esc(c.code) + '">吊销</button>';
+    } else if (c.status === 'active') {
+      actions = '<button class="secondary" data-action="suspend" data-code="' + esc(c.code) + '">暂停</button> '
+        + '<button class="danger" data-action="revoke" data-code="' + esc(c.code) + '">吊销</button> '
+        + '<button class="secondary" data-action="rebind" data-code="' + esc(c.code) + '">换绑</button>';
+    } else {
+      // unused
+      actions = '<button class="danger" data-action="revoke" data-code="' + esc(c.code) + '">吊销</button>';
+    }
+    const status = statusPill + statusExtra;
     return '<tr>'
       + '<td class="mono">' + esc(c.code) + '</td>'
       + '<td>' + status + '</td>'
@@ -251,8 +285,11 @@ function renderTable(codes) {
   container.querySelectorAll('button[data-action]').forEach(b => {
     b.onclick = () => {
       const code = b.dataset.code;
-      if (b.dataset.action === 'revoke') doRevoke(code);
-      else doRebind(code);
+      const action = b.dataset.action;
+      if (action === 'revoke') doRevoke(code);
+      else if (action === 'rebind') doRebind(code);
+      else if (action === 'suspend') doSuspend(code);
+      else if (action === 'resume') doResume(code);
     };
   });
 }
@@ -260,6 +297,7 @@ function renderTable(codes) {
 async function doRevoke(code) {
   const reason = prompt('吊销原因 (会记录到 revoked_reason):', '');
   if (reason === null) return;
+  if (!confirm('确认吊销 ' + code + ' ? 此操作不可逆 (revoke 永久, 客户软件硬停).')) return;
   try { await api('POST', '/admin/revoke', { code, reason }); toast('已吊销 ' + code); refreshList(); }
   catch (e) { toast('吊销失败: ' + e.message, true); }
 }
@@ -269,6 +307,53 @@ async function doRebind(code) {
   try { await api('POST', '/admin/rebind', { code, new_machine_id: mid.trim() }); toast('换绑成功 ' + code); refreshList(); }
   catch (e) { toast('换绑失败: ' + e.message, true); }
 }
+async function doSuspend(code) {
+  const reason = prompt('暂停原因 (仅运营内部记录, 客户端不展示):', '未续 LLM 月费');
+  if (reason === null) return;
+  if (!confirm('确认暂停 ' + code + ' ? 客户 chat 立即锁死.')) return;
+  try { await api('POST', '/admin/suspend', { code, reason }); toast('已暂停 ' + code); refreshList(); }
+  catch (e) { toast('暂停失败: ' + e.message, true); }
+}
+async function doResume(code) {
+  if (!confirm('确认恢复 ' + code + ' ? token 重新启用, chat 立即解锁.')) return;
+  try { await api('POST', '/admin/resume', { code }); toast('已恢复 ' + code); refreshList(); }
+  catch (e) { toast('恢复失败: ' + e.message, true); }
+}
+
+async function refreshOverdue() {
+  const summary = document.getElementById('overdue-summary');
+  summary.textContent = '加载中…';
+  try {
+    const r = await api('GET', '/admin/overdue');
+    summary.textContent = r.count + ' 个超期 (suspend > 15 天)';
+    const container = document.getElementById('overdue-table');
+    if (r.codes.length === 0) { container.innerHTML = '<div class="empty">无超期</div>'; return; }
+    const rows = r.codes.map(c => {
+      const reason = c.suspend_reason || '-';
+      return '<tr>'
+        + '<td class="mono">' + esc(c.code) + '</td>'
+        + '<td class="countdown-warn">' + c.days_suspended + ' 天</td>'
+        + '<td>' + new Date(c.suspended_at).toISOString().slice(0,10) + '</td>'
+        + '<td>' + esc(reason) + '</td>'
+        + '<td class="actions">'
+        + '<button class="primary" data-action="resume" data-code="' + esc(c.code) + '">恢复</button> '
+        + '<button class="danger" data-action="revoke" data-code="' + esc(c.code) + '">硬停</button>'
+        + '</td></tr>';
+    }).join('');
+    container.innerHTML = '<table><thead><tr><th>CODE</th><th>软停天数</th><th>软停起</th><th>原因</th><th>操作</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    container.querySelectorAll('button[data-action]').forEach(b => {
+      b.onclick = () => {
+        const code = b.dataset.code;
+        if (b.dataset.action === 'revoke') doRevoke(code);
+        else if (b.dataset.action === 'resume') doResume(code);
+      };
+    });
+  } catch (e) {
+    summary.textContent = '';
+    toast('超期清单加载失败: ' + e.message, true);
+  }
+}
+document.getElementById('btn-overdue-refresh').onclick = refreshOverdue;
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));

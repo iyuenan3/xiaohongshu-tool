@@ -11,13 +11,25 @@ interface GoStatus {
   error?: string;
 }
 
-type LicenseStatus = 'unactivated' | 'active' | 'expired' | 'revoked' | 'mismatch' | 'error';
+type LicenseStatus = 'unactivated' | 'active' | 'suspended' | 'expired' | 'revoked' | 'mismatch' | 'error';
+
+interface LlmConfig {
+  base_url: string;
+  api_key: string;
+  model: string;
+}
 
 interface LicenseState {
   status: LicenseStatus;
   code?: string;
+  machine_id?: string;
   valid_until?: number;
   message?: string;
+  // v0.6 D6
+  llm?: LlmConfig | null;
+  byok?: LlmConfig;
+  dev_mode?: boolean;
+  suspend_reason?: string | null;
 }
 
 type Tab = 'console' | 'xhs' | 'assets' | 'help';

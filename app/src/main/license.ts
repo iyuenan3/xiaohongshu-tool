@@ -19,10 +19,17 @@ const HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export type LicenseStatus =
   | 'unactivated'
   | 'active'
+  | 'suspended'       // v0.6 D6: LLM 月费未续, 软停 (chat 锁, 软件其他功能仍可用)
   | 'expired'
   | 'revoked'
   | 'mismatch'
   | 'error';
+
+export interface LlmConfig {
+  base_url: string;
+  api_key: string;
+  model: string;
+}
 
 export interface LicenseState {
   status: LicenseStatus;
@@ -30,6 +37,11 @@ export interface LicenseState {
   machine_id?: string;
   valid_until?: number;
   message?: string;
+  // v0.6 D6
+  llm?: LlmConfig | null;       // 中转 LLM 配置 (默认走这个)
+  byok?: LlmConfig;             // dev 模式 BYOK 配置
+  dev_mode?: boolean;           // dev 模式状态 (持久化)
+  suspend_reason?: string | null;   // 仅运营内部, banner 用固定文案
 }
 
 interface StoredLicense {
@@ -39,6 +51,12 @@ interface StoredLicense {
   valid_until: number;
   last_heartbeat: number | null;
   revoked: boolean;
+  // v0.6 D6 新增 (向下兼容 — 字段缺失视为默认值)
+  server_status?: 'active' | 'suspended' | 'revoked';   // Worker 同步的 status, heartbeat 更新
+  suspend_reason?: string | null;
+  llm?: LlmConfig | null;
+  byok?: LlmConfig;
+  dev_mode?: boolean;
 }
 
 interface TokenPayload {
@@ -54,6 +72,9 @@ interface ActivateResponse {
   valid_until?: string;
   code?: string;
   message?: string;
+  // v0.6 D6
+  status?: 'active' | 'suspended';
+  llm?: LlmConfig | null;
 }
 
 interface HeartbeatResponse {
@@ -65,6 +86,10 @@ interface HeartbeatResponse {
   new_valid_until?: string;
   code?: string;
   message?: string;
+  // v0.6 D6
+  status?: 'active' | 'suspended' | 'revoked';
+  suspend_reason?: string | null;
+  llm?: LlmConfig | null;
 }
 
 const b64 = {
@@ -181,24 +206,44 @@ export class LicenseManager {
     }
 
     if (this.cached.revoked) {
-      return { status: 'revoked', code: payload.code };
+      return this.buildState('revoked', payload);
     }
 
     const now = Math.floor(Date.now() / 1000);
     if (payload.valid_until < now) {
-      return { status: 'expired', code: payload.code, valid_until: payload.valid_until };
+      return this.buildState('expired', payload, { valid_until: payload.valid_until });
     }
 
     const myMachineId = getMachineId();
     if (payload.machine_id !== myMachineId) {
-      return { status: 'mismatch', code: payload.code };
+      return this.buildState('mismatch', payload);
     }
 
-    return {
-      status: 'active',
-      code: payload.code,
+    // v0.6 D6: server_status === 'suspended' 时 status=suspended (chat 锁, 软件其他正常)
+    if (this.cached.server_status === 'suspended') {
+      return this.buildState('suspended', payload);
+    }
+
+    return this.buildState('active', payload, {
       machine_id: myMachineId,
       valid_until: payload.valid_until,
+    });
+  }
+
+  /** v0.6 D6: 统一构造 LicenseState, 带 llm/byok/dev_mode/suspend_reason */
+  private buildState(
+    status: LicenseStatus,
+    payload: TokenPayload,
+    extra?: Partial<LicenseState>,
+  ): LicenseState {
+    return {
+      status,
+      code: payload.code,
+      llm: this.cached?.llm ?? null,
+      byok: this.cached?.byok,
+      dev_mode: this.cached?.dev_mode ?? false,
+      suspend_reason: this.cached?.suspend_reason ?? null,
+      ...extra,
     };
   }
 
@@ -232,11 +277,17 @@ export class LicenseManager {
       valid_until,
       last_heartbeat: Math.floor(Date.now() / 1000),
       revoked: false,
+      // v0.6 D6
+      server_status: body.status ?? 'active',
+      suspend_reason: null,
+      llm: body.llm ?? null,
+      byok: this.cached?.byok,   // 保留 dev 模式 BYOK 配置 (重激活不丢)
+      dev_mode: this.cached?.dev_mode ?? false,
     };
     saveStored(stored);
     this.cached = stored;
     this.cacheLoaded = true;
-    log.info(`[license] activated. code=${code}, valid until ${body.valid_until}`);
+    log.info(`[license] activated. code=${code}, valid until ${body.valid_until}, llm=${body.llm ? 'ok' : 'null'}`);
 
     if (this.onActivatedCb) {
       try {
@@ -276,6 +327,7 @@ export class LicenseManager {
     if (body.revoked) {
       log.warn('[license] code revoked by server');
       this.cached.revoked = true;
+      this.cached.server_status = 'revoked';
       saveStored(this.cached);
       void this.emitChange();
       return body;
@@ -290,9 +342,77 @@ export class LicenseManager {
       }
     }
 
+    // v0.6 D6: diff incoming status / suspend_reason / llm, 不一致触发 emitChange
+    let changed = false;
+    if (body.status && body.status !== this.cached.server_status) {
+      log.info(`[license] server_status changed: ${this.cached.server_status} → ${body.status}`);
+      this.cached.server_status = body.status;
+      changed = true;
+    }
+    if (body.suspend_reason !== undefined && body.suspend_reason !== this.cached.suspend_reason) {
+      this.cached.suspend_reason = body.suspend_reason;
+      changed = true;
+    }
+    if (body.llm !== undefined) {
+      const oldLlm = this.cached.llm;
+      const newLlm = body.llm;
+      const oldKey = oldLlm ? `${oldLlm.base_url}|${oldLlm.api_key}|${oldLlm.model}` : 'null';
+      const newKey = newLlm ? `${newLlm.base_url}|${newLlm.api_key}|${newLlm.model}` : 'null';
+      if (oldKey !== newKey) {
+        log.info(`[license] llm config changed (base_url=${newLlm?.base_url ?? 'null'})`);
+        this.cached.llm = newLlm;
+        changed = true;
+      }
+    }
+
     this.cached.last_heartbeat = Math.floor(Date.now() / 1000);
     saveStored(this.cached);
+    if (changed) void this.emitChange();
     return body;
+  }
+
+  // v0.6 D6: dev 模式 / BYOK 配置 API (renderer 通过 IPC 调用)
+
+  async getActiveLlm(): Promise<LlmConfig | null> {
+    if (!this.cacheLoaded) {
+      this.cached = loadStored();
+      this.cacheLoaded = true;
+    }
+    if (!this.cached) return null;
+    return this.cached.dev_mode === true && this.cached.byok ? this.cached.byok : this.cached.llm ?? null;
+  }
+
+  async setDevMode(enabled: boolean): Promise<void> {
+    if (!this.cached) return;
+    this.cached.dev_mode = enabled;
+    saveStored(this.cached);
+    log.info(`[license] dev_mode set to ${enabled}`);
+    void this.emitChange();
+  }
+
+  async setByok(byok: LlmConfig): Promise<void> {
+    if (!this.cached) return;
+    this.cached.byok = byok;
+    saveStored(this.cached);
+    log.info('[license] byok updated');
+    void this.emitChange();
+  }
+
+  /** 客户端调 Worker /quota 查 subscription 余额, sig = 当前 token */
+  async fetchQuota(): Promise<{
+    remain_cny: number; total_cny: number; used_cny: number; next_reset_at: number;
+  } | null> {
+    if (!this.cached) return null;
+    const params = new URLSearchParams({ code: this.cached.code, sig: this.cached.token });
+    try {
+      const resp = await net.fetch(`${WORKER_URL}/quota?${params}`);
+      const body = await resp.json() as Record<string, unknown> & { ok: boolean };
+      if (!body.ok) return null;
+      return body as unknown as { remain_cny: number; total_cny: number; used_cny: number; next_reset_at: number };
+    } catch (e) {
+      log.warn(`[license] fetchQuota failed: ${e}`);
+      return null;
+    }
   }
 
   startHeartbeatScheduler(): void {

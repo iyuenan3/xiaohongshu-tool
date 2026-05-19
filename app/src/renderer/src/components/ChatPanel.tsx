@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, memo } from 'react';
-import { isBYOKConfigured, loadBYOK } from '../ai/byok';
+import { loadActiveLLM, type BYOKConfig } from '../ai/byok';
 import { runAgent, type ChatMessage, type AgentEvent } from '../ai/agent';
 import { getHttpBinding } from '../ai/tools';
 import ConfirmDialog, { type ConfirmDialogHandle } from './ConfirmDialog';
@@ -40,7 +40,21 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<'idle' | 'thinking' | 'calling' | 'replying'>('idle');
   const [currentTool, setCurrentTool] = useState<string>('');
-  const [byokOk, setByokOk] = useState(isBYOKConfigured());
+  const [llmCfg, setLlmCfg] = useState<BYOKConfig | null>(null);
+  const [licenseStatus, setLicenseStatus] = useState<'unactivated' | 'active' | 'suspended' | 'expired' | 'revoked' | 'mismatch' | 'error'>('unactivated');
+  const byokOk = llmCfg !== null;
+
+  // v0.6 D6: ChatPanel 锁死 (3 个触发场景, 优先级 revoked > suspended > 配置缺失)
+  // 注: quota=0 在 LLM 调用时 catch insufficient_quota dialog 处理, ChatPanel 不预先锁 (不浪费 Worker /quota 调用)
+  const lockReason: { reason: 'revoked' | 'suspended' | 'no_llm' | null; banner: string | null } =
+    licenseStatus === 'revoked'
+      ? { reason: 'revoked', banner: '软件已停用, 如有疑问请联系客服' }
+      : licenseStatus === 'suspended'
+      ? { reason: 'suspended', banner: 'AI 服务已暂停, 请联系客服续费 LLM 服务, 续费后立即恢复' }
+      : !byokOk
+      ? { reason: 'no_llm', banner: null }   // 老 UX 提示走 settings 按钮, 不显示 banner
+      : { reason: null, banner: null };
+  const chatLocked = lockReason.reason !== null;
   const [attachments, setAttachments] = useState<AttachedAsset[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const confirmRef = useRef<ConfirmDialogHandle>(null);
@@ -63,8 +77,25 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   }));
 
   useEffect(() => {
-    setByokOk(isBYOKConfigured());
-  });
+    let alive = true;
+    const refresh = async () => {
+      const [c, s] = await Promise.all([loadActiveLLM(), window.api.license.status()]);
+      if (!alive) return;
+      setLlmCfg(c);
+      setLicenseStatus(s.status);
+    };
+    refresh();
+    // 监听 license 变化 (heartbeat / suspend / resume / revoke / dev 切换) → 重新 load
+    const unsub = window.api.license.onChanged?.((s) => {
+      if (!alive) return;
+      setLicenseStatus(s.status);
+      loadActiveLLM().then((c) => { if (alive) setLlmCfg(c); });
+    });
+    return () => {
+      alive = false;
+      unsub?.();
+    };
+  }, []);
 
   // 加载 / 切换会话 → 恢复历史
   useEffect(() => {
@@ -184,11 +215,12 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
 
   const submit = async () => {
     if (!input.trim() || busy) return;
-    if (!byokOk) {
-      onOpenSettings();
+    if (chatLocked) {
+      // suspended / revoked: 不调 LLM (即便有 cfg 也调不通了, banner 已显示)
+      if (lockReason.reason === 'no_llm') onOpenSettings();
       return;
     }
-    const cfg = loadBYOK();
+    const cfg = llmCfg;
     if (!cfg) return;
     if (!convId) return;
 
@@ -309,6 +341,15 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
         </button>
       </header>
 
+      {lockReason.banner && (
+        <div style={{
+          padding: '10px 14px', backgroundColor: lockReason.reason === 'revoked' ? '#fbe9e7' : '#fff3e0',
+          color: lockReason.reason === 'revoked' ? '#8b1f15' : '#c97300',
+          borderBottom: '1px solid #e0e0e0', fontSize: 13, fontWeight: 500,
+        }}>
+          {lockReason.banner}
+        </div>
+      )}
       <div ref={scrollRef} className="chat-panel__messages">
         {display.length === 0 && (
           <div className="chat-empty">
@@ -387,8 +428,16 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
               submit();
             }
           }}
-          placeholder={byokOk ? '与 AI 对话... (⌘/Ctrl + Enter 发送)' : '请先配置 BYOK API Key'}
-          disabled={!byokOk || busy}
+          placeholder={
+            chatLocked
+              ? lockReason.reason === 'revoked'
+                ? '软件已停用'
+                : lockReason.reason === 'suspended'
+                ? 'AI 服务已暂停, 请联系客服续费'
+                : '请先激活软件'
+              : '与 AI 对话... (⌘/Ctrl + Enter 发送)'
+          }
+          disabled={chatLocked || busy}
           rows={3}
         />
         <div className="chat-panel__toolbar">
@@ -403,7 +452,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
           <button
             className="chat-panel__send primary"
             onClick={submit}
-            disabled={(!input.trim() && attachments.length === 0) || busy || !byokOk}
+            disabled={(!input.trim() && attachments.length === 0) || busy || chatLocked}
           >
             {busy ? '思考中...' : '发送 ⌘↩'}
           </button>

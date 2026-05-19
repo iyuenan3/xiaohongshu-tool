@@ -1,12 +1,15 @@
 # 小红书自运营系统 SPEC
 
-> 技术规格说明书 v0.2 · 2026-05-17 · 配套 PRD v0.5
+> 技术规格说明书 v0.3 · 2026-05-19 · 配套 PRD v0.6
 >
-> **v0.2 变更**: v0.2.0~v0.3.0 系列 ship 完毕,在文末追加 §12 增量模块章节 (素材库 / 联网搜索 / 自定义协议 / 网页管理后台 / mac 打包流水线).
+> **v0.3 变更 (2026-05-19)**: D6 LLM Gateway 拍板, 文末追加 §12.10 中转架构 (newapi 资源 + Worker 端点改动 + 客户端 license.json schema 扩展 + cert 放行 + dev 模式暗号 + 配额展示).
+>
+> **v0.2 变更 (2026-05-17)**: v0.2.0~v0.3.0 系列 ship 完毕, 文末追加 §12 增量模块章节 (素材库 / 联网搜索 / 自定义协议 / 网页管理后台 / mac 打包流水线).
 > v0.1 部分内容仍 valid, 但部分被取代:
 > - §2.2 `license.ts` 改用文件 base64 (§12.5 详述)
 > - §3.2 ChatSidebar.tsx → ChatPanel.tsx + ConsolePane / CommandPalette / ConversationList (§12.1 详述)
 > - 11 工具变 13 工具 (新增 `search_local_assets` + `web_search` §12.3)
+> - §3.2 BYOK 配置 UI 默认隐藏, dev 模式暗号解锁 (§12.10 详述)
 
 ## 0. 文档定位
 
@@ -602,12 +605,24 @@ interface ActivateResponse {
   ok: true;
   token: string;       // base64 编码的 SignedToken
   valid_until: string; // ISO timestamp
+  status: 'active' | 'suspended';     // v0.6 D6: 通常 active, 也可能 suspended (Maxwell 之前停过, 客户刚续费但还没 resume)
+  llm: {                              // v0.6 D6: 中转 LLM 配置, 客户端写 license.json
+    base_url: string;
+    api_key: string;
+    model: string;                    // 写死 'auto-llm'
+  } | null;                           // null = newapi 后端调用失败, 客户端 dialog 提示
 }
 interface ActivateError {
   ok: false;
-  code: 'CODE_NOT_FOUND' | 'CODE_REVOKED' | 'CODE_BOUND_OTHER' | 'CODE_EXPIRED' | 'INTERNAL';
+  code: 'CODE_NOT_FOUND' | 'CODE_REVOKED' | 'CODE_SUSPENDED' | 'CODE_BOUND_OTHER' | 'CODE_EXPIRED' | 'INTERNAL';
   message: string;
 }
+// 注: /activate 入口检查 KV status:
+//   - status='unused' → 正常绑机激活, 返回 active
+//   - status='active' + machine_id 匹配 → 重激活同机 OK
+//   - status='active' + 不匹配 → CODE_BOUND_OTHER (走 /admin/rebind)
+//   - status='suspended' → CODE_SUSPENDED (拒绝重激活, 防止清重装绕过 suspend)
+//   - status='revoked' → CODE_REVOKED
 
 // POST /heartbeat
 interface HeartbeatRequest {
@@ -617,7 +632,14 @@ interface HeartbeatResponse {
   ok: true;
   latest_version: string;       // 最新软件版本
   min_version: string;          // 最低支持版本 (< min 拦截使用)
-  revoked: boolean;             // 当前 code 是否被吊销
+  revoked: boolean;             // 当前 code 是否被吊销 (兼容 v0.3 字段, 等价 status==='revoked')
+  status: 'active' | 'suspended' | 'revoked';   // v0.6 D6 新增, 客户端 license.ts diff 触发 push
+  suspend_reason: string | null;                 // v0.6 D6 新增, 仅运营内部用, 客户端不显示给用户 (banner 用固定文案)
+  llm: {                                         // v0.6 D6 新增, 允许 base_url / api_key 变更后客户端 catch
+    base_url: string;
+    api_key: string;
+    model: string;
+  } | null;
   new_token?: string;           // 如果剩余有效期 < 60 天, 下发新 token
   new_valid_until?: string;
 }
@@ -643,6 +665,27 @@ interface RebindRequest {
   code: string;
   new_machine_id: string;
 }
+// 注: suspended / revoked 状态拒绝 rebind, 返回 INVALID_STATE
+
+// POST /admin/suspend  (Bearer ADMIN_TOKEN, v0.6 D6)
+interface SuspendRequest {
+  code: string;
+  reason?: string;          // 仅运营内部用 (e.g. "未续 5 月 LLM 月费"), 不暴露给客户
+}
+interface SuspendError {
+  ok: false;
+  code: 'INVALID_STATE';
+  current: 'unused' | 'suspended' | 'revoked';   // 当前实际 status, 帮 Maxwell 判断
+  hint: string;             // e.g. "已是 suspended 状态" / "已 revoked 不可重 suspend"
+}
+
+// POST /admin/resume  (Bearer ADMIN_TOKEN, v0.6 D6)
+interface ResumeRequest {
+  code: string;
+}
+// 错误同 SuspendError, current 表示当前状态
+// 注: resume 仅 enable newapi token, **不补 quota** — suspend 期已用部分不返还。
+//     如需补 quota Maxwell 在 newapi UI 手动加; 或调用 newapi `POST /api/subscription/admin/users/:id/subscriptions` 重新绑 plan 触发 reset。
 ```
 
 ### 6.3 SignedToken 结构
@@ -666,13 +709,23 @@ interface SignedTokenPayload {
 key:                       value (JSON):
 ─────────────────────      ─────────────────────────────────────
 code:XHS-A1B2-C3D4-...     {
-                             status: 'unused' | 'active' | 'revoked',
+                             status: 'unused' | 'active' | 'suspended' | 'revoked',
                              bound_machine_id: string | null,
                              bound_at: number | null,
                              expire_at: number | null,
                              rebind_count: number,
                              notes: string,
-                             revoked_reason: string | null
+                             revoked_reason: string | null,
+                             // v0.6 D6 新增 (LLM 中转资源关联)
+                             newapi_user_id: number | null,
+                             newapi_sub_id: number | null,
+                             newapi_token_id: number | null,
+                             api_key_encrypted: string | null,
+                             // v0.6 D6 新增 (suspend/resume)
+                             suspended_at: ISO timestamp | null,
+                             suspend_reason: string | null,
+                             resumed_at: ISO timestamp | null,
+                             revoked_at: ISO timestamp | null
                            }
 
 config:min_version         "0.5.0"
@@ -1015,6 +1068,690 @@ for (k of list.keys) {
 - 发图文笔记没明确图 → search_local_assets
 - 浏览/操作小红书 → list_feeds / search_feeds / ...
 
+### 12.10 D6 LLM Gateway 中转架构（v0.6 / 2026-05-19）
+
+#### 12.10.1 总览
+
+跟 PRD §6.7 配套。自营 newapi 网关 + Worker 中转激活码 ↔ newapi 资源映射, 客户端零配置 + dev 模式 BYOK 逃生口。
+
+```
+[Maxwell admin] ──POST /admin/codes──► [Worker]
+                                          │
+                                          ├─► newapi POST /api/user/ (username=xhs-<激活码末两段小写>, e.g. xhs-wx2a-bcdf, 13 字符)
+                                          ├─► newapi POST /api/subscription/admin/users/:id/subscriptions (bind XHS Plan)
+                                          ├─► newapi POST /api/token/ (model_limits=auto-llm)
+                                          └─► KV 存 code:CODE → { user_id, sub_id, token_id, api_key }
+                                                  │  (任一步失败 → 反向回滚)
+                                                  ▼
+[客户] ──输激活码──► [Worker /activate] ──返回 { license, llm: {base_url, api_key, model} }──► [客户端 license.json]
+                                                                                                    │
+                                                                                                    ▼
+                                                                                          [Renderer agent.ts]
+                                                                                                    │
+                                  cert 放行: main certificate-error 对 139.196.157.57 (动态)        │
+                                                                                                    │
+                                                       https://139.196.157.57/v1 (Caddy 自签 sni-fallback)
+                                                                  │
+                                                                  ▼
+                                                  [newapi alicloud-sh] (Caddy 反代)
+                                                  - 域名 llm.maxwellii.com 走 LE 合法证书 (Worker 跨境用)
+                                                  - subscription 配额扣减, 月初自动 reset (newapi 原生)
+                                                                  │
+                                                                  ▼
+                                       火山方舟 Auto 调度 → doubao / Kimi / GLM / DeepSeek / MiniMax
+```
+
+#### 12.10.2 newapi 资源 schema
+
+**一次性 setup (Maxwell 在 newapi UI 操作)**:
+
+```yaml
+# 新建 group "xhs"
+group:
+  name: xhs
+  description: 小红书自运营系统客户专用组
+  ratio: 1.0    # 跟 default group 同 ratio, 后续按需调整
+  channels: [auto-llm 关联渠道]   # 火山方舟 Pro Coding Plan
+
+# 新建 Plan "XHS Plan"
+plan:
+  title: "XHS Plan"
+  subtitle: "小红书自运营 月费套餐"
+  total_amount: <Maxwell 运营时配>   # 算法 ¥N / 7.3 × 500000 (USD raw, newapi 内部单位), 具体值不写文档
+  quota_reset_period: monthly
+  upgrade_group: xhs           # 绑后自动升 xhs 组
+  duration_unit: month
+  duration_value: 1
+  price_amount: 0              # 不卖, Worker 后台 admin 绑
+  max_purchase_per_user: 1
+  enabled: true
+```
+
+**每激活码三件套 (Worker 发码时同步创建)**:
+
+⚠️ newapi User 字段约束 (model/user.go validator): `username max=20`, `password 8-20`, `display_name max=20`。激活码 23 字符不能直接用作 username。
+
+⚠️ **安全 trade-off**: username 用激活码末两段 (含中间 dash, 小写, 9 字符 + `xhs-` 前缀 = 13 字符), Maxwell UI 搜索方便但**暴露后 8 位明文**。攻击者拿到 user list 知道后 8 位, 破解前 8 字符 `32^8 = 1.1T` 次 (单机 ~18 min)。当前阶段 (年 100-300 客户) 抗暴力够用, 主要靠 Maxwell `/admin/rebind` 验证支付凭证兜底防社工。**未来用户量起来可升级为 sha256 hash 方案**。
+
+```yaml
+# 1. user
+POST /api/user/
+body: {
+  username: `xhs-${code.slice(-9).toLowerCase()}`,
+                              # 激活码末 9 字符 (末两段含中间 dash) 转小写
+                              # e.g. 激活码 "XHS-3KH8-7QM4-WX2A-BCDF" → 末 9 = "WX2A-BCDF" → "xhs-wx2a-bcdf" (13 字符 ≤ 20)
+  password: crypto.randomUUID().replace(/-/g,'').slice(0, 20),   # hex 前 20 字符占位, 客户不登录 newapi UI
+  display_name: `XHS-${code.slice(-4)}`,    # e.g. "XHS-BCDF" (8 字符 ≤ 20, UI 一眼对应 username 末 4 位)
+}
+→ returns { id: <userId>, ... }
+# 注: newapi POST /api/user/ 字段只接受 username/password/display_name/role, 不接受 email/phone
+# 注: 不能传 group (用 DB default "default", 绑 Plan 后 newapi 自动升 xhs)
+# 注: collision 处理 — username 有 DB UNIQUE 索引, 末 9 字符空间 32^8 = 1.1T, 撞概率极低,
+#     但 Worker createUser catch UNIQUE 错误 → 重新 generateCode + 重试 (反正激活码也要 KV 唯一)
+# 注: **`xhs-` 前缀是多租户隔离边界 — 该 newapi 实例还服务其他应用, 详见 §12.10.13 多租户隔离原则**
+
+# 2. subscription (bind plan)
+POST /api/subscription/admin/users/<userId>/subscriptions
+body: { plan_id: XHS_PLAN_ID }
+→ returns { id: <subId>, next_reset_time, amount_total, amount_used, ... }
+
+# 3. token (在 user_id=<userId> 下创建)
+POST /api/token/
+headers: { New-Api-User: <userId> }   # 关键: 切 user_id
+body: {
+  name: <同 username>,            # `xhs-${code 末 8 字符小写}` (newapi token.name 无 max 限制, 但跟 username 一致便于 UI 双向搜)
+  remain_quota: 0,                # 无所谓, 用 subscription 配额
+  unlimited_quota: true,          # token 自身不限, 走 subscription 扣减
+  model_limits_enabled: true,
+  model_limits: "auto-llm",       # 锁死, 客户拿 key 也只能调 auto-llm
+  expired_time: -1,               # 永久
+  group: xhs
+}
+→ returns { id: <tokenId>, key: "sk-xxx" }
+```
+
+#### 12.10.3 Worker 端点改动
+
+**`POST /admin/codes`**: 同步建 newapi 资源, 强一致回滚
+
+```typescript
+async function generateCode(env: Env, count: number, notes: string) {
+  const results = [];
+  for (let i = 0; i < count; i++) {
+    const code = generateCodeString();   // XHS-XXXX-XXXX-XXXX-XXXX
+    const sig = signCode(code, env.SIGNING_PRIVATE_KEY);
+    
+    let userId = null, subId = null, tokenId = null, apiKey = null;
+    try {
+      // 1. create newapi user (字段约束 max 20; username 用激活码末两段含中间 dash 小写, 见 §12.10.2 trade-off)
+      const username = `xhs-${code.slice(-9).toLowerCase()}`;             // "xhs-wx2a-bcdf" 13 字符
+      const userResp = await newapi.createUser(env, {
+        username,
+        password: crypto.randomUUID().replace(/-/g, '').slice(0, 20),    // 占位 (客户不登录 UI)
+        display_name: `XHS-${code.slice(-4)}`,                            // "XHS-BCDF" 8 字符
+      });
+      // collision 处理 (DB UNIQUE 撞 username): catch newapi 错误, throw 给上层 retry generateCode
+      userId = userResp.data.id;
+      
+      // 2. bind XHS Plan
+      const subResp = await newapi.bindSubscription(env, userId, env.XHS_PLAN_ID);
+      subId = subResp.data.id;
+      
+      // 3. create token (name 跟 username 同名, 便于 UI 搜)
+      const tokenResp = await newapi.createToken(env, userId, {
+        name: username,
+        unlimited_quota: true,
+        model_limits_enabled: true,
+        model_limits: "auto-llm",
+        expired_time: -1,
+        group: "xhs",
+      });
+      tokenId = tokenResp.data.id;
+      apiKey = tokenResp.data.key;
+      
+      // 4. KV
+      await env.KV.put(`code:${code}`, JSON.stringify({
+        sig,
+        status: "unused",
+        bound_machine_id: null,
+        notes,
+        created_at: new Date().toISOString(),
+        newapi_user_id: userId,
+        newapi_sub_id: subId,
+        newapi_token_id: tokenId,
+        api_key_encrypted: await encryptKey(apiKey, env.SIGNING_PRIVATE_KEY),
+      }));
+      results.push({ code });
+    } catch (err) {
+      // 反向回滚已建资源
+      if (tokenId) await newapi.deleteToken(env, tokenId).catch(() => {});
+      if (subId) await newapi.invalidateSubscription(env, userId, subId).catch(() => {});
+      if (userId) await newapi.deleteUser(env, userId).catch(() => {});
+      throw err;
+    }
+  }
+  return { codes: results };
+}
+```
+
+**`POST /activate`**: 响应加 `llm` + `status` 字段, 入口加 status 过滤
+
+```typescript
+async function handleActivate(req: Request, env: Env) {
+  const { code, machine_id } = await req.json();
+  const data = JSON.parse(await env.KV.get(`code:${code}`) || "null");
+  if (!data) return error('CODE_NOT_FOUND');
+  
+  // 关键: 状态过滤防止清重装绕过 suspend
+  if (data.status === 'revoked') return error('CODE_REVOKED');
+  if (data.status === 'suspended') return error('CODE_SUSPENDED');     // v0.6 D6 新增, 不允许 suspend 状态码再激活
+  if (data.status === 'active') {
+    if (data.bound_machine_id !== machine_id) return error('CODE_BOUND_OTHER');
+    // 已绑同机, 走重激活路径 (覆盖 token, 不动 newapi)
+  }
+  
+  // unused: 首次激活, 绑机
+  if (data.status === 'unused') {
+    data.bound_machine_id = machine_id;
+    data.bound_at = new Date().toISOString();
+    data.status = 'active';
+    await env.KV.put(`code:${code}`, JSON.stringify(data));
+  }
+  
+  return Response.json({
+    ok: true,
+    token: signToken(...),
+    valid_until: ...,
+    status: 'active',
+    llm: {
+      base_url: env.XHS_LLM_BASE_URL,
+      api_key: await decryptKey(data.api_key_encrypted, env.SIGNING_PRIVATE_KEY),
+      model: 'auto-llm',
+    },
+  });
+}
+```
+
+base_url 来自 `env.XHS_LLM_BASE_URL` (Worker secret, 默认 `https://139.196.157.57/v1` 带 `/v1` 后缀以匹配 OpenAI SDK 习惯)。
+
+⚠️ **Maxwell 改 IP 后必须 redeploy worker**: `wrangler secret put XHS_LLM_BASE_URL` 改值后调 `wrangler deploy` 让新 secret 生效 (Worker secret **不 hot-reload**, isolate 启动时绑定一次)。redeploy 完成后, 客户端下次 heartbeat (**24h 周期**, `HEARTBEAT_INTERVAL_MS` 常量) 拿到新 base_url + license.ts diff 触发 push + renderer 更新 + main certificate-error allowedHosts 同步更新。
+
+**`POST /heartbeat`**: 响应带 `status` + `suspend_reason` + `llm` 字段, 允许 base_url + status 动态更新
+
+```typescript
+return Response.json({
+  ok: true,
+  status: data.status,                    // 'active' | 'suspended' | 'revoked'
+  suspend_reason: data.suspend_reason,    // 仅运营内部, 客户端不展示给用户
+  revoked: data.status === 'revoked',     // 兼容 v0.3 字段
+  llm: data.status === 'active' ? {       // suspended/revoked 时 token 已 disable, llm 字段可仍下发 (客户端拿到也调不通)
+    base_url: env.XHS_LLM_BASE_URL,
+    api_key: await decryptKey(...),
+    model: 'auto-llm',
+  } : null,
+  latest_version: ...,
+  min_version: ...,
+});
+```
+
+客户端 license.ts 处理逻辑:
+1. 拿 `status` 跟本地 license.status diff, 不一致 → 更新 license.json + push renderer (status 变化 → ChatPanel 状态机重算)
+2. 拿 `llm.base_url / api_key` 跟本地 diff, 不一致 → 更新 license.json + push renderer + main allowedHosts 重算
+3. **suspend 实际感知靠两条路径取早**:
+   - 主路径 (即时): agent.ts 调 LLM 时 newapi token 已 disable → 401/403 → catch → refreshLicense → 锁 chat
+   - 兜底路径 (最多 24h): 下次 heartbeat 同步 status → 锁 chat
+4. **离线 + 不调 LLM**: license.status 不变, 但用户也无法使用 AI 功能, 业务无损
+
+**`POST /admin/suspend`** (新增, v0.6 D6): 软停 — 客户未续 LLM 月费时 Maxwell 手动调用, **token 仍存在但 disabled**, license 进 `suspended` 状态。客户续费后调 `/admin/resume` 即可即时恢复。
+
+**15 天硬停 enforce** (人工 + UI 辅助, 不自动 cron):
+- KV 存 `suspended_at`, admin UI (`worker/src/admin-ui.ts`) 在列表中显示**距离 15 天的剩余天数** (`suspended_at + 15d - now`), ≤ 3 天用红色高亮提醒
+- admin UI 加"超期清单" tab (`GET /admin/overdue` 端点, 返回所有 `suspended_at + 15d < now` 的码), Maxwell 周末检查时一目了然
+- **不加 Worker scheduled cron 自动 revoke**: revoke 是终态不可逆, 应该由人决策 (避免月末客户已转账但 cron 已 revoke 的尴尬)
+
+
+```typescript
+async function handleSuspend(req: Request, env: Env) {
+  // Bearer ADMIN_TOKEN 鉴权
+  const { code, reason } = await req.json();
+  const data = JSON.parse(await env.KV.get(`code:${code}`));
+  // 多租户隔离护栏 (§12.10.13)
+  await assertXhsTenant(env, data.newapi_user_id);
+  if (data.status !== "active") {
+    const hint = {
+      unused: "激活码尚未被激活, 不能 suspend",
+      suspended: "激活码已是 suspended 状态",
+      revoked: "激活码已 revoked, 不可再 suspend (revoke 不可逆)",
+    }[data.status] ?? "未知状态";
+    return Response.json({
+      ok: false,
+      code: "INVALID_STATE",
+      current: data.status,
+      hint,
+    }, { status: 400 });
+  }
+  await newapi.updateTokenStatus(env, data.newapi_token_id, 2);  // 2=disabled
+  await env.KV.put(`code:${code}`, JSON.stringify({
+    ...data,
+    status: "suspended",
+    suspended_at: new Date().toISOString(),
+    suspend_reason: reason || "未续 LLM 月费",  // 注: 仅运营内部用, 客户端 banner 不透传, 避免敏感词泄露
+  }));
+  return Response.json({ ok: true });
+}
+```
+
+**`POST /admin/resume`** (新增, v0.6 D6): 恢复 — Maxwell 收到客户续费后调用, token 重新 enable, license 回 `active`。**resume 不补 quota** (suspend 期用了一半的不返还), 如需补加 Maxwell 在 newapi UI 手动操作。
+
+```typescript
+async function handleResume(req: Request, env: Env) {
+  const { code } = await req.json();
+  const data = JSON.parse(await env.KV.get(`code:${code}`));
+  await assertXhsTenant(env, data.newapi_user_id);   // 多租户隔离 (§12.10.13)
+  if (data.status !== "suspended") {
+    const hint = {
+      unused: "激活码尚未激活, 不能 resume",
+      active: "激活码已是 active 状态, 无需 resume",
+      revoked: "激活码已 revoked, 不可 resume (revoke 不可逆, 需重发新码)",
+    }[data.status] ?? "未知状态";
+    return Response.json({
+      ok: false,
+      code: "INVALID_STATE",
+      current: data.status,
+      hint,
+    }, { status: 400 });
+  }
+  await newapi.updateTokenStatus(env, data.newapi_token_id, 1);  // 1=enabled
+  await env.KV.put(`code:${code}`, JSON.stringify({
+    ...data,
+    status: "active",
+    suspended_at: null,
+    suspend_reason: null,
+    resumed_at: new Date().toISOString(),
+  }));
+  return Response.json({ ok: true });
+}
+```
+
+**`POST /admin/revoke`**: 硬停 — 永久注销, **不可恢复**。短期未续走 suspend 软停, ≤ 15 天客户仍未续费 → Maxwell 手动 revoke。
+
+```typescript
+const data = JSON.parse(await env.KV.get(`code:${code}`));
+await assertXhsTenant(env, data.newapi_user_id);   // 多租户隔离 (§12.10.13)
+const { newapi_token_id } = data;
+await newapi.updateTokenStatus(env, newapi_token_id, 2);  // 2=disabled (跟 suspend 一样, 但 status=revoked 客户端识别为不可恢复)
+await env.KV.put(`code:${code}`, JSON.stringify({
+  ...data,
+  status: "revoked",
+  revoked_at: new Date().toISOString(),
+}));
+// 注: 真删 newapi user/token 可选 (彻底清理), 这里只 disable token 保留审计痕迹
+```
+
+**`POST /admin/rebind`**: 不动 newapi 资源 (LLM key 跟 machine 解耦, 换机不影响; suspended/revoked 状态下不允许 rebind)
+
+**`GET /quota?code=<code>&sig=<sig>`**: 新端点, 中转查 subscription quota
+
+`sig` 算法: 客户端把激活时拿到的 SignedToken (`§6.3` 定义) 的 sig 部分 (base64) 截前 32 字符作为 `sig` 参数, Worker 用 PUBLIC_KEY 验 token 完整签名 (跟 /heartbeat 一样的 verify 路径), 不接受任何不在 KV 里的 code。这样防恶意第三方查别人 quota: 没拿到 SignedToken 拼不出合法 sig。
+
+```typescript
+async function handleQuota(req: Request, env: Env) {
+  const { code, sig } = parseQuery(req);
+  // verifyCodeSig: 比对 KV 里存的 sig 前 32 字符跟传入 sig
+  await verifyCodeSig(code, sig, env);
+  const data = JSON.parse(await env.KV.get(`code:${code}`));
+  await assertXhsTenant(env, data.newapi_user_id);   // 多租户隔离 (§12.10.13)
+  
+  const data = await env.KV.get(`code:${code}`);
+  const { newapi_user_id, newapi_sub_id } = JSON.parse(data);
+  
+  const subResp = await newapi.getUserSubscriptions(env, newapi_user_id);
+  const xhsSub = subResp.data.find(s => s.id === newapi_sub_id);
+  
+  // 每次拉 newapi 当前汇率/单位 (不硬编码, fetch 自带 60s edge cache, 性能 OK)
+  const status = await fetch(`${env.NEW_API_BASE_URL}/api/status`).then(r => r.json());
+  const QUOTA_PER_UNIT = status.data.quota_per_unit;        // 通常 500000
+  const USD_EXCHANGE_RATE = status.data.usd_exchange_rate;  // 通常 7.3
+
+  return Response.json({
+    remain_cny: (xhsSub.amount_total - xhsSub.amount_used) / QUOTA_PER_UNIT * USD_EXCHANGE_RATE,
+    total_cny: xhsSub.amount_total / QUOTA_PER_UNIT * USD_EXCHANGE_RATE,
+    used_cny: xhsSub.amount_used / QUOTA_PER_UNIT * USD_EXCHANGE_RATE,
+    next_reset_at: xhsSub.next_reset_time,   // unix ts
+  });
+}
+```
+
+`quota_per_unit` 和 `usd_exchange_rate` 不要硬编码 (防 Maxwell 调汇率漂移)。每次 `/quota` 请求时调 `GET /api/status` 拉取实际值, Cloudflare Workers fetch 自带 `cache: 'default'` (subrequest 默认 60s 内 dedupe + edge cache), 不需要手动缓存。Worker module-level state 跨 isolate 不可靠 (CF Workers 是 isolate 模型, 不同请求可能进不同 isolate), 不要靠 module 全局 cache。
+
+**月度 reset**: ❌ Worker 不做 (newapi `quota_reset_period: monthly` 原生 cron 内部处理, 每月 1 日扫 `NextResetTime ≤ now` 的 subscription 重置 `AmountUsed=0`)
+
+#### 12.10.4 客户端 license.json schema 扩展
+
+```jsonc
+{
+  "code": "XHS-XXXX-XXXX-XXXX-XXXX",
+  "machine_id": "...",
+  "token": "base64(payload).base64(sig)",         // §6.3 SignedToken, 内部 valid_until 是 unix ts
+  "valid_until": "2027-05-17T14:44:43.000Z",      // 客户端 license.json 本地缓存用 ISO 易读, 跟 token 内 unix ts 等价
+  "status": "active",                              // active | suspended | revoked (v0.6 D6 加, heartbeat 同步)
+  "suspend_reason": null,                          // 仅运营内部用, 客户端 banner **不展示** (banner 用固定文案), 详见 §12.10.9
+  "llm": {
+    "base_url": "https://139.196.157.57/v1",
+    "api_key": "sk-xxx",
+    "model": "auto-llm"
+  },
+  "byok": {
+    "base_url": "",
+    "api_key": "",
+    "model": ""
+  },
+  "dev_mode": false
+}
+```
+
+存储路径: `userData/license.json` (跟现有 license 文件同路径, 复用 v0.2.7 文件 base64 编码逻辑)。
+
+push 通道: 现有 `license:changed` IPC 事件 (B-001 push 通道) 扩展 payload, 加 `llm` / `byok` / `dev_mode` 字段, renderer store 监听更新。
+
+#### 12.10.5 主进程 cert 放行
+
+`src/main/index.ts` 加 (allowedHosts 必须动态读 license.llm.base_url, 否则 Maxwell 改 IP 后客户端 cert 验证失败 — 跟 N8 base_url 动态下发配套):
+
+```typescript
+import { app } from 'electron';
+import { getLicense } from './license';
+
+function getAllowedNewapiHosts(): Set<string> {
+  // 始终包含 fallback IP (兜底, license 还未激活时也能连)
+  const hosts = new Set<string>(['139.196.157.57']);
+  // 动态: license.llm.base_url 解析出 hostname 加入 (N8 动态下发后保持一致)
+  try {
+    const lic = getLicense();
+    if (lic?.llm?.base_url) {
+      hosts.add(new URL(lic.llm.base_url).hostname);
+    }
+  } catch (_) { /* ignore, fall back to default */ }
+  return hosts;
+}
+
+app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+  try {
+    const host = new URL(url).hostname;
+    if (getAllowedNewapiHosts().has(host)) {
+      event.preventDefault();
+      callback(true);    // trust this Caddy self-signed cert (IP 直连 fallback)
+      return;
+    }
+  } catch (_) { /* fall through */ }
+  
+  callback(false);    // reject all other invalid certs (preserve security for unknown hosts)
+});
+```
+
+#### 12.10.6 Renderer agent 选择 LLM
+
+`src/renderer/src/ai/agent.ts`:
+
+```typescript
+function getActiveLLMConfig(license: License): LLMConfig {
+  if (license.dev_mode === true && license.byok?.api_key) {
+    return license.byok;
+  }
+  return license.llm;
+}
+
+async function runAgent(messages, ...) {
+  const llm = getActiveLLMConfig(useLicenseStore.getState().license);
+  if (!llm?.api_key) {
+    throw new Error('LLM_NOT_CONFIGURED');
+  }
+  const client = new OpenAI({
+    baseURL: llm.base_url,
+    apiKey: llm.api_key,
+    dangerouslyAllowBrowser: true,
+  });
+  // ...
+}
+```
+
+#### 12.10.7 Settings 反馈框 + 暗号解锁
+
+`src/renderer/src/components/Settings.tsx` 加常驻 "故障排查 / 反馈" 区块:
+
+```tsx
+const [feedbackText, setFeedbackText] = useState('');
+// DEV_UNLOCK_CODE 真值见 ~/.secrets/xhs-secrets.txt (避免 spec md 泄露; 客户端代码里也建议用 build-time env 注入而非源码硬编码)
+const DEV_UNLOCK_CODE = process.env.XHS_DEV_UNLOCK_CODE || '<see ~/.secrets/xhs-secrets.txt>';
+
+useEffect(() => {
+  if (feedbackText === DEV_UNLOCK_CODE) {
+    showDialog({
+      title: '开发者模式',
+      message: '已解锁开发者模式, BYOK 配置区已可见. 是否切换到 BYOK 模式?',
+      buttons: ['仅解锁不切换', '切换到 BYOK'],
+    }).then(choice => {
+      window.api.license.setDevMode(true);
+      if (choice === 1) window.api.license.setActiveLLM('byok');
+    });
+    setFeedbackText('');   // 清空避免重复触发
+  }
+}, [feedbackText]);
+```
+
+Settings 解锁后显示:
+- BYOK 配置区 (baseURL / API Key / model 输入框, save 到 `license.byok`)
+- "当前 LLM 模式" 切换: 中转 / BYOK (写 `license.dev_mode + byok` 字段)
+- "退出开发者模式" 按钮 (重置 `dev_mode: false`)
+
+#### 12.10.8 配额展示
+
+`src/renderer/src/components/Settings.tsx` 加 "AI 调用额度" 区块:
+
+```tsx
+const { quota } = useQuotaStore();   // 启动时 + chat 完成后 dispatch fetchQuota()
+
+<div>
+  <h3>AI 调用额度</h3>
+  <progress value={quota.remain_cny} max={quota.total_cny} />
+  <p>本月剩余 ¥{quota.remain_cny.toFixed(2)} / ¥{quota.total_cny.toFixed(2)}</p>
+  <p>下月 1 日 00:00 自动重置</p>
+  <button onClick={() => fetchQuota()}>刷新</button>
+</div>
+```
+
+fetchQuota: 调 `window.api.llm.getQuota()` (主进程 IPC, 主进程 fetch Worker `/quota?code=...&sig=...`)
+
+刷新时机:
+- App 启动 mount
+- 每次 chat 完成 (agent.ts done event) 异步触发 (不阻塞 UI)
+
+#### 12.10.9 chat 锁死 UX (3 个触发场景)
+
+三种状态都会让 chat 输入框 disable + Send 置灰 + 顶部 banner, 但**文案固定不可注入**(避免运营 suspend_reason 含敏感词泄露给客户):
+
+| 触发 | 检测 | Banner 文案 (固定模板, 不拼 suspend_reason) |
+|---|---|---|
+| 配额耗尽 | `quota.remain_cny ≤ 0` (本月配额用完) | "本月 AI 调用额度已用完, 下月 1 日 00:00 自动重置, 联系客服微信 xxx 临时加额" |
+| **License suspended** (v0.6) | `license.status === 'suspended'` (未续 LLM 月费) | "AI 服务已暂停, 请联系客服续费 LLM 服务, 续费后立即恢复" |
+| **License revoked** (v0.6) | `license.status === 'revoked'` (硬停, 长期未续 / 违规) | "软件已停用, 如有疑问请联系客服微信 xxx" |
+
+⚠️ **suspend_reason 仅运营内部用**: KV / license.json 里存 (Maxwell 在 admin UI 看到), 但**客户端 banner 绝不展示** — 防止 Maxwell 写"客户跑路 6 月未付钱"等内部备注被客户看到。
+
+**dev 模式 + 各 status 的交互**:
+
+| status | dev 模式 入口 | 解锁后 BYOK 切换能用吗 | 设计意图 |
+|---|---|---|---|
+| active | ✅ 可解锁 | ✅ 可切 BYOK | 客户特殊需求 / 客服 debug |
+| quota=0 | ✅ 可解锁 | ✅ 可切 BYOK | 配额耗尽急救 |
+| **suspended** | ✅ 可解锁 | ✅ 可切 BYOK | **关键逃生场景** — 未续费时仍能用自己的 key |
+| **revoked** | ✅ 可解锁 | ❌ **拒切 BYOK** (硬停后必须找客服恢复 license, 不能绕过) | revoke 是终态, 软件应硬停 |
+
+实现: agent.ts 调用前检查 `license.status !== 'revoked'`, revoked 时即使 dev_mode=true + byok 配置完整也不调 LLM, 强制走 revoked banner。
+
+agent.ts 调 LLM 失败时 catch:
+
+```typescript
+try {
+  await client.chat.completions.create({...});
+} catch (e) {
+  if (e?.error?.code === 'insufficient_quota' || e?.status === 429) {
+    await fetchQuota();    // refresh
+    showDialog({
+      title: '本月额度已用完',
+      message: '本月 AI 调用额度已用完, 下月 1 日 00:00 自动重置. 急需使用请联系客服微信 xxx 临时加额.',
+      buttons: ['知道了'],
+    });
+    return;
+  }
+  // 401/403: 不一刀切归 suspend, 先 refresh license 看真实 status
+  if (e?.status === 401 || e?.status === 403) {
+    const updated = await refreshLicense();    // 主进程 heartbeat 一次拿最新 status
+    if (updated.status === 'suspended') {
+      showDialog({
+        title: 'AI 服务已暂停',
+        message: 'AI 服务已暂停, 请联系客服续费 LLM 服务, 续费后立即恢复.',
+        buttons: ['联系客服', '知道了'],
+      });
+      return;
+    }
+    if (updated.status === 'revoked') {
+      showDialog({
+        title: '软件已停用',
+        message: '软件已停用, 如有疑问请联系客服微信 xxx',
+        buttons: ['联系客服', '知道了'],
+      });
+      return;
+    }
+    // status 还是 active 但 LLM 401 → 真正的认证问题 (api_key 失效 / 配置错 / 网络异常等)
+    showDialog({
+      title: '网络异常',
+      message: 'AI 服务连接失败, 请稍后重试或联系客服反馈.',
+      buttons: ['联系客服', '知道了'],
+    });
+    return;
+  }
+  throw e;
+}
+```
+
+ChatPanel.tsx 锁死逻辑:
+
+```tsx
+const isChatLocked = useMemo(() => {
+  if (license.status === 'revoked') return { reason: 'revoked', banner: '软件已停用...' };
+  if (license.status === 'suspended') return { reason: 'suspended', banner: `AI 服务已暂停... (${license.suspend_reason})` };
+  if (quota.remain_cny <= 0) return { reason: 'quota_exhausted', banner: '本月额度已用完...' };
+  return null;
+}, [license.status, license.suspend_reason, quota.remain_cny]);
+
+// chat 输入框 / Send 按钮: disabled={!!isChatLocked}
+// 顶部 banner: isChatLocked && <Banner>{isChatLocked.banner}</Banner>
+```
+
+License status 同步: 主进程 license.ts `heartbeat` 响应里检查 `status` 字段变化 → push 给 renderer 更新 store。
+
+#### 12.10.10 Worker secrets
+
+```bash
+wrangler secret put NEW_API_BASE_URL       # https://llm.maxwellii.com (Worker → newapi 用域名, Caddy LE 合法证书)
+wrangler secret put NEW_API_ACCESS_TOKEN   # maxwell user access_token (system token)
+wrangler secret put NEW_API_USER_ID        # 1 (maxwell root user id)
+wrangler secret put XHS_PLAN_ID            # 待 Maxwell 建 XHS Plan 后填
+wrangler secret put XHS_NEWAPI_GROUP       # xhs
+wrangler secret put XHS_LLM_BASE_URL       # https://139.196.157.57/v1 (客户端下发用 IP)
+```
+
+#### 12.10.11 失败兜底
+
+| 失败 | Worker 行为 | 客户端行为 |
+|---|---|---|
+| Worker → newapi 网络/超时 | 重试 3 次指数退避 | - |
+| Worker → newapi 持续失败 | /admin/codes 返回 500 → admin retry | - |
+| /activate 时 newapi 资源缺失 | `llm: null` | dialog "中转暂不可用, 请稍后再激活, 或暗号切 BYOK" |
+| 客户端 SSL handshake 失败 | - | main 捕获 certificate-error 失败 → toast "网络异常, 检查 IP" |
+| 配额耗尽 (insufficient_quota) | - | agent.ts catch → 锁 chat 输入 + banner (本月额度文案) |
+| **License suspended (未续 LLM 月费, v0.6)** | Maxwell 手动 /admin/suspend → token disable + status=suspended | heartbeat 同步 → license.status=suspended → ChatPanel 锁 + banner (续费文案); 续费后 Maxwell /admin/resume → status=active → 即时解锁 |
+| **License revoked (硬停, v0.6)** | suspended > 15 天客户仍未续费 → Maxwell 手动 /admin/revoke → status=revoked | heartbeat 同步 → 全应用停用 banner |
+| 本地 license 写失败 (磁盘满) | - | error toast, agent 拒服务 |
+
+#### 12.10.12 一次性 setup checklist
+
+→ **single source 见 [ROADMAP §13 M6 实施计划](./ROADMAP.md)** (含 Maxwell 操作清单 + Worker / 客户端改动列表 + 联调测试 + Exit Criteria)。
+
+本节不再重复, 避免多处维护漂移。
+
+#### 12.10.13 多租户隔离原则（重要安全护栏）
+
+**背景**: 该 newapi 实例 (`https://llm.maxwellii.com`) 由 Maxwell 维护, 同时服务**多个应用**:
+- xhs (小红书自运营系统, 本项目)
+- 其他个人 / 客户应用 (e.g. lijunfeng 已绑 VIP Plan)
+- 其他付费用户
+
+**护栏原则**: Worker 只管理 `xhs-*` 前缀的资源, **不允许影响其他租户**。
+
+##### 命名约定 (强制规范)
+
+| newapi 资源 | xhs 租户命名 | 其他租户 |
+|---|---|---|
+| user.username | `xhs-*` 前缀 (Worker 建) | 任何不以 `xhs-` 开头 |
+| token.name | `xhs-*` (跟 user.username 同) | 同上 |
+| Plan | `XHS Plan` (id=2, upgrade_group=xhs) | `VIP Plan` (id=1) 等其他 |
+| group | `xhs` | `default` / `vip` / `svip` 等 |
+| subscription | 仅 plan_id=2 (XHS Plan) | plan_id ≠ 2 |
+
+##### Worker 操作前的护栏检查
+
+任何 newapi 写操作 (PUT/POST/DELETE) 前, **必须先 GET 验证目标资源 username 以 `xhs-` 开头**:
+
+```typescript
+async function assertXhsTenant(env: Env, userId: number): Promise<void> {
+  const userResp = await fetch(`${env.NEW_API_BASE_URL}/api/user/${userId}`, {
+    headers: newapiAdminHeaders(env),
+  }).then(r => r.json());
+  const username = userResp.data?.username;
+  if (!username || !username.startsWith('xhs-')) {
+    throw new Error(
+      `TENANT_VIOLATION: refuse operation on user_id=${userId} (username='${username}'), not xhs tenant`
+    );
+  }
+}
+
+// /admin/suspend, /admin/resume, /admin/revoke 等所有写操作进入前调用:
+async function handleSuspend(req, env) {
+  const { code } = await req.json();
+  const data = JSON.parse(await env.KV.get(`code:${code}`));
+  await assertXhsTenant(env, data.newapi_user_id);   // ← 关键护栏
+  await newapi.updateTokenStatus(env, data.newapi_token_id, 2);
+  // ...
+}
+```
+
+##### 为什么需要这个
+
+- **防 KV 被篡改**: 如果 admin token 泄露, 攻击者可能伪造 KV 数据 `{ newapi_user_id: 2 }` (指向 lijunfeng 等其他人), Worker 不 verify 就会误操作
+- **防开发 bug**: Worker 代码 bug 可能写错 user_id, 拿了个非 xhs 用户去 disable token
+- **多租户共享 newapi 的现实保护**: 这个 newapi 实例不是 xhs 独占, 必须 defensive
+
+##### 列表 / 查询场景的隔离
+
+- `GET /admin/codes` (Worker admin list): 只列 KV 里 `code:*`, 不调 newapi list, **不会泄露其他租户**
+- `GET /quota` (Worker 中转): KV 拿到 user_id 后 assertXhsTenant 验证, 再调 newapi `/api/subscription/admin/users/:id/subscriptions`, 再 filter `plan_id === XHS_PLAN_ID` (= 2), 只返回 XHS Plan 配额
+
+##### 不要做的事 (避免影响其他租户)
+
+- ❌ 不要调 `GET /api/user/?p=0&page_size=1000` 然后批量操作 (会扫到 lijunfeng / maxwell root user)
+- ❌ 不要调 `GET /api/subscription/admin/plans` 然后修改其他 plan
+- ❌ 不要 PUT `/api/option/` 改 group config (GroupRatio 等), setup 时 Maxwell 手动改一次后 Worker 不再动
+- ❌ 不要 DELETE 任何 newapi 资源**不经过 xhs- 前缀验证**
+- ✅ 只能 CRUD `xhs-*` user / 同 user 下的 token / plan_id=XHS_PLAN_ID 的 subscription
+
+##### Worker test 必跑场景 (验证隔离)
+
+- [ ] 构造 KV `{newapi_user_id: 1}` (指向 maxwell root user), 调 /admin/suspend → 应被 assertXhsTenant 拒绝, 不影响 maxwell user
+- [ ] 构造 KV `{newapi_user_id: 2}` (指向 lijunfeng VIP), 调 /admin/revoke → 同上, 不影响 lijunfeng VIP Plan
+- [ ] 正常 xhs- 前缀 user → 操作正常通过
+
 ---
 
-**文档结束 · SPEC v0.2**
+**文档结束 · SPEC v0.3**

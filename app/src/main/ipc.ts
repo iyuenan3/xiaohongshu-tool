@@ -91,6 +91,16 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
     return { ok: true };
   });
 
+  // v0.6 D6: LLM 中转 + BYOK + 配额
+  ipcMain.handle('llm:getActive', () => licenseManager.getActiveLlm());
+  ipcMain.handle('llm:getQuota', () => licenseManager.fetchQuota());
+  ipcMain.handle('llm:setDevMode', (_, enabled: boolean) => licenseManager.setDevMode(enabled));
+  ipcMain.handle(
+    'llm:setByok',
+    (_, byok: { base_url: string; api_key: string; model: string }) =>
+      licenseManager.setByok(byok),
+  );
+
   // Auto-update
   ipcMain.handle('updater:check', () => checkForUpdatesNow());
 
