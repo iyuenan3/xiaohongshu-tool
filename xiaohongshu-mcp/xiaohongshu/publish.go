@@ -277,8 +277,8 @@ func submitPublish(page *rod.Page, title, content string, tags []string, schedul
 	if err != nil {
 		return errors.Wrap(err, "查找标题输入框失败")
 	}
-	if err := titleElem.Input(title); err != nil {
-		return errors.Wrap(err, "输入标题失败")
+	if err := inputAndVerifyTitle(page, titleElem, title); err != nil {
+		return err
 	}
 
 	// 检查标题长度
@@ -294,8 +294,8 @@ func submitPublish(page *rod.Page, title, content string, tags []string, schedul
 	if !ok {
 		return errors.New("没有找到内容输入框")
 	}
-	if err := contentElem.Input(content); err != nil {
-		return errors.Wrap(err, "输入正文失败")
+	if err := inputAndVerifyContent(page, contentElem, content); err != nil {
+		return err
 	}
 	if err := waitAndClickTitleInput(titleElem); err != nil {
 		return err
@@ -505,6 +505,122 @@ func clickPublishWidget(page *rod.Page, widget *rod.Element) error {
 		return errors.Wrap(err, "点击发布按钮失败")
 	}
 	return nil
+}
+
+// inputAndVerifyTitle 写入标题。
+// 根因: 小红书 publish 页改版用 React 受控 input, rod.Input() 模拟 IME char event 在某些 Chromium build 下不触发 React state 更新 (e.g. webview 未 focus 时).
+// 主路径: 直接用 native HTMLInputElement.value setter + dispatchEvent('input') 触发 React onChange.
+// 兜底: 老版页面 (非 React 受控) fallback rod.Input().
+func inputAndVerifyTitle(page *rod.Page, titleElem *rod.Element, title string) error {
+	js := `function(text) {
+		const proto = Object.getPrototypeOf(this);
+		const setter = Object.getOwnPropertyDescriptor(proto, 'value') && Object.getOwnPropertyDescriptor(proto, 'value').set;
+		if (setter) {
+			setter.call(this, text);
+		} else {
+			this.value = text;
+		}
+		this.dispatchEvent(new Event('input', { bubbles: true }));
+		this.dispatchEvent(new Event('change', { bubbles: true }));
+		return this.value || '';
+	}`
+	written, err := evalToString(titleElem, js, title)
+	if err == nil && written == title {
+		slog.Info("标题写入成功 (native setter)")
+		return nil
+	}
+	if err != nil {
+		slog.Warn("标题 native setter 失败, 回退 rod.Input()", "err", err)
+	} else {
+		slog.Warn("标题 native setter 写入不一致, 回退 rod.Input()", "want_len", len(title), "got_len", len(written))
+	}
+	if err := titleElem.Input(title); err != nil {
+		return errors.Wrap(err, "rod.Input 标题失败")
+	}
+	time.Sleep(200 * time.Millisecond)
+	if isTitleEmpty(titleElem) {
+		return errors.New("标题写入后仍为空, 小红书 publish 页 DOM 可能改版")
+	}
+	slog.Info("标题写入成功 (rod.Input fallback)")
+	return nil
+}
+
+// inputAndVerifyContent 写入正文。
+// 根因: v0.3.x 起小红书 publish 页改用 TipTap (ProseMirror), 不监听 CDP 'char' event, 旧 rod.Input() 仅改 contenteditable DOM 而 ProseMirror state 未更新, 提交时拿 state = 空, 发出空笔记.
+// 主路径: 通过 element 上暴露的 `editor` 引用调 TipTap commands.setContent(text), 直接改 ProseMirror state.
+// 兜底: 老版 Quill (ql-editor) 没 editor 引用, fallback rod.Input().
+func inputAndVerifyContent(page *rod.Page, contentElem *rod.Element, content string) error {
+	js := `function(text) {
+		const ed = this.editor;
+		if (ed && ed.commands && typeof ed.commands.setContent === 'function') {
+			try {
+				ed.commands.setContent(text);
+				return 'OK:' + (ed.getText ? ed.getText() : '');
+			} catch (e) {
+				return 'ERR:' + (e && e.message);
+			}
+		}
+		return 'NO_EDITOR';
+	}`
+	result, err := evalToString(contentElem, js, content)
+	if err == nil && strings.HasPrefix(result, "OK:") {
+		written := strings.TrimPrefix(result, "OK:")
+		if strings.TrimSpace(written) != "" {
+			slog.Info("正文写入成功 (TipTap setContent)", "len", len(written))
+			return nil
+		}
+		slog.Warn("TipTap setContent 调用成功但 getText 为空, 回退 rod.Input()")
+	} else if err != nil {
+		slog.Warn("TipTap setContent JS 调用失败, 回退 rod.Input()", "err", err)
+	} else {
+		slog.Warn("TipTap editor 不可用, 回退 rod.Input()", "result", result)
+	}
+	if err := contentElem.Input(content); err != nil {
+		return errors.Wrap(err, "rod.Input 正文失败")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if isContentEmpty(contentElem) {
+		return errors.New("正文写入后仍为空, 小红书 publish 页 DOM 可能改版")
+	}
+	slog.Info("正文写入成功 (rod.Input fallback)")
+	return nil
+}
+
+func isTitleEmpty(titleElem *rod.Element) bool {
+	val, err := titleElem.Eval(`() => this.value || ""`)
+	if err != nil || val == nil {
+		return true
+	}
+	return strings.TrimSpace(val.Value.Str()) == ""
+}
+
+func isContentEmpty(contentElem *rod.Element) bool {
+	// TipTap 优先用 editor.getText(); 老版 Quill 退到 innerText
+	val, err := contentElem.Eval(`() => {
+		const ed = this.editor;
+		if (ed && typeof ed.getText === 'function') return (ed.getText() || '').trim();
+		return (this.innerText || '').trim();
+	}`)
+	if err != nil || val == nil {
+		return true
+	}
+	return val.Value.Str() == ""
+}
+
+// evalToString 调 page.Eval(js, args...) 并返回 string 结果, 错误时返回 ("", err)
+func evalToString(elem *rod.Element, js string, args ...interface{}) (string, error) {
+	jsArgs := make([]interface{}, 0, len(args))
+	for _, a := range args {
+		jsArgs = append(jsArgs, a)
+	}
+	val, err := elem.Eval(js, jsArgs...)
+	if err != nil {
+		return "", err
+	}
+	if val == nil {
+		return "", nil
+	}
+	return val.Value.Str(), nil
 }
 
 // waitAndClickTitleInput 在填写正文后等待 1 秒并回点标题输入框，增强后续交互稳定性
@@ -771,6 +887,19 @@ func isElementVisible(elem *rod.Element) bool {
 			// 不是激活状态的 -1 tabindex 元素，可能是隐藏的叠加层
 			return false
 		}
+	}
+
+	// 检测元素是否完全在 viewport 外 (CSS 类用 left:-9xxxpx 等屏幕外隐藏, 不是 inline style)
+	// rod elem.Visible() 不可靠检测这种情况, 显式查 boundingClientRect
+	rect, err := elem.Eval(`() => {
+		const r = this.getBoundingClientRect();
+		// 完全在 viewport 左侧或上侧之外 (典型 CSS hack 隐藏)
+		if (r.width === 0 || r.height === 0) return false;
+		if (r.x + r.width <= 0 || r.y + r.height <= 0) return false;
+		return true;
+	}`)
+	if err == nil && rect != nil && !rect.Value.Bool() {
+		return false
 	}
 
 	visible, err := elem.Visible()
