@@ -61,7 +61,8 @@ async function provisionNewapiResources(
     subId = sub.id;
 
     // Step 3: create token (model_limits=auto-llm 锁死, expired_time=-1 永久)
-    const token = await newapi.createToken(env, userId, {
+    // newapi token 端点是 UserAuth 严格校验, admin 不能代操作, createToken 内部用 password 登录
+    const token = await newapi.createToken(env, userId, password, {
       name: username,
       unlimited_quota: true,
       model_limits_enabled: true,
