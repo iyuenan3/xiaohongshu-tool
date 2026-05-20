@@ -69,7 +69,8 @@ export async function createUser(
   args: { username: string; password: string; display_name: string },
 ): Promise<NewApiUser> {
   // POST /api/user/ 不返 data, follow-up GET /api/user/search?keyword=<username> 拿 id
-  await call<unknown>(env, 'POST', '/api/user/', args);
+  // group 显式传 xhs (newapi 默认 default, 不传会进 default 池违反多租户隔离)
+  await call<unknown>(env, 'POST', '/api/user/', { ...args, group: env.XHS_NEWAPI_GROUP });
   const search = await call<PageResult<NewApiUser>>(
     env,
     'GET',
