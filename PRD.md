@@ -1,6 +1,6 @@
 # 小红书自运营系统 PRD
 
-> 版本 v0.6 · 2026-05-19 · 路线 A 升级（完全本地化 + **自营 LLM 中转** + 无证书发布）
+> 版本 v0.7 · 2026-05-20 · 工作流自动化 (定时点赞 / 评论 / 发布 / 数据快照)
 
 ## 0. 版本变更记录
 
@@ -13,6 +13,8 @@
 | v0.5 | 2026-05-17 | v0.2 ~ v0.3 系列功能 ship：4-tab UI 重构 / 智能素材库 / 📎 附件 + xhs-asset:// 协议 / 联网搜索 / 网页管理后台 / dmg 内嵌「首次安装.command」+ 0 Keychain. 中转站方案 (E)：待用户决策 |
 | v0.5.1 | 2026-05-17 | 黑盒 E2E 测试 (subagent 跑 164/167 pass) 发现 5 个 bug, 修完: B-001 license 状态变化 push 通道; B-002 工具计数 11/13 → 14; B-003 删 xhs_generate_cover 占位; B-004 SPEC §2.2 加 v0.2 重构通知; B-005 §9.1 错误码前缀约定明确 |
 | **v0.6** | **2026-05-19** | **D6 拍板：自营 LLM 中转方案 (newapi 网关 + 一码一 newapi user + bind XHS Plan)。商业模式：软件一次性买断 + LLM 月费另收 (newapi VIP Plan monthly reset, 维护者运营时定价)。未续费 → token suspend + chat 锁 + 15 天后 revoke (分级停用)。BYOK 默认 UI 隐藏, dev 模式暗号解锁逃生口。详见 §6.7 + SPEC §12.10** |
+| v0.6.1 | 2026-05-20 | D6 实施完成 (M6 ship): Worker v0.6.0 deploy + 客户端 v0.6.0 ship. Cloudflare Tunnel `llm-cf.maxwellii.com` 接通 (newapi-proxy 项目侧). newapi.ts 适配 newapi 真实 API 行为 (POST 不返 data + UserAuth 严格 + cookie 登录). suspend/resume/revoke 改 admin 端点. createUser 显式传 group=xhs 多租户隔离. 真实 E2E 验证: agent.ts → IP 直连 → newapi xhs group → 火山方舟 doubao 返中文 |
+| **v0.7** | **2026-05-20** | **工作流模块拍板 (M7 计划): 控制台左侧 3 段 (常用命令 3 个 + 工作流 + 会话列表). 5 个 MVP 模板 (👍 每日点赞评论 / ⏰ 定时发布 / ✍️ 签到式互动 / 📊 数据快照 / 🔍 关键词搜索点赞评论). 技术路线: 固定骨架 + AI 填补 (创意步骤交 LLM, 流程硬编码). 调度: 简化下拉 (每天/每周/每隔X小时) + ±10min 随机抖动 + 步间 30-90s 延迟. 风控: 步骤硬上限 + 首次启用弹"风控注意"对话框 + 连续 3 次 fail auto disable. MVP 路径: P1 (引擎+1 模板) → P2 (剩 4 模板) → P3 (polish). 详见 §4 末尾工作流自动化 + SPEC §13** |
 
 ## 1. 产品定位
 
@@ -170,6 +172,88 @@
     - license.ts 不再用 macOS Keychain (safeStorage)，改文件 base64 编码
     - 安全保障由服务端 verify machine_id 提供 (拷文件到别机器也激活不了)
     - 老 Keychain 用户启动会失效需重激活 (一次性 UX 损失)
+
+### 工作流自动化（v0.7 / M7 计划，未实施）
+
+把"用户每次手动让 AI 跑一遍"升级成"工作流定时自动跑"，是从"AI 助手"转向"AI 运营员"的关键一步。
+
+#### 价值主张
+
+| 当前痛点 | v0.7 解决 |
+|---|---|
+| 每天要手动开软件 + 让 AI 浏览点赞 | 设好"每天 9 点点赞 + 评论 3 条", 后台自动跑 |
+| 发笔记必须人坐在电脑前 | 提前准备好图文/视频, 设"周六 19:00 发", 到点自动发 |
+| 无法系统跟踪自己主页数据 | "每天 23:00 记录粉丝/笔记数/获赞", 增长趋势可查 |
+| 手动操作不可避免不规律 | 工作流加 ±10min 调度抖动 + 步间 30-90s 随机延迟, 反风控比手动更稳 |
+
+#### 5 个 MVP 模板
+
+| 模板 | 触发场景 | 固定步骤 | AI 填补 |
+|---|---|---|---|
+| 👍 每日首页点赞评论 | 每天 X 点 | `list_feeds` → top N (≤5) `like_feed` → 部分笔记 `post_comment` | 生成评论文案 |
+| ⏰ 定时发布笔记 | 单次 / 每周 X X 点 | `publish_content` 或 `publish_with_video` | 无 (用户预填) |
+| ✍️ 签到式互动 | 每天 X 点 | 取关注列表前 N → 每人最新一篇 `like_feed` | 无 |
+| 📊 每日数据快照 | 每天 X 点 | `my_profile` → SQLite snapshots 表 | 无 |
+| 🔍 关键词点赞评论 | 每 X 小时 / 每天 X 点 | `search_feeds(keyword)` → top N `like_feed` + `post_comment` | 生成评论文案 |
+
+#### 技术路线 (拍板)
+
+| 决策 | 选项 |
+|---|---|
+| 多步执行 | **固定骨架 + AI 填补创意步骤** (流程代码硬, 评论文案交 LLM) |
+| 调度复杂度 | **简化下拉** (每天/每周/每隔X小时) + ±10min 抖动. cron 表达式留 dev 模式 |
+| 错过处理 | **skip + 记 missed_runs** (启动后不补跑, 历史里标 missed) |
+| 失败阈值 | **连续 3 次 fail → auto disable** + 状态 pill 标红 |
+| 并发 | **queue 串行**, 同时刻 2 个工作流到点也排队跑 (避免风控 + LLM 并发双倍 quota) |
+
+#### 风控加固 (3 条)
+
+1. **随机抖动**: 调度时间 ±10min, 步骤间 30-90s 随机延迟
+2. **步骤硬上限**: 每次运行 like ≤ 5 / comment ≤ 3 (代码内截, 即使用户填 10 也截到 5)
+3. **首次启用弹"风控注意"对话框**: 全局一次性勾选, 后续启用不再弹. 内容明确告知"自动行为可能触发风控, 后果自负"
+
+#### UI 改造 (控制台左侧 25% 区, 3 段)
+
+```
+┌─⚡ 常用命令────────┐  3 个按钮 (检查登录 / 发布笔记 / 获取首页推荐),
+│  [检查登录    ]    │  ≈ 140px 固定
+│  [发布笔记    ]    │
+│  [获取首页推荐]    │
+├─🎛 工作流  [+新建]┤  工作流列表 + ▶ 手动跑 + ⋮ 菜单 (编辑/历史/启停/删除)
+│ ▶ 每日点赞评论    │  ≈ 40% 剩余空间, 内部滚动
+│   每天 09:00 ✅   │
+│ ⋯                 │
+├─💬 会话  [+新增]──┤  当前会话历史
+│ ● 默认会话        │  ≈ 60% 剩余空间, 内部滚动
+│ ⋯                 │
+└───────────────────┘
+```
+
+弹框: WorkflowEditor (新建/编辑) + WorkflowRunHistory (运行历史) + RiskWarningDialog (首次启用)
+
+#### MVP 路径
+
+**P1 (5-7 天)**: 引擎 + 1 个模板 (👍 每日点赞评论) + 完整 UI 闭环 + 风控护栏
+**P2 (5-7 天)**: 加剩 4 模板
+**P3 (3 天)**: polish (dev 模式 cron / 运行历史详细 trace / 失败 notification)
+
+#### 跟其他模块的关系
+
+- **LLM**: AI 填补步骤用 license.llm.api_key (复用 D6 中转, **不绕过 D6 护栏 — quota check / overdue 软停 / 多租户 / cert 放行都生效**, 计入月度 quota)
+- **RateLimiter**: 沿用 v0.2 全局护栏 (publish 3/天 / comment 10/h / like 30/h), **多工作流共享同一 quota 池** (3 个 like-类工作流同窗口跑也只能合计 30/小时; UI 在 WorkflowEditor 创建时**预估当日消耗**警示用户, 详见 SPEC §13.6.1)
+- **SQLite**: 加 `workflows` + `workflow_runs` + `appConfig` 表, 复用现有 `app.db` better-sqlite3 singleton. v0.7 启动时跑 schema migration (SPEC §13.2.1), 老用户启动自动建表无感知
+- **跨设备**: 工作流数据本地 SQLite, **不跨设备同步**, 跟激活码单设备绑定一致
+- **客户端关闭**: 调度依赖客户端进程存活. 关闭期间 = miss. 用户开机就跑符合 "运营员上班" 直觉
+- **笔记本 sleep 唤醒**: 注册 `powerMonitor.on('resume')`, 唤醒时全量 recompute next_fire_at (SPEC §13.3)
+
+#### LLM Quota 商业模型 (跟 D6 月费的关系)
+
+工作流 24×7 后台跑可能远超个人聊天 quota. 当前决策 (v0.7 启动时):
+
+- **不另收费**: 工作流 LLM 消耗计入同一月度 quota (XHS Plan ¥X/月)
+- **超额自动停**: 用户当月 quota 耗尽 → 工作流单次 run 标 `failed/quota_exhausted`, 整工作流不 auto-disable. 下月 quota reset 后自动恢复
+- **若运营数据显示高度运营户耗光 quota 影响付费用户体验**, M8 公测前评估是否升级为"工作流单独配额桶"或"分级月费" (待 **D9 决策**, 见 §10)
+- 文档明示这一点, 避免用户期望落差
 
 ### 商业化 · 中转站方案（v0.6 D6 已拍板）
 
@@ -456,10 +540,11 @@ value: {
 | **M3 商业化** | 2 周 | Cloudflare Worker 激活服务 + 客户端激活流程 + 加固 (✅ 已完成) |
 | **M4 跨平台 + 自动更新** | 1 周 | macOS / Windows 无证书打包 + electron-updater + 首次启动指引文档 (✅ 已完成) |
 | **M5 公测打磨** | 1-2 周 | UI 重构 / 智能素材库 / 联网搜索 / 12 次发版迭代 (✅ 已完成) |
-| **M6 LLM Gateway 实施** | 2-3 天 | **D6 自营 newapi 中转 (方案 X 一码一 user + bind XHS Plan)。详见 ROADMAP §13** (🔧 进行中 2026-05-19) |
-| **M7 公测发售** | 待 D3/D5 决策 | 种子用户灰度 + 首发 (⏳ pending) |
+| **M6 LLM Gateway 实施** | 2 天 | **D6 自营 newapi 中转 (方案 X 一码一 user + bind XHS Plan)。详见 ROADMAP §13** (✅ 已完成 2026-05-20, v0.6.0 ship) |
+| **M7 工作流自动化** | 2-3 周 | 工作流引擎 + 5 模板 + 风控加固 (P1 引擎+1 模板 → P2 加 4 模板 → P3 polish)。详见 §4 末尾工作流自动化 + SPEC §13 (🔧 待启动) |
+| **M8 公测发售** | 待 D3/D5 决策 | 种子用户灰度 + 首发 (⏳ pending) |
 
-总计: M1-M5 + M6 D6 实施完成后, M7 公测发售 (待 D3 产品名/D5 客服渠道 决策)。
+总计: M1-M6 完成 (D6 ship), M7 工作流后再做 M8 公测发售。
 
 ## 10. 待决策清单（剩余）
 
@@ -476,10 +561,11 @@ value: {
 
 | 编号 | 议题 | 影响 | 截止 |
 |---|---|---|---|
-| D3 | 产品全名（中英文）+ 域名 | 影响品牌；可选官网 | M7 公测前 |
-| D5 | 支持渠道（微信群 / 邮件 / GitHub Issues） | 影响客服压力 | M7 公测前 |
-| D7 | mac Intel build 是否保留 | 私仓 GH Actions macOS quota 倍率 10x，Intel runner 卡 queue | M7 公测前 |
-| D8 | 仓库公私 | private 现状 vs public 解决 macOS quota + 利于品牌曝光，无重大泄密 | M7 公测前 |
+| D3 | 产品全名（中英文）+ 域名 | 影响品牌；可选官网 | M8 公测前 |
+| D5 | 支持渠道（微信群 / 邮件 / GitHub Issues） | 影响客服压力 | M8 公测前 |
+| D7 | mac Intel build 是否保留 | 私仓 GH Actions macOS quota 倍率 10x，Intel runner 卡 queue | M8 公测前 |
+| D8 | 仓库公私 | private 现状 vs public 解决 macOS quota + 利于品牌曝光，无重大泄密 | M8 公测前 |
+| **D9** | **工作流 LLM quota 商业模型** | 高度运营户后台 24×7 跑可能超 ¥X/月 quota. 选项: (a) 维持现状, 单 run quota_exhausted 失败下月 reset 恢复; (b) 工作流独立 quota 桶; (c) 工作流模式分级月费. 影响商业可持续性 + 用户期望 | M7 P1 ship + 收 2 周运营数据后定, M8 公测前必拍 |
 
 ## 11. 附录：现有代码资产清单
 

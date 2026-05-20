@@ -1,6 +1,8 @@
 # 小红书自运营系统 SPEC
 
-> 技术规格说明书 v0.3 · 2026-05-19 · 配套 PRD v0.6
+> 技术规格说明书 v0.4 · 2026-05-20 · 配套 PRD v0.7
+>
+> **v0.4 变更 (2026-05-20)**: M7 工作流模块拍板, 文末追加 §13 工作流引擎 (SQLite schema + WorkflowScheduler 主进程 + IPC contract + 5 模板规格 + 风控加固实现细节).
 >
 > **v0.3 变更 (2026-05-19)**: D6 LLM Gateway 拍板, 文末追加 §12.10 中转架构 (newapi 资源 + Worker 端点改动 + 客户端 license.json schema 扩展 + cert 放行 + dev 模式暗号 + 配额展示).
 >
@@ -1754,4 +1756,457 @@ async function handleSuspend(req, env) {
 
 ---
 
-**文档结束 · SPEC v0.3**
+## 13. 工作流引擎（M7 / v0.7，待启动）
+
+### 13.1 总览
+
+工作流 = 用户预定义的"模板 + 参数 + 调度"组合, 由主进程 `WorkflowScheduler` 在到点时自动触发, 执行**固定骨架代码**, 其中"创意步骤"(如生成评论文案)调用 LLM 完成。
+
+跟 ChatPanel 即时对话的区别:
+- ChatPanel = user 触发 → agent.ts → LLM tool calling loop (多轮)
+- Workflow = scheduler 触发 → 固定骨架 → 调 tool + 调 LLM (单次 completion, 不 loop)
+
+共享: license.llm 凭证 / RateLimiter / SQLite app.db / 工具实现 (Go MCP + renderer local)
+
+### 13.2 SQLite Schema
+
+新增 3 张表 (**复用现有 `db/index.ts` better-sqlite3 singleton** — 主进程已为 M2 sessions/messages/material/snapshot 等表注册, 工作流复用同一 db 实例, 写操作同步阻塞天然串行, 无并发风险):
+
+```sql
+CREATE TABLE workflows (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_id  TEXT NOT NULL,        -- 'daily_like_comment' / 'scheduled_publish' / ...
+  name         TEXT NOT NULL,        -- 用户起的名字
+  params       TEXT NOT NULL,        -- JSON: 模板专属参数 {top_n:3, comment_style:'praise', ...}
+  schedule     TEXT NOT NULL,        -- JSON: {type:'daily'|'weekly'|'interval'|'manual', hour?, minute?, weekday?, interval_hours?, jitter_min?, tz}
+                                     -- tz 必填: 'local' (= 创建时 Intl.DateTimeFormat().resolvedOptions().timeZone)
+                                     -- 跨时区出差时按"创建时锁定的 tz"算 base, 不跟系统漂移
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  deleted_at   INTEGER,               -- soft-delete: NULL=未删, 时间戳=已删 (UI 默认 filter 掉, 历史保留)
+  fail_count   INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,     -- unix ts
+  updated_at   INTEGER NOT NULL,
+  last_fire_at INTEGER,              -- 最近触发时间 (含 missed)
+  next_fire_at INTEGER                -- 算出的下次时间 (含抖动)
+);
+CREATE INDEX idx_workflows_enabled ON workflows(enabled, deleted_at, next_fire_at);
+
+CREATE TABLE workflow_runs (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  workflow_id  INTEGER NOT NULL REFERENCES workflows(id),  -- 注意: 不级联删, workflow soft-delete 时历史保留
+  started_at   INTEGER NOT NULL,
+  finished_at  INTEGER,
+  status       TEXT NOT NULL,         -- running / success / partial / failed / missed / aborted / disabled_by_failure
+  fail_reason  TEXT,                  -- 标准化失败类型: llm_timeout / llm_5xx / quota_exhausted / rate_limited / xhs_reject / network / user_abort / unknown (见 §13.9)
+  summary      TEXT,                  -- 用户视角中文一句话: "✅ 点赞 3 条 + 评论 3 条" / "⚠️ 评论 quota 已达上限, 仅点赞 5 条" (见 §13.9 失败原因表)
+  steps_log    TEXT,                  -- JSON array [{step, at, result?, error?}], **每步完成立刻 update** (用户实时看到 history 进度), P1 简单, P2 加详细 trace
+  error        TEXT                   -- 技术细节 (stack/原始 message), 供 dev 模式查看
+);
+CREATE INDEX idx_workflow_runs_workflow_id ON workflow_runs(workflow_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS appConfig (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+-- 含 workflow_risk_accepted=1 (首次启用工作流时勾选后写入)
+-- 含 schema_version=7 (v0.7 加入工作流表)
+```
+
+#### 13.2.1 Schema Migration 流程 (老用户升级到 v0.7)
+
+老用户 (M5/M6 已激活, 本地 `app.db` 已存在 sessions/messages 等表) 升级到 v0.7 时, **必须跑 migration 创建工作流相关表**, 否则启动时 `WorkflowScheduler.init()` query workflows 表会 throw "no such table"。
+
+实现细节:
+
+```typescript
+// app/src/main/db/migrations.ts
+const MIGRATIONS = [
+  { v: 1, sql: '...' },   // M2 sessions/messages
+  { v: 2, sql: '...' },   // M5 智能素材库 vision tag
+  // ...
+  { v: 7, sql: `
+    CREATE TABLE IF NOT EXISTS workflows (...);
+    CREATE INDEX IF NOT EXISTS idx_workflows_enabled ON workflows(enabled, deleted_at, next_fire_at);
+    CREATE TABLE IF NOT EXISTS workflow_runs (...);
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_id ON workflow_runs(workflow_id, started_at DESC);
+    CREATE TABLE IF NOT EXISTS appConfig (...);
+    INSERT OR REPLACE INTO appConfig(key,value) VALUES('schema_version','7');
+  ` },
+];
+
+export function runMigrations(db: BetterSqlite3.Database) {
+  const current = db.pragma('user_version', { simple: true }) as number;
+  for (const m of MIGRATIONS) {
+    if (m.v > current) {
+      db.exec(m.sql);
+      db.pragma(`user_version = ${m.v}`);
+    }
+  }
+}
+```
+
+调用点: `app/src/main/index.ts` `app.whenReady()` 内, `licenseManager.init()` 之后 + `WorkflowScheduler.init()` 之前。
+
+回滚: 不需要 (新表不影响老功能). 老 v0.6 客户端启动 v0.7 schema 的 db 也兼容 (老代码不 query 新表)。
+
+### 13.3 主进程 WorkflowScheduler
+
+文件: `app/src/main/workflow-scheduler.ts`
+
+```typescript
+class WorkflowScheduler {
+  private timers = new Map<number, NodeJS.Timeout>();  // workflow_id → setTimeout handle
+  private running = new Set<number>();                  // 正在执行的 workflow ids (queue 串行)
+  private queue: number[] = [];                         // 同时刻到点的排队
+  private fireMutex = false;                            // tryFire 入口互斥锁 (防 IPC race)
+
+  // app ready 后调
+  async init() {
+    const enabled = db.workflows.listEnabled();         // WHERE enabled=1 AND deleted_at IS NULL
+    for (const wf of enabled) {
+      this.scheduleNext(wf);
+    }
+    // 系统休眠唤醒后, setTimeout 在睡眠期间不推进, 唤醒时已过期或延迟 → 全量重算
+    require('electron').powerMonitor.on('resume', () => this.recomputeAll());
+  }
+
+  recomputeAll() {
+    log.info('[scheduler] powerMonitor resume → 全量重算 next_fire_at');
+    for (const handle of this.timers.values()) clearTimeout(handle);
+    this.timers.clear();
+    const enabled = db.workflows.listEnabled();
+    for (const wf of enabled) {
+      wf.next_fire_at = this.computeNextFireTime(wf);   // 用 tz 锁定的 base + 新 jitter
+      db.workflows.update(wf);
+      this.scheduleNext(wf);
+    }
+  }
+
+  // 调度某个 workflow 的下一次
+  scheduleNext(wf: Workflow) {
+    const now = Date.now();
+    if (!wf.next_fire_at) wf.next_fire_at = this.computeNextFireTime(wf);
+    const delay = wf.next_fire_at - now;
+    if (delay <= 0) {
+      // 错过, 写 missed_run 不补跑 (用户视角友好 summary)
+      db.workflow_runs.insert({
+        workflow_id: wf.id, started_at: now, finished_at: now,
+        status: 'missed', fail_reason: null,
+        summary: '⏭️ 错过调度 (软件未启动)',
+      });
+      wf.last_fire_at = wf.next_fire_at;
+      wf.next_fire_at = this.computeNextFireTime(wf);
+      db.workflows.update(wf);
+      this.scheduleNext(wf);
+      return;
+    }
+    // 注意: Node.js setTimeout 最大值 2^31-1 ≈ 24.8 天, 单次调度足够 (最长 "每周" = 7 天 OK)
+    // 长 delay 期间系统 sleep 不推进 → powerMonitor.on('resume') 已注册 recomputeAll 兜底
+    const handle = setTimeout(() => this.tryFire(wf.id), delay);
+    this.timers.set(wf.id, handle);
+  }
+
+  async tryFire(workflowId: number) {
+    // mutex: 防 IPC race (renderer 同时 enable 多个 → init 并行 → 两个 setTimeout 都进 running)
+    while (this.fireMutex) await new Promise(r => setTimeout(r, 10));
+    this.fireMutex = true;
+    try {
+      if (this.running.size > 0) {
+        if (!this.queue.includes(workflowId)) this.queue.push(workflowId);
+        return;
+      }
+      this.running.add(workflowId);
+    } finally {
+      this.fireMutex = false;
+    }
+    try {
+      await this.execute(workflowId);
+    } finally {
+      this.running.delete(workflowId);
+      const next = this.queue.shift();
+      if (next) this.tryFire(next);
+    }
+  }
+
+  async execute(workflowId: number) {
+    const wf = db.workflows.get(workflowId);
+    if (!wf || wf.deleted_at || !wf.enabled) return;   // 跳过 soft-deleted / 已禁用
+    const runId = db.workflow_runs.insert({ workflow_id: workflowId, started_at: Date.now(), status: 'running' });
+    pushToRenderer('workflow:run-started', { runId, workflowId });
+    try {
+      const template = TEMPLATES[wf.template_id];
+      const result = await template.execute(JSON.parse(wf.params), {
+        callTool,         // 包 RateLimiter check + xsec_token 提取
+        callLLM,           // 包 timeout 30s + retry 1 次 (指数退避), 详 §13.6
+        sleep,             // helper 随机 30-90s
+        log,               // 实时 update steps_log (每步完成立刻 SQLite update)
+      });
+      db.workflow_runs.update(runId, {
+        status: result.status,                          // success / partial
+        fail_reason: result.fail_reason ?? null,
+        summary: result.summary,
+        finished_at: Date.now(),
+      });
+      // partial 不算 fail (步骤上限/RateLimiter 命中 = 正常护栏)
+      if (result.status === 'success') wf.fail_count = 0;
+    } catch (e) {
+      const reason = classifyError(e);                  // llm_timeout / network / xhs_reject / ...
+      db.workflow_runs.update(runId, {
+        status: 'failed', fail_reason: reason,
+        summary: SUMMARY_BY_REASON[reason],             // 见 §13.9 失败原因表
+        error: e.message, finished_at: Date.now(),
+      });
+      wf.fail_count += 1;
+      if (wf.fail_count >= 3) {
+        wf.enabled = 0;
+        pushToRenderer('workflow:auto-disabled', { workflowId, lastReason: reason });
+      }
+    }
+    wf.last_fire_at = Date.now();
+    wf.next_fire_at = this.computeNextFireTime(wf);
+    db.workflows.update(wf);
+    if (wf.enabled) this.scheduleNext(wf);
+    pushToRenderer('workflow:run-finished', { runId, workflowId });
+  }
+
+  computeNextFireTime(wf: Workflow): number {
+    const s = JSON.parse(wf.schedule);
+    // base 按 wf.schedule.tz (创建时锁定) 算, 不跟系统漂移. 例:
+    //   tz='Asia/Shanghai' + hour=9 → 上海时间 9:00 对应的 UTC ms
+    let base = computeBaseFireTime(s);
+    const jitterMs = (s.jitter_min ?? 10) * 60 * 1000;
+    const jitter = (Math.random() * 2 - 1) * jitterMs;  // ±10min
+    return base + jitter;
+  }
+}
+```
+
+### 13.4 IPC Contract
+
+主进程 (`workflow:*` channel, 沿用现有 ipcMain.handle 模式):
+
+```typescript
+workflow:list                 → Workflow[]                  // 默认 WHERE deleted_at IS NULL
+workflow:create(input)        → Workflow
+workflow:update(id, patch)    → void
+workflow:delete(id)           → void                        // soft-delete: UPDATE workflows SET deleted_at=now, enabled=0 WHERE id=?
+                                                            //   清 timer + 历史保留. UI 默认不显示, dev 模式可恢复.
+workflow:enable(id, on)       → void
+workflow:run-now(id)          → { runId }                   // 手动触发, queue 入队
+workflow:runs(id, limit)      → WorkflowRun[]               // 实时反映 steps_log 进度 (每步完成立刻 update)
+workflow:get-templates()      → TemplateMeta[]              // P1 阶段只返已实现模板 (UI 直接藏未实现, 不 disabled), 减少用户困惑
+workflow:dev-fire-soon(id)    → void                        // dev 模式 only: 把 next_fire_at 设为 now+30s, 跳 schedule 等待
+
+// push events (webContents.send)
+license:changed              (沿用)
+workflow:run-started         { runId, workflowId }
+workflow:run-step-update     { runId, workflowId, step }    // 实时进度 (每步完成 push)
+workflow:run-finished        { runId, workflowId, status, fail_reason? }
+workflow:auto-disabled       { workflowId, lastReason }     // 连续 3 fail 触发, lastReason 见 §13.9
+```
+
+### 13.5 模板规格 (P1 详, P2 框架)
+
+文件: `app/src/main/workflow-templates/*.ts`, 每个 export 一个 `Template` 对象:
+
+```typescript
+interface Template {
+  id: string;
+  name: string;          // UI 显示
+  emoji: string;
+  description: string;
+  paramsSchema: ParamSchema;
+  execute(params: object, helpers: ExecHelpers): Promise<{status, summary}>;
+}
+```
+
+#### 13.5.1 P1: `daily_like_comment` 每日首页点赞评论
+
+```typescript
+{
+  id: 'daily_like_comment',
+  emoji: '👍',
+  paramsSchema: {
+    top_n: { type: 'int', min: 1, max: 5, default: 3 },        // 硬上限 5
+    comment_style: { type: 'enum', options: ['short','long','question','praise'], default: 'praise' },
+  },
+  async execute({ top_n, comment_style }, { callTool, callLLM, sleep, log }) {
+    top_n = Math.min(top_n, 5);  // 二次硬截 (UI input 限了, 这里 belt-and-suspenders)
+    // 注意: 小红书 API 字段是 camelCase (xsecToken), 不是 snake_case. like/comment/favorite 都必须传 xsec_token,
+    //   否则被 reject (xiaohongshu-mcp jsonschema required, CLAUDE.md 坑 7).
+    const feeds = (await callTool('list_feeds', {})).feeds.slice(0, top_n);
+    let liked = 0, commented = 0;
+    const skips: string[] = [];
+    for (const feed of feeds) {
+      try {
+        await callTool('like_feed', { feed_id: feed.id, xsec_token: feed.xsecToken });
+        liked++;
+        await sleep(rand(30000, 90000));
+
+        if (commented < 3) {  // comment 硬上限 3
+          let comment: string;
+          try {
+            comment = await callLLM({
+              system: COMMENT_PROMPTS[comment_style],
+              user: `笔记标题: ${feed.title}\n笔记内容: ${feed.content?.slice(0, 500)}`,
+              max_tokens: 80,
+            });
+          } catch (e) {
+            // callLLM 内部已 retry 1 次, 仍 fail → 跳过当前 feed 评论步骤, 不 abort 整 run
+            log({ step: 'gen_comment', feed_id: feed.id, error: e.message });
+            skips.push(`第 ${feeds.indexOf(feed) + 1} 条评论生成失败 (${e.message})`);
+            continue;
+          }
+          await callTool('post_comment_to_feed', { feed_id: feed.id, xsec_token: feed.xsecToken, content: comment });
+          commented++;
+          await sleep(rand(30000, 90000));
+        }
+      } catch (e) {
+        // RateLimiter abort / 小红书 reject 单 feed fail 不 abort 整 run, 改记到 partial
+        log({ step: 'feed', feed_id: feed.id, error: e.message });
+        skips.push(`第 ${feeds.indexOf(feed) + 1} 条: ${e.message}`);
+      }
+    }
+    // 用户视角中文 summary, 区分 success vs partial
+    const isPartial = skips.length > 0 || (liked < top_n) || (commented < Math.min(top_n, 3));
+    const summary = isPartial
+      ? `⚠️ 点赞 ${liked} 条 + 评论 ${commented} 条 (跳过: ${skips.join('; ')})`
+      : `✅ 点赞 ${liked} 条 + 评论 ${commented} 条`;
+    return { status: isPartial ? 'partial' : 'success', summary };
+  },
+}
+
+const COMMENT_PROMPTS = {
+  short: '你是小红书评论助手. 生成 1 条 5-15 字的短评论, 贴合笔记内容, 自然口语. 直接返回评论文字不要引号.',
+  long:  '你是小红书评论助手. 生成 1 条 20-40 字的长评论, 有共鸣感, 不要复读 hashtag. 直接返回.',
+  question: '你是小红书评论助手. 生成 1 条 10-30 字的提问式评论, 引起作者回复. 直接返回.',
+  praise: '你是小红书评论助手. 生成 1 条 10-25 字的真诚赞美评论, 不要假大空. 直接返回.',
+};
+```
+
+#### 13.5.2 P2: 其他 4 个模板 (框架定义, P2 实现)
+
+| id | emoji | params | 骨架 |
+|---|---|---|---|
+| `scheduled_publish` | ⏰ | `{title, content, images[], video?, cover?}` | `publish_content` 或 `publish_with_video` |
+| `daily_signin_interact` | ✍️ | `{follow_top_n: 1-10}` | 取关注列表 → 每人最新一篇 `like_feed` |
+| `daily_data_snapshot` | 📊 | `{}` (无参) | `my_profile()` → 写新表 `data_snapshots` |
+| `keyword_like_comment` | 🔍 | `{keyword, sort:'hot'|'time'|'liked', top_n:1-5, comment_style}` | `search_feeds` → top N `like_feed` + `post_comment` |
+
+### 13.6 风控加固 (实现细节)
+
+| 加固项 | 实现位置 | 细节 |
+|---|---|---|
+| 调度抖动 ±10min | `WorkflowScheduler.computeNextFireTime` | `(Math.random() * 2 - 1) * 10 * 60 * 1000` |
+| 步骤间随机延迟 30-90s | helper `sleep(rand(30000, 90000))` | 每步骤间穿插 |
+| 步骤硬上限 | template `execute` 内 | `top_n = Math.min(top_n, 5)`, comment 计数 < 3 |
+| 全局 RateLimiter 沿用 | `helpers.callTool` 内自动调 | publish 3/天 / comment 10/h / like 30/h |
+| 首次启用对话框 | renderer `RiskWarningDialog` | 写 `appConfig.workflow_risk_accepted=1` 后不再弹 |
+| 连续 3 fail auto disable | `WorkflowScheduler.execute` catch 分支 | `wf.fail_count >= 3 → enabled=0`, partial 不计 fail |
+| LLM call timeout + retry | `helpers.callLLM` 内 | 单次 timeout 30s, 5xx/network/超时 retry 1 次 (指数退避 2s), 仍 fail 抛 LlmError (上层捕获跳过该步骤记 partial 而非整 run failed) |
+| LLM 429 (quota 耗尽) | `helpers.callLLM` 抛 InsufficientQuotaError | 整 run 标 `failed` + `fail_reason=quota_exhausted` (跟普通 5xx 区分, 用户视角看 summary 知道需要续费而非"系统问题") |
+| 跨工作流 quota 冲突 | `helpers.callTool` 检 RateLimiter | 多个 enabled 工作流同抖动窗口跑时, queue 串行 + 首个吃光 quota 后续工作流 callTool 抛 RateLimitError → 模板 catch 跳过单步骤 → run 标 `partial` (不算 fail). WorkflowEditor UI 创建时**预估当日 quota 消耗**警示用户 (例: "此模板每天消耗 5 like + 3 comment, 你已有 N 个 like-类工作流, 当日总计 X 可能超 30/h") |
+
+#### 13.6.1 跨工作流 quota 冲突处理 (P0)
+
+3 个 like-类 enabled 工作流, 都设抖动窗口含 9:00, 会同时落到 9:00 ±10min 内. queue 串行后:
+- 第 1 个吃 5 like → RateLimiter 当小时累 5/30
+- 第 2 个吃 5 like → 累 10/30
+- 第 3 个吃 5 like → 累 15/30
+
+依然不超 30/h 上限, 不会 fail. **但**若用户有 publish-类工作流同窗口跑, publish 上限 3/天可能击中.
+
+UI 措施 (P1 实施):
+- WorkflowEditor 创建时, 根据已有 enabled 工作流统计预估当日消耗, 警示但不阻止
+- WorkflowList row 显示"今日已用: like X/30, comment Y/10, publish Z/3"
+- 仅 dev 模式可看, 默认用户不暴露此细节
+
+### 13.7 UI 组件
+
+```
+app/src/renderer/src/components/
+├── WorkflowList.tsx           # 控制台左中段, 列表 + ▶/⋮
+├── WorkflowEditor.tsx          # 模态弹框, 选模板 + 填参 + 调度
+├── WorkflowRunHistory.tsx     # 模态弹框, 列运行历史
+└── RiskWarningDialog.tsx      # 首次启用弹一次
+
+app/src/renderer/src/lib/
+└── workflow.ts                 # IPC wrapper + types
+```
+
+### 13.8 控制台左侧 25% 三段布局 (CSS)
+
+```css
+.console-left {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.console-left__commands { flex: 0 0 auto; }          /* 固定高 ≈ 140px */
+.console-left__workflows { flex: 1; min-height: 0; overflow-y: auto; }
+.console-left__sessions { flex: 1.5; min-height: 0; overflow-y: auto; }
+```
+
+### 13.9 错误处理矩阵 + 用户视角失败原因表
+
+#### 13.9.1 错误类型矩阵 (内部)
+
+| 失败类型 | run status | fail_reason | fail_count++ | summary 文案 (中文) |
+|---|---|---|---|---|
+| LLM timeout (>30s) | `failed` | `llm_timeout` | ✅ | ❌ AI 响应超时, 已重试 1 次仍失败 |
+| LLM 5xx (retry 后仍 fail) | `failed` | `llm_5xx` | ✅ | ❌ AI 服务暂时不可用, 稍后会自动重试 |
+| LLM 429 quota | `failed` | `quota_exhausted` | ✅ | ❌ 本月 AI 额度已用尽, 请联系客服续费 |
+| LLM 401/403 | `failed` | `llm_auth` | ✅ | ❌ AI 服务未授权 (激活码状态异常?) |
+| LLM 单步骤失败但单 run 内其他步骤 OK | `partial` | - | ❌ | ⚠️ 部分步骤完成 (某些评论生成失败已跳过) |
+| RateLimiter abort (本工作流执行中达上限) | `partial` | `rate_limited` | ❌ | ⚠️ 已达频率上限 (本小时), 仅完成 N 步 |
+| 小红书 API reject (cookies 过期 / xsec_token 错 / 风控) | `failed` | `xhs_reject` | ✅ | ❌ 小红书拒绝操作, 请检查登录状态 |
+| 网络断 (fetch error) | `failed` | `network` | ✅ | ❌ 网络异常 |
+| 用户手动 abort | `aborted` | `user_abort` | ❌ | ⏹ 已手动停止 |
+| app 关闭期间错过 | `missed` | - | ❌ | ⏭️ 错过调度 (软件未启动) |
+| 未分类异常 | `failed` | `unknown` | ✅ | ❌ 未知错误 (详见日志) |
+
+#### 13.9.2 helpers.classifyError 实现
+
+```typescript
+function classifyError(e: Error): FailReason {
+  const msg = e.message?.toLowerCase() || '';
+  if (e instanceof LlmTimeoutError) return 'llm_timeout';
+  if (e instanceof InsufficientQuotaError) return 'quota_exhausted';
+  if (msg.includes('401') || msg.includes('403')) return 'llm_auth';
+  if (msg.startsWith('llm') && /5\d\d/.test(msg)) return 'llm_5xx';
+  if (e instanceof RateLimitError) return 'rate_limited';
+  if (msg.includes('cookies') || msg.includes('xsec') || msg.includes('-100')) return 'xhs_reject';
+  if (msg.includes('fetch') || msg.includes('econnref')) return 'network';
+  return 'unknown';
+}
+```
+
+### 13.10 跟 D6 LLM Gateway 关系 + 护栏继承
+
+- 工作流的 AI 填补步骤复用 `license.llm` 凭证 (D6 中转下发)
+- **不绕过 D6 任何护栏**: callLLM helper 复用 agent.ts 的 `licenseLLMCall()` 等价路径, D6 quota check / overdue 软停 / 多租户隔离 / cert-error 放行都生效
+- 每次 LLM 调用计入 newapi user 的 XHS Plan 月度 quota
+- 用户超 quota 时工作流标 `failed` + `fail_reason=quota_exhausted` (跟普通 5xx 区分, summary 提示"续费", 见 §13.9.1)
+- license `status='suspended'` 期间 callLLM 立即抛 InsufficientQuotaError, 工作流 fail; `status='revoked'` 期间 WorkflowScheduler 启动时跳过注册 timer (`init()` filter `license.status === 'active'`)
+- dev 模式 BYOK 配置生效时, 工作流走 BYOK 而非中转 (走 `license.byok.*`, quota 不计 XHS Plan)
+
+#### 13.10.1 商业模型澄清 (跟 D6 月费的关系)
+
+- 工作流 24×7 后台跑可能远超个人聊天 quota. 当前决策 (v0.7 启动时):
+  - **不另收费**: 工作流 LLM 消耗计入同一月度 quota (XHS Plan ¥X/月)
+  - **超额自动停**: 用户当月 quota 耗尽 → 工作流标 `failed/quota_exhausted` 而非整体 disable, 下月 quota reset 后 schedule 时自动恢复
+  - **若运营数据显示高度运营户耗光 quota 影响付费用户体验**, M8 公测前评估是否升级为"工作流单独配额桶"或"分级月费" (待 D9 决策, 见 PRD §10)
+- 文档明示这一点, 避免用户期望落差
+
+### 13.11 不在 M7 P1 范围 (推迟 P2/P3)
+
+- 其他 4 个模板 (P2)
+- dev 模式 cron 表达式 (P3)
+- 运行历史详细 step log trace + 筛选 / 导出 (P3)
+- 跨设备同步 (永不做, 单设备绑定)
+- 事件触发 (新评论 → 自动回复) (永不做, 客户端关闭就废)
+- 可视化编排 (拖拽 + 分支) (永不做, 模板足够)
+
+---
+
+**文档结束 · SPEC v0.4**

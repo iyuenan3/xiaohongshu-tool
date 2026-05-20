@@ -85,15 +85,16 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 - [x] **M5 polish (v0.2.x ~ v0.3.x)** — 4-tab UI + 智能素材库 + vision tag + 联网搜索 + 网页管理后台 + 7 次 mac 打包流水线 fix
 - [x] **E2E 黑盒测试** — subagent 18 min ship 176/176 pass + 6 bug 全修
 - [x] **v0.3.2 ship (2026-05-17)** — Worker /version + 联系客服 dialog / 内测日志体系 (启动 banner + renderer 透传 + agent 埋点 + Settings 导出按钮) / 修 search_feeds 卡死 root cause
-- [x] **D6 LLM Gateway spec out + 2 轮 subagent review 修完** (2026-05-19, 方案 X 一码一 newapi user + bind XHS Plan + suspend/resume + 多租户隔离, N1~N10 全拍)
-- [x] **D6 一次性 setup ✅** (2026-05-19, newapi xhs group + XHS Plan id=2 + KV 测试码清空 + ~/.secrets/ 备份)
-- [x] **D6 Worker 代码完成 + deploy ✅** (2026-05-19, 8 项 secret 全注入, v0.6.0 deploy 到 xhslicense.maxwellii.com)
-- [x] **D6 客户端代码完成 ✅** (2026-05-19, typecheck 通过, 含 cert-error + license schema + Settings + ChatPanel + agent catch)
-- [ ] **D6 阻塞: Cloudflare Tunnel** (Worker → newapi 525 SSL 失败, 已转发提示词给 newapi-proxy 项目装 cloudflared + 出 llm-cf.maxwellii.com 域名)
+- [x] **M6 D6 LLM Gateway ship ✅** (2026-05-20, v0.6.0 tag + GH Actions build): newapi 中转 + Cloudflare Tunnel `llm-cf.maxwellii.com` + 真实 E2E (agent.ts → 火山方舟 doubao 返中文) + 5 个首批正式码已发 (notes: M6 首批正式码 2026-05-20)
+- [x] **publish_content TipTap 修复 ✅** (v0.6.0 一起 ship)
+- [x] **mac install.command 悖论修复 ✅** (改用 `无法正常打开请看我.txt` 替代, v0.6.0 ship)
+- [x] **Help 页重写 + Settings 弹框可滚 ✅** (2026-05-20, HelpPanel 5 步→2 步+4 场景+dev 区, Settings max-height 85vh)
+- [x] **M7 工作流模块 spec out ✅** (2026-05-20, 拍板: 控制台左侧 3 段+5 模板+固定骨架+AI 填补+简化调度+风控加固, 详见 PRD §4/SPEC §13/ROADMAP §14)
+- [ ] **M7 P1 实施: 引擎 + 1 模板 (👍 每日点赞评论) + UI** (待启动, 估时 5-7 天)
+- [ ] **M7 P2 实施: 加剩 4 模板** (P1 验证后, 估时 5-7 天)
+- [ ] **M7 P3 polish**: dev cron / 历史详细 trace / failed notification (估时 3 天)
 - [ ] **朋友 v0.3.2 复现测试** (win, 已私发 setup.exe, 等他 export log)
-- [ ] **mac install.command 悖论修复** (working tree 已改, 用 `无法正常打开请看我.txt` 替代, 等下次 ship)
-- [ ] **publish_content TipTap 修复 ship** (本地修了未打 tag, 待 D6 完成后一起 v0.6.0 ship)
-- [ ] M7 公测发售 (待 D3/D5 决策)
+- [ ] M8 公测发售 (待 D3/D5 决策)
 
 ## 已拍板 + 待决策
 

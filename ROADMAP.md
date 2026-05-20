@@ -1,6 +1,8 @@
 # 小红书自运营系统 ROADMAP
 
-> 路线图 v0.5 · 2026-05-19 · 配套 PRD v0.6 + SPEC v0.3
+> 路线图 v0.6 · 2026-05-20 · 配套 PRD v0.7 + SPEC v0.4
+>
+> **v0.6 变更 (2026-05-20)**: M6 (D6 LLM Gateway) 完成 ship, v0.6.0 已发. **M7 工作流模块拍板** (定时点赞评论 / 定时发布 / 数据快照 等 5 模板, P1+P2+P3 分阶段, 详见 §14)。M8 公测发售排到 M7 之后, 依赖 D3/D5 决策。
 >
 > **v0.5 变更 (2026-05-19)**: D6 LLM Gateway 中转站方案拍板, M6 新增独立 milestone (一码一 newapi user + bind XHS Plan 自营中转, 详见 §13)。M5 已结, M7 (公测发售) 排到 M6 之后, 依赖 D3/D5 决策。
 >
@@ -10,8 +12,9 @@
 > - v0.1.0 (M3 商业化收尾) - 已 ship
 > - v0.2.0 ~ v0.2.7 (UI 重构 + 素材库 + vision + mac 打包流水线 7 次迭代) - 已 ship
 > - v0.3.0 ~ v0.3.2 (联网搜索 / E2E bug 修 / 更新策略 + 内测日志) - 已 ship
-> - v0.6.0 (D6 LLM Gateway 实施) - **进行中 M6 (2026-05-19+)**
-> - v0.7.0 (公测发售 M7) - 待 D3/D5 决策
+> - v0.6.0 (D6 LLM Gateway 实施) - ✅ 已 ship (2026-05-20)
+> - v0.7.0 (M7 工作流模块) - 待启动 (2026-05-21+)
+> - v0.8.0 (M8 公测发售) - 待 D3/D5 决策
 
 ## 0. 总览
 
@@ -22,10 +25,11 @@
 | **M3 商业化** | W6-W7 | 2026-06-22 → 2026-07-05 | License 系统全链路 | ✅ |
 | **M4 跨平台 + 自动更新** | W8 | 2026-07-06 → 2026-07-12 | macOS + Windows **无证书**打包 + 自动更新 | ✅ |
 | **M5 公测打磨** | W9-W10 | 2026-07-13 → 2026-07-26 | UI 重构 / 素材库 / 联网搜索 / 12 次发版迭代 | ✅ |
-| **M6 LLM Gateway 实施** | 2026-05-19 → 2026-05-22 | (并入实际开发节奏, 2-3 天) | **D6 自营中转站, 一码一 newapi user + bind XHS Plan + suspend/resume 机制** | 🔧 |
-| **M7 公测发售** | 待 D3/D5 决策 | TBD | 种子用户灰度 + 首发 | ⏳ |
+| **M6 LLM Gateway 实施** | 2026-05-19 → 2026-05-20 | 2 天 | **D6 自营中转站, 一码一 newapi user + bind XHS Plan + suspend/resume + Cloudflare Tunnel** | ✅ |
+| **M7 工作流自动化** | 2-3 周 | 2026-05-21+ | 工作流引擎 + 5 模板 + 风控加固 (P1+P2+P3, 详见 §14) | 🔧 |
+| **M8 公测发售** | 待 D3/D5 决策 | TBD | 种子用户灰度 + 首发 | ⏳ |
 
-**首版预计发售**：M6 完成后, 待 D3/D5 决策再排
+**首版预计发售**：M7 完成后, 待 D3/D5 决策再排
 
 **说明**：周计划，关键节点拆到日级（标 `🔑` 的为关键路径里程碑，失败会延期整个项目）。
 
@@ -551,8 +555,92 @@ Renderer:
 
 ### Blocker
 
-- [ ] 一次性 setup 完成 (Maxwell 建 xhs group / XHS Plan / 清测试码 / 给 plan_id)
+- [x] 一次性 setup 完成 (Maxwell 建 xhs group / XHS Plan / 清测试码 / 给 plan_id) - ✅ 2026-05-19
 
 ---
 
-**文档结束 · ROADMAP v0.4**
+## 14. M7 · 工作流模块 (v0.7, 2026-05-21+ 待启动)
+
+> 详细技术 spec 见 SPEC §13, 用户视角价值见 PRD §4 末尾「工作流自动化」
+
+### 概览
+
+把"用户每次手动让 AI 跑一遍"升级成"工作流定时自动跑"。控制台左侧 3 段 (常用命令 + 工作流 + 会话列表), 工作流引擎 + 5 模板 + 风控加固。
+
+### P1 · 引擎 + 1 模板 (5-7 天)
+
+#### Day 1-2 · 数据层 + Scheduler
+- [ ] SQLite migration: workflows / workflow_runs / appConfig 表 (SPEC §13.2)
+- [ ] `WorkflowScheduler` 主进程类: init / scheduleNext / tryFire / execute / computeNextFireTime (SPEC §13.3)
+- [ ] 错过 detect (启动时扫 enabled, next_fire_at < now → 写 missed_run)
+- [ ] queue 串行 (同时刻 2 个工作流到点排队)
+- [ ] 连续 3 fail auto disable
+
+#### Day 3 · IPC + helpers
+- [ ] IPC: list / create / update / delete / enable / run-now / runs / get-templates (SPEC §13.4)
+- [ ] push events: run-started / run-finished / auto-disabled
+- [ ] `helpers` 注入到模板 execute: callTool / callLLM / sleep / log
+- [ ] callLLM 包装单次 completion (复用 license.llm, 不走 agent.ts loop)
+
+#### Day 4-5 · UI 组件
+- [ ] `WorkflowList` 控制台左中段 (列表 + ▶ + ⋮ 菜单 + 状态 pill)
+- [ ] `WorkflowEditor` 弹框 (选模板 + 填参 + 调度下拉 + 下次时间预览)
+- [ ] `WorkflowRunHistory` 弹框 (运行历史列表 + summary)
+- [ ] `RiskWarningDialog` 首次启用弹框 (写 appConfig.workflow_risk_accepted)
+- [ ] ConsolePane 左侧重排 (3 段 flex 布局, 见 SPEC §13.8)
+- [ ] CommandPalette 删减到 3 个 (检查登录 / 发布笔记 / 获取首页推荐)
+
+#### Day 6 · 模板 1 实现 + 风控
+- [ ] `daily_like_comment` 模板 (SPEC §13.5.1)
+- [ ] COMMENT_PROMPTS 4 种 style (short/long/question/praise)
+- [ ] 调度抖动 ±10min + 步骤间随机 30-90s + 步骤硬上限 (top_n≤5, comment≤3)
+- [ ] 错误处理矩阵 (SPEC §13.9)
+
+#### Day 7 · 黑盒 E2E + buffer
+- [ ] 手动跑通新建 → 启用 → 风控对话框 → 等到点触发 → 看 chat panel 显示进度
+- [ ] revoke 期间 disable workflow (运营禁用 → enabled=0)
+- [ ] 失败重试: 模拟 LLM timeout 3 次 → auto disable + 看 UI 标红
+- [ ] missed 测试: kill app + 调系统时间过 schedule 点 + 重启 → 看 missed_run 记录
+
+### Exit Criteria
+
+- [ ] 1 个工作流模板完整闭环 (新建 → 启用 → 调度 → 执行 → 历史)
+- [ ] 风控加固 3 条全部到位 (抖动 / 上限 / 首次对话框)
+- [ ] 连续 3 fail auto disable + UI 状态 pill 标红
+- [ ] queue 串行: 手动同时点 2 个 run-now → 第二个排队等第一个完成
+- [ ] PRD/SPEC/ROADMAP 同步
+
+### P2 · 加 4 模板 (5-7 天)
+
+依次实现 `scheduled_publish` / `daily_signin_interact` / `daily_data_snapshot` / `keyword_like_comment` (SPEC §13.5.2). 每模板:
+- 实现 execute 函数
+- 加 paramsSchema (UI 自动渲染)
+- 黑盒测试
+
+`daily_data_snapshot` 额外加 SQLite 表 `data_snapshots`。
+
+### P3 · Polish (3 天)
+
+- dev 模式 cron 表达式输入 (替代下拉)
+- 运行历史详细 step log trace (折叠/展开)
+- 运行历史筛选 (按 status / 时间)
+- failed notification (系统级 tray / 红点)
+
+### 工程量预估
+
+| 阶段 | 天数 |
+|---|---|
+| P1 引擎 + 1 模板 + UI | 5-7 天 |
+| P2 加 4 模板 | 5-7 天 |
+| P3 polish | 3 天 |
+| **合计** | **13-17 天 ≈ 2-3 周** |
+
+### Blocker / Risk
+
+- ⚠️ 自动化操作风控风险持续存在, 即使加抖动也无 100% 保证. 用户首次启用必须勾"风险自负"
+- ⚠️ AI 评论质量不可控 (doubao 可能生成不合时宜内容), P2 可加"评论预览"半自动模式
+- 🔧 客户端关闭期间工作流停摆 — 设计内, miss 而非补跑. 用户开机用即可
+
+---
+
+**文档结束 · ROADMAP v0.6**
