@@ -16,8 +16,9 @@ export type CodeStatus = 'unused' | 'active' | 'suspended' | 'revoked';
 export interface CodeRecord {
   status: CodeStatus;
   bound_machine_id: string | null;
-  bound_at: number | null;
-  expire_at: number | null;
+  bound_at: number | null;        // unix seconds, 激活时间
+  created_at: number | null;      // unix seconds, 发码时间 (v0.7 新加, 老码可能 null)
+  expire_at: number | null;        // unix seconds, 激活码有效期 (null=永久)
   rebind_count: number;
   notes: string;
   revoked_reason: string | null;

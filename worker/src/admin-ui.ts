@@ -101,6 +101,7 @@ export const ADMIN_HTML = `<!doctype html>
   .status-pill.revoked { background: var(--accent-soft); color: var(--red-deep); }
   .countdown-warn { color: var(--accent); font-weight: 600; }
   .meta { font-size: 11px; color: var(--ink-mute); margin-top: 4px; }
+  .time-cell { font-size: 11.5px; white-space: nowrap; color: var(--ink-soft); }
   .empty { padding: 40px; text-align: center; color: var(--ink-mute); }
 </style>
 </head>
@@ -238,11 +239,26 @@ async function refreshList() {
 }
 document.getElementById('btn-refresh').onclick = refreshList;
 
+function fmtTime(ts) {
+  if (!ts) return '<span style="color:var(--ink-mute)">-</span>';
+  // ts: unix seconds (CodeRecord.bound_at / created_at / expire_at) OR ISO string (suspended_at 等)
+  const ms = typeof ts === 'number' ? ts * 1000 : new Date(ts).getTime();
+  if (isNaN(ms)) return '<span style="color:var(--ink-mute)">-</span>';
+  const d = new Date(ms);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return d.getFullYear() + '-' + mm + '-' + dd + ' ' + hh + ':' + mi;
+}
+
 function renderTable(codes) {
   const container = document.getElementById('list-table');
   if (codes.length === 0) { container.innerHTML = '<div class="empty">空</div>'; return; }
   const rows = codes.map(c => {
-    const exp = c.expire_at ? new Date(c.expire_at * 1000).toISOString().slice(0,10) : '<span style="color:var(--ink-mute)">never</span>';
+    const created = fmtTime(c.created_at);
+    const bound = fmtTime(c.bound_at);
+    const exp = c.expire_at ? fmtTime(c.expire_at) : '<span style="color:var(--ink-mute)">永久</span>';
     const mid = c.bound_machine_id ? '<span class="mono" title="' + esc(c.bound_machine_id) + '">…' + esc(c.bound_machine_id.slice(-12)) + '</span>' : '<span style="color:var(--ink-mute)">-</span>';
     const reason = c.revoked_reason ? ' <span style="color:var(--red-deep)">[' + esc(c.revoked_reason) + ']</span>' : '';
     const notes = (c.notes || '') + reason;
@@ -256,6 +272,7 @@ function renderTable(codes) {
       statusExtra = '<div class="meta"' + cls + '>软停 ' + Math.floor(elapsed) + ' 天 / 距硬停 ' + Math.max(0, Math.ceil(remain)) + ' 天'
         + (c.suspend_reason ? ' | ' + esc(c.suspend_reason) : '') + '</div>';
     }
+    // 时间 3 列独立 (创建 / 激活 / 过期)
     let actions;
     if (c.status === 'revoked') {
       actions = '<span style="color:var(--ink-mute);font-size:11px">-</span>';
@@ -274,14 +291,16 @@ function renderTable(codes) {
     return '<tr>'
       + '<td class="mono">' + esc(c.code) + '</td>'
       + '<td>' + status + '</td>'
-      + '<td>' + exp + '</td>'
+      + '<td class="time-cell">' + created + '</td>'
+      + '<td class="time-cell">' + bound + '</td>'
+      + '<td class="time-cell">' + exp + '</td>'
       + '<td style="text-align:center">' + (c.rebind_count || 0) + '</td>'
       + '<td>' + mid + '</td>'
       + '<td>' + esc(notes) + '</td>'
       + '<td class="actions">' + actions + '</td>'
       + '</tr>';
   }).join('');
-  container.innerHTML = '<table><thead><tr><th>CODE</th><th>状态</th><th>过期</th><th>换绑次数</th><th>machine_id (尾)</th><th>备注 / 吊销原因</th><th>操作</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  container.innerHTML = '<table><thead><tr><th>CODE</th><th>状态</th><th>创建</th><th>激活</th><th>过期</th><th>换绑</th><th>machine_id (尾)</th><th>备注 / 吊销原因</th><th>操作</th></tr></thead><tbody>' + rows + '</tbody></table>';
   container.querySelectorAll('button[data-action]').forEach(b => {
     b.onclick = () => {
       const code = b.dataset.code;

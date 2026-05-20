@@ -153,6 +153,7 @@ export async function handleAdminCodes(req: Request, env: Env): Promise<Response
       status: 'unused',
       bound_machine_id: null,
       bound_at: null,
+      created_at: Math.floor(Date.now() / 1000),
       expire_at,
       rebind_count: 0,
       notes: body.notes ?? '',
