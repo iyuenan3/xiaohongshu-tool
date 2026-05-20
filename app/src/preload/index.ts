@@ -108,6 +108,18 @@ const api = {
   getPageContext: () =>
     ipcRenderer.invoke('page:getContext') as Promise<{ url: string; title: string; text: string } | null>,
 
+  // v0.7.x 独立 xhs BrowserWindow toggle/hide/状态
+  xhs: {
+    toggle: () => ipcRenderer.invoke('xhs:toggle') as Promise<{ ok: boolean }>,
+    hide: () => ipcRenderer.invoke('xhs:hide') as Promise<{ ok: boolean }>,
+    isVisible: () => ipcRenderer.invoke('xhs:isVisible') as Promise<boolean>,
+    onVisibilityChanged: (cb: (visible: boolean) => void) => {
+      const handler = (_e: unknown, v: boolean) => cb(v);
+      ipcRenderer.on('xhs:visibility-changed', handler);
+      return () => { ipcRenderer.removeListener('xhs:visibility-changed', handler); };
+    },
+  },
+
   // 对话历史
   conv: {
     list: () => ipcRenderer.invoke('conv:list') as Promise<Array<{ id: string; title: string | null; created_at: number; updated_at: number }>>,

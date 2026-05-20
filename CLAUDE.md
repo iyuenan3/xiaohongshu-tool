@@ -89,11 +89,16 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 - [x] **publish_content TipTap 修复 ✅** (v0.6.0 一起 ship)
 - [x] **mac install.command 悖论修复 ✅** (改用 `无法正常打开请看我.txt` 替代, v0.6.0 ship)
 - [x] **Help 页重写 + Settings 弹框可滚 ✅** (2026-05-20, HelpPanel 5 步→2 步+4 场景+dev 区, Settings max-height 85vh)
-- [x] **M7 工作流模块 spec out ✅** (2026-05-20, 拍板: 控制台左侧 3 段+5 模板+固定骨架+AI 填补+简化调度+风控加固, 详见 PRD §4/SPEC §13/ROADMAP §14)
-- [ ] **M7 P1 实施: 引擎 + 1 模板 (👍 每日点赞评论) + UI** (待启动, 估时 5-7 天)
-- [ ] **M7 P2 实施: 加剩 4 模板** (P1 验证后, 估时 5-7 天)
-- [ ] **M7 P3 polish**: dev cron / 历史详细 trace / failed notification (估时 3 天)
-- [ ] **朋友 v0.3.2 复现测试** (win, 已私发 setup.exe, 等他 export log)
+- [x] **M7 工作流 spec out + 1 轮 subagent review 修 14 项 ✅** (2026-05-20)
+- [x] **M7 P1 ship ✅** (v0.7.0, 2026-05-20): 引擎 (Scheduler + helpers + powerMonitor + mutex + classifyError) + 1 模板 (daily_like_comment) + 4 UI (WorkflowList/Editor/RunHistory/RiskWarning) + 控制台 3 段 + CommandPalette 删到 3 + E2E 69/69
+- [x] **M7 P2 ship ✅** (v0.7.0 同期, 2026-05-20): 加 3 模板 (scheduled_publish + daily_data_snapshot + keyword_like_comment), 5th ✍️ 签到式互动推 P3 (缺 Go MCP `list_following`). Worker scheduler 路径修单数 user/profile + user/me
+- [x] **v0.7.1 ship ✅** (2026-05-20): license heartbeat 24h→1h + ±5min jitter + CODE_NOT_FOUND/REVOKED 触发锁 UI (修 admin revoke 后客户端不感知 P1 漏洞). 朋友需手动升级
+- [x] **admin UI 3 列时间 ✅** (v0.7.1 一起): KV CodeRecord 加 created_at, admin-ui 拆 创建/激活/过期 3 列, 老码自动清空一批后重发 5 个新码
+- [x] **check_login_status 返真昵称 ✅** (v0.7.1 一起): 已登录时复用同 page 调 GetMyProfile 拿 nickname 替换硬编码 'xiaohongshu-mcp'
+- [x] **🎛 小红书独立窗口 ✅** (2026-05-21 ship, 工作分支): helper-popup 路径 — hidden helper (100×100 off-screen opacity:0 same-origin xhs.com) executeJavaScript inject `<a target=_blank>` + sendInputEvent click 触发 popup, viewport lock-free 可 resize fill. 主控 1280×800 仍锁 (popup 路径主控试遍所有 webPreferences/启动顺序都无效, 真因未明, 接受 split-window). 详见 [[project_m7_workflow]] / [[decisions_macos_tahoe_chromium]] 2026-05-21 调研
+- [ ] **🗓 2026-05-21 10:30 讨论方案**: 不创建 newapi user, 只创建令牌, 挂在**超级管理员账号**下. 动机: 避开 user_id 复用孤儿现象 ([[feedback_newapi_user_id_orphan]]) + 简化 newapi 多租户. 待讨论: token 怎么按客户隔离 quota / 怎么 revoke 单个 token 不影响其他 / 后台 UI 如何区分客户 token
+- [ ] **M7 P3 polish**: 5th 签到式互动模板 (需 Go MCP list_following) + dev cron + 详细 step log + failed notification + callTool timeout / 取消按钮 (Go like_feed 卡死案例)
+- [ ] **朋友升级到 v0.7.1** (win, 启动会弹"发现新版"提示, 升级后重激活新码才能完整 revoke 链路 E2E)
 - [ ] M8 公测发售 (待 D3/D5 决策)
 
 ## 已拍板 + 待决策

@@ -32,19 +32,23 @@ interface LicenseState {
   suspend_reason?: string | null;
 }
 
-type Tab = 'console' | 'xhs' | 'assets' | 'help';
+type Tab = 'console' | 'assets' | 'help';
 
 export default function App() {
   const [licenseState, setLicenseState] = useState<LicenseState | null>(null);
   const [goStatus, setGoStatus] = useState<GoStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('console');
+  const [appVersion, setAppVersion] = useState<string>('');
+  const [xhsVisible, setXhsVisible] = useState<boolean>(false);
+
+  useEffect(() => {
+    void window.api.getVersion().then((v) => setAppVersion(v as string));
+  }, []);
 
   useEffect(() => {
     let alive = true;
     window.api.license.status().then((s) => { if (alive) setLicenseState(s); });
-    // 监听 main 进程 license 状态变化 push (activate / heartbeat-revoked / clear)
-    // 解决 B-001: 外部触发 (CDP / heartbeat / 测试) 的状态变化能实时反映到 UI
     const unsubscribe = window.api.license.onChanged?.((state) => {
       if (alive) setLicenseState(state);
     });
@@ -65,6 +69,17 @@ export default function App() {
     };
     tick();
     return () => { alive = false; };
+  }, [licenseState?.status]);
+
+  // 独立 xhs BrowserWindow 可见性: main 进程 push + 首次 query
+  useEffect(() => {
+    if (licenseState?.status !== 'active') return;
+    let alive = true;
+    void window.api.xhs.isVisible().then((v) => { if (alive) setXhsVisible(v); });
+    const unsub = window.api.xhs.onVisibilityChanged((v) => {
+      if (alive) setXhsVisible(v);
+    });
+    return () => { alive = false; unsub(); };
   }, [licenseState?.status]);
 
   if (licenseState === null) {
@@ -97,10 +112,11 @@ export default function App() {
           控制台
         </button>
         <button
-          className={`tabbar__tab ${tab === 'xhs' ? 'tabbar__tab--active' : ''}`}
-          onClick={() => setTab('xhs')}
+          className={`tabbar__tab ${xhsVisible ? 'tabbar__tab--active' : ''}`}
+          onClick={() => { void window.api.xhs.toggle(); }}
+          title={xhsVisible ? '点击隐藏小红书窗口' : '点击显示小红书窗口'}
         >
-          小红书
+          {xhsVisible ? '隐藏小红书' : '显示小红书'}
         </button>
         <button
           className={`tabbar__tab ${tab === 'assets' ? 'tabbar__tab--active' : ''}`}
@@ -125,7 +141,7 @@ export default function App() {
           )}
         </span>
         <span className="tabbar__meta" title={`激活码 ${licenseState.code} / 到期 ${validDate}`}>
-          v0.1.0 · {licenseState.code?.slice(-9) ?? ''} · 到 {validDate}
+          v{appVersion || '?.?.?'} · {licenseState.code?.slice(-9) ?? ''} · 到 {validDate}
         </span>
         <button className="tabbar__icon" onClick={() => setSettingsOpen(true)} title="设置">⚙️</button>
       </div>
@@ -134,13 +150,6 @@ export default function App() {
         <div className={`tab-pane tab-pane--console ${tab === 'console' ? '' : 'tab-pane--hidden'}`}>
           <ConsolePane goOk={goStatus?.ok === true} onOpenSettings={() => setSettingsOpen(true)} />
         </div>
-
-        <div
-          className={`tab-pane tab-pane--xhs ${tab === 'xhs' ? '' : 'tab-pane--hidden'}`}
-          dangerouslySetInnerHTML={{
-            __html: '<webview src="https://www.xiaohongshu.com/explore" partition="persist:xhs" allowpopups class="xhs-webview" id="xhs-webview"></webview>',
-          }}
-        />
 
         <div className={`tab-pane tab-pane--assets ${tab === 'assets' ? '' : 'tab-pane--hidden'}`}>
           <AssetLibrary active={tab === 'assets'} />

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, protocol, screen, shell, net } from 'electron';
-import { join, extname } from 'path';
+import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import log from 'electron-log/main';
@@ -12,6 +12,7 @@ import { licenseManager } from './license';
 import { initUpdater, stopUpdater } from './updater';
 import { getAssetPath } from './assets';
 import { logEnvironment } from './env';
+import { createXhsWindow, toggleXhsWindow, hideXhsWindow, isXhsVisible, destroyXhsWindow, onVisibilityChanged } from './xhs-window';
 
 // 在 app.whenReady() 之前注册自定义 scheme, 让 renderer 用 xhs-asset://{id} 加载本地素材
 protocol.registerSchemesAsPrivileged([
@@ -31,9 +32,8 @@ function createWindow(): void {
   const { workArea } = screen.getPrimaryDisplay();
   log.info(`[main] workArea=${workArea.width}x${workArea.height}`);
 
-  // Chromium 在用户机器 macOS Tahoe + Retina 下 inner viewport 锁死 1280x800,
-  // 2026-05-20 实测: 切到整数倍 Scaling (Default) 拖大窗口仍有白边, 推翻"整数倍解锁"假设.
-  // 接受方案: 锁定 BrowserWindow 1280x800 + 禁用 resize, outer=inner=1280x800, 消除留白.
+  // 主控制台窗口: chromium retina fractional scaling bug 锁 inner viewport 1280×800. 接受方案: 锁定 outer 1280×800 + 禁 resize, 消除留白.
+  // 小红书页面用独立 BrowserWindow (helper popup 路径) 绕开锁, 见 xhs-window.ts.
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -46,7 +46,6 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webviewTag: true,
       webSecurity: false,
     },
   });
@@ -54,13 +53,13 @@ function createWindow(): void {
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow) return;
     mainWindow.show();
-    const cb = mainWindow.getContentBounds();
-    mainWindow.setContentSize(cb.width, cb.height);
     if (is.dev) mainWindow.webContents.openDevTools({ mode: 'detach' });
   });
 
-
-
+  mainWindow.on('closed', () => {
+    log.info('[main] main window closed, quitting app');
+    app.quit();
+  });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
@@ -97,8 +96,8 @@ async function bootstrap(): Promise<void> {
   app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 
 
-  // 禁用 Chromium 对最小化/被遮挡 (含 left:-99999 隐藏的 webview) 的 page 节流,
-  // 否则 tab 切换时 webview guest page 的 execution context 被销毁, Go CDP 调用返回 -32000
+  // 禁用 Chromium 对最小化/被遮挡的 page 节流,
+  // 独立 xhs 窗口 hide 时 occlusion 节流让 Go CDP 调用返回 -32000 (execution context 被销毁)
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,BackForwardCache');
   app.commandLine.appendSwitch('disable-background-timer-throttling');
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -162,26 +161,38 @@ async function bootstrap(): Promise<void> {
   const workflowScheduler = new WorkflowScheduler(goProc);
   registerIpcHandlers(goProc, workflowScheduler, {
     openXhsWindow: () => {
-      // <webview> 改造后, xhs 由 renderer 控制. main 进程仅 noop 占位
-      // renderer 可直接调 webview.reload() (在 ChatSidebar 或 App 内实现)
-      log.info('[ipc] openXhsWindow called (no-op in webview mode)');
+      void createXhsWindow();
     },
+    toggleXhsWindow: () => {
+      toggleXhsWindow();
+    },
+    hideXhsWindow: () => {
+      hideXhsWindow();
+    },
+    isXhsVisible: () => isXhsVisible(),
     getXhsContext: async () => {
-      // <webview> 的上下文由 renderer 自己通过 webview.executeJavaScript 获取
-      // 此 handler 保留兼容但返回 null, 真正的 context 走 renderer 路径
+      // 独立窗口模式: chat 通过 Go MCP (page:list_feeds 等) 拿上下文, 不走 webview.executeJavaScript 路径
       return null;
     },
   });
   createWindow();
   if (mainWindow) workflowScheduler.setMainWindow(mainWindow);
 
+  // 独立 xhs 窗口可见性变化 → push 主窗 renderer, 让按钮文案/icon 同步
+  onVisibilityChanged((visible) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('xhs:visibility-changed', visible);
+    }
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
   licenseManager.onActivated(() => {
-    log.info('[main] license activated event - starting Go subprocess');
+    log.info('[main] license activated event - starting Go subprocess + xhs window');
     licenseManager.startHeartbeatScheduler();
+    void createXhsWindow();
     ensureGoStarted()
       .then(() => workflowScheduler.init())
       .catch((err) => {
@@ -201,13 +212,14 @@ async function bootstrap(): Promise<void> {
   log.info(`[main] license status: ${lic.status}`);
   if (lic.status === 'active') {
     licenseManager.startHeartbeatScheduler();
+    void createXhsWindow();
     ensureGoStarted()
       .then(() => workflowScheduler.init())
       .catch((err) => {
         log.error(`[main] Go bootstrap failed: ${err.message}`);
       });
   } else {
-    log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go + xhs view 暂不启动`);
+    log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go + xhs window 暂不启动`);
   }
 
   initUpdater(() => mainWindow);
@@ -252,9 +264,10 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', async (event) => {
   if (isQuitting) return;
-  log.info('[main] before-quit, stopping Go subprocess...');
+  log.info('[main] before-quit, stopping Go subprocess + xhs window...');
   event.preventDefault();
   isQuitting = true;
+  try { destroyXhsWindow(); } catch (e) { log.warn(`[main] xhs window destroy error: ${String(e)}`); }
   try { licenseManager.stopHeartbeatScheduler(); } catch (e) { log.warn(`[main] license stop error: ${String(e)}`); }
   try { stopUpdater(); } catch (e) { log.warn(`[main] updater stop error: ${String(e)}`); }
   try {

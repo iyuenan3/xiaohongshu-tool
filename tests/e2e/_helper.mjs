@@ -3,7 +3,7 @@
 
 // CDP port may change every dev restart. We probe a small list of candidates.
 // Add new port at the top after each dev restart if it differs.
-export const CDP_PORT_CANDIDATES = [51121, 64818, 60334, 53759];
+export const CDP_PORT_CANDIDATES = [52705, 51121, 64818, 60334, 53759];
 export const GO_BASE = 'http://127.0.0.1:54092';
 export const WORKER = 'https://xhslicense.maxwellii.com';
 export const ADMIN = 'LFW50BqUFVzJwqb/vqFoGPJqSEtlnx9wq/FY7vVBP8U=';

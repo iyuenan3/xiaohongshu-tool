@@ -24,6 +24,9 @@ import { listTemplateMetas } from './workflow-templates';
 
 interface BrowserActions {
   openXhsWindow: () => void;
+  toggleXhsWindow: () => void;
+  hideXhsWindow: () => void;
+  isXhsVisible: () => boolean;
   getXhsContext: () => Promise<{ url: string; title: string; text: string } | null>;
 }
 
@@ -57,6 +60,15 @@ export function registerIpcHandlers(
     actions.openXhsWindow();
     return { ok: true };
   });
+  ipcMain.handle('xhs:toggle', () => {
+    actions.toggleXhsWindow();
+    return { ok: true };
+  });
+  ipcMain.handle('xhs:hide', () => {
+    actions.hideXhsWindow();
+    return { ok: true };
+  });
+  ipcMain.handle('xhs:isVisible', () => actions.isXhsVisible());
   ipcMain.handle('page:getContext', async () => actions.getXhsContext());
 
   // 对话历史 (SQLite)
@@ -115,6 +127,14 @@ export function registerIpcHandlers(
   ipcMain.handle('workflow:list', () => listWorkflows(false));
   ipcMain.handle('workflow:get', (_, id: number) => getWorkflow(id));
   ipcMain.handle('workflow:create', (_, input: CreateWorkflowInput) => {
+    // 防御性 guard: race condition (templates 还没 fetch 完用户就点保存) 或 IPC 错位 都可能
+    // 让 template_id / name 是 undefined/空 进来. 显式抛友好错误, 不让进 SQLite NOT NULL fail.
+    if (!input?.template_id || typeof input.template_id !== 'string' || input.template_id.trim() === '') {
+      throw new Error('workflow:create requires template_id (string)');
+    }
+    if (!input?.name || typeof input.name !== 'string' || input.name.trim() === '') {
+      throw new Error('workflow:create requires name (string)');
+    }
     const wf = createWorkflow(input);
     if (wf.enabled) scheduler.rescheduleOne(wf.id);
     return wf;
