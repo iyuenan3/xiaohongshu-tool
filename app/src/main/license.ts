@@ -14,7 +14,11 @@ ed.hashes.sha512 = sha512 as unknown as typeof ed.hashes.sha512;
 const PUBLIC_KEY_B64 = '8aC5Ujl8syPRmowRgYBPlbRFfkwM5/Eb3DKyLj7UKW8=';
 const WORKER_URL = process.env.XHS_WORKER_URL ?? 'https://xhslicense.maxwellii.com';
 const MACHINE_SALT = 'xhs-app-v1';
-const HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// v0.7.1: 24h → 1h + ±5min jitter. 让 revoke/CODE_NOT_FOUND 1h 内生效 (24h 太迟).
+// CF Workers 压力: 1000 用户 × 24 次/天 ≈ 720k/月, Paid tier 7.2% (Free tier 也够 100 用户内).
+// Jitter 防 N 个用户同时启动后心跳卡到同一分钟 burst.
+const HEARTBEAT_INTERVAL_MS = 60 * 60 * 1000;
+const HEARTBEAT_JITTER_MS = 5 * 60 * 1000;
 
 export type LicenseStatus =
   | 'unactivated'
@@ -321,6 +325,15 @@ export class LicenseManager {
     const body = (await resp.json()) as HeartbeatResponse;
     if (!body.ok) {
       log.warn(`[license] heartbeat rejected: ${body.code}`);
+      // v0.7.1: CODE_NOT_FOUND (KV 被 admin 真删) / CODE_REVOKED 跟 revoked=true 同样处理,
+      // 设 cached.revoked 触发 emitChange 锁 UI. 老版本只 silent log, UI 不更新.
+      if (this.cached && (body.code === 'CODE_NOT_FOUND' || body.code === 'CODE_REVOKED')) {
+        log.warn(`[license] code revoked / not-found by server (${body.code}), locking UI`);
+        this.cached.revoked = true;
+        this.cached.server_status = 'revoked';
+        saveStored(this.cached);
+        void this.emitChange();
+      }
       return body;
     }
 
@@ -418,14 +431,21 @@ export class LicenseManager {
   startHeartbeatScheduler(): void {
     if (this.heartbeatTimer) return;
     this.heartbeat().catch((e) => log.warn(`[license] initial heartbeat error: ${e}`));
-    this.heartbeatTimer = setInterval(() => {
-      this.heartbeat().catch((e) => log.warn(`[license] periodic heartbeat error: ${e}`));
-    }, HEARTBEAT_INTERVAL_MS);
+    // 用 setTimeout 而不是 setInterval, 每次重算 next delay 加 jitter
+    const scheduleNext = (): void => {
+      const jitter = (Math.random() * 2 - 1) * HEARTBEAT_JITTER_MS;  // ±5min
+      const delay = HEARTBEAT_INTERVAL_MS + jitter;
+      this.heartbeatTimer = setTimeout(() => {
+        this.heartbeat().catch((e) => log.warn(`[license] periodic heartbeat error: ${e}`));
+        scheduleNext();
+      }, delay);
+    };
+    scheduleNext();
   }
 
   stopHeartbeatScheduler(): void {
     if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
+      clearTimeout(this.heartbeatTimer);   // v0.7.1 改用 setTimeout, clearTimeout 对应
       this.heartbeatTimer = null;
     }
   }
