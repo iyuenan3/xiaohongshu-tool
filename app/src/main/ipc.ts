@@ -15,13 +15,23 @@ import {
   setAssetTags, searchAssets,
 } from './assets';
 import { searchWeb } from './web-search';
+import type { WorkflowScheduler } from './workflow-scheduler';
+import {
+  listWorkflows, getWorkflow, createWorkflow, updateWorkflow, softDeleteWorkflow,
+  listRuns, getConfig, setConfig, type CreateWorkflowInput,
+} from './workflow-db';
+import { listTemplateMetas } from './workflow-templates';
 
 interface BrowserActions {
   openXhsWindow: () => void;
   getXhsContext: () => Promise<{ url: string; title: string; text: string } | null>;
 }
 
-export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserActions): void {
+export function registerIpcHandlers(
+  goProc: GoSubprocess,
+  scheduler: WorkflowScheduler,
+  actions: BrowserActions,
+): void {
   ipcMain.handle('app:ping', () => {
     log.info('[ipc] app:ping called');
     return `pong (electron ${process.versions.electron}, ${new Date().toISOString()})`;
@@ -100,6 +110,52 @@ export function registerIpcHandlers(goProc: GoSubprocess, actions: BrowserAction
     (_, byok: { base_url: string; api_key: string; model: string }) =>
       licenseManager.setByok(byok),
   );
+
+  // v0.7 M7: 工作流
+  ipcMain.handle('workflow:list', () => listWorkflows(false));
+  ipcMain.handle('workflow:get', (_, id: number) => getWorkflow(id));
+  ipcMain.handle('workflow:create', (_, input: CreateWorkflowInput) => {
+    const wf = createWorkflow(input);
+    if (wf.enabled) scheduler.rescheduleOne(wf.id);
+    return wf;
+  });
+  ipcMain.handle('workflow:update', (_, id: number, patch: Partial<{ name: string; params: unknown; schedule: unknown; enabled: number }>) => {
+    const dbPatch: Record<string, unknown> = {};
+    if (patch.name !== undefined) dbPatch.name = patch.name;
+    if (patch.params !== undefined) dbPatch.params = JSON.stringify(patch.params);
+    if (patch.schedule !== undefined) dbPatch.schedule = JSON.stringify(patch.schedule);
+    if (patch.enabled !== undefined) dbPatch.enabled = patch.enabled;
+    updateWorkflow(id, dbPatch);
+    // 改 schedule / enable 都要重 schedule
+    if (patch.schedule !== undefined || patch.enabled === 1) scheduler.rescheduleOne(id);
+    if (patch.enabled === 0) scheduler.cancelOne(id);
+    return { ok: true };
+  });
+  ipcMain.handle('workflow:enable', (_, id: number, on: boolean) => {
+    updateWorkflow(id, { enabled: on ? 1 : 0, fail_count: on ? 0 : undefined });
+    if (on) scheduler.rescheduleOne(id);
+    else scheduler.cancelOne(id);
+    return { ok: true };
+  });
+  ipcMain.handle('workflow:delete', (_, id: number) => {
+    scheduler.cancelOne(id);
+    softDeleteWorkflow(id);
+    return { ok: true };
+  });
+  ipcMain.handle('workflow:run-now', async (_, id: number) => {
+    return scheduler.runNow(id);
+  });
+  ipcMain.handle('workflow:runs', (_, id: number, limit?: number) => listRuns(id, limit ?? 50));
+  ipcMain.handle('workflow:get-templates', () => listTemplateMetas());
+  ipcMain.handle('workflow:dev-fire-soon', (_, id: number) => {
+    scheduler.devFireSoon(id);
+    return { ok: true };
+  });
+  ipcMain.handle('workflow:get-config', (_, key: string) => getConfig(key));
+  ipcMain.handle('workflow:set-config', (_, key: string, value: string) => {
+    setConfig(key, value);
+    return { ok: true };
+  });
 
   // Auto-update
   ipcMain.handle('updater:check', () => checkForUpdatesNow());

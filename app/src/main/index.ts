@@ -4,6 +4,7 @@ import { pathToFileURL } from 'url';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import log from 'electron-log/main';
 import { registerIpcHandlers } from './ipc';
+import { WorkflowScheduler } from './workflow-scheduler';
 import { GoSubprocess, resolveGoBinaryPath } from './go-subprocess';
 import { pickFreePort, getElectronCdpWsUrl } from './cdp';
 import { initDb, closeDb } from './db';
@@ -158,7 +159,8 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  registerIpcHandlers(goProc, {
+  const workflowScheduler = new WorkflowScheduler(goProc);
+  registerIpcHandlers(goProc, workflowScheduler, {
     openXhsWindow: () => {
       // <webview> 改造后, xhs 由 renderer 控制. main 进程仅 noop 占位
       // renderer 可直接调 webview.reload() (在 ChatSidebar 或 App 内实现)
@@ -171,6 +173,7 @@ async function bootstrap(): Promise<void> {
     },
   });
   createWindow();
+  if (mainWindow) workflowScheduler.setMainWindow(mainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -179,9 +182,11 @@ async function bootstrap(): Promise<void> {
   licenseManager.onActivated(() => {
     log.info('[main] license activated event - starting Go subprocess');
     licenseManager.startHeartbeatScheduler();
-    ensureGoStarted().catch((err) => {
-      log.error(`[main] post-activation Go start failed: ${err.message}`);
-    });
+    ensureGoStarted()
+      .then(() => workflowScheduler.init())
+      .catch((err) => {
+        log.error(`[main] post-activation Go start failed: ${err.message}`);
+      });
   });
 
   // license 任何状态变化 (activate / heartbeat-revoked / clear) push 给 renderer
@@ -196,9 +201,11 @@ async function bootstrap(): Promise<void> {
   log.info(`[main] license status: ${lic.status}`);
   if (lic.status === 'active') {
     licenseManager.startHeartbeatScheduler();
-    ensureGoStarted().catch((err) => {
-      log.error(`[main] Go bootstrap failed: ${err.message}`);
-    });
+    ensureGoStarted()
+      .then(() => workflowScheduler.init())
+      .catch((err) => {
+        log.error(`[main] Go bootstrap failed: ${err.message}`);
+      });
   } else {
     log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go + xhs view 暂不启动`);
   }

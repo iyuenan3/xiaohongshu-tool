@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import CommandPalette from './CommandPalette';
+import WorkflowList from './WorkflowList';
 import ConversationList, { type ConversationMeta } from './ConversationList';
 import ChatPanel, { type ChatPanelHandle } from './ChatPanel';
 
@@ -90,15 +91,22 @@ export default function ConsolePane({ goOk, onOpenSettings }: Props) {
   return (
     <div className="console-grid">
       <aside className="console-left">
-        <CommandPalette onPick={handleCommandPick} />
-        <ConversationList
-          conversations={conversations}
-          currentId={convId}
-          onSelect={handleSelect}
-          onNew={handleNew}
-          onDelete={handleDelete}
-          onRename={handleRename}
-        />
+        <div className="console-left__commands">
+          <CommandPalette onPick={handleCommandPick} />
+        </div>
+        <div className="console-left__workflows">
+          <WorkflowList />
+        </div>
+        <div className="console-left__sessions">
+          <ConversationList
+            conversations={conversations}
+            currentId={convId}
+            onSelect={handleSelect}
+            onNew={handleNew}
+            onDelete={handleDelete}
+            onRename={handleRename}
+          />
+        </div>
       </aside>
       <ChatPanel
         ref={chatRef}

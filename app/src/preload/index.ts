@@ -27,6 +27,58 @@ interface LicenseStateP {
   suspend_reason?: string | null;
 }
 
+// v0.7 M7 工作流
+export interface ScheduleP {
+  type: 'daily' | 'weekly' | 'interval' | 'manual';
+  hour?: number;
+  minute?: number;
+  weekday?: number;
+  interval_hours?: number;
+  jitter_min?: number;
+  tz: string;
+}
+
+export interface WorkflowP {
+  id: number;
+  template_id: string;
+  name: string;
+  params: string;
+  schedule: string;
+  enabled: number;
+  deleted_at: number | null;
+  fail_count: number;
+  created_at: number;
+  updated_at: number;
+  last_fire_at: number | null;
+  next_fire_at: number | null;
+}
+
+export interface WorkflowRunP {
+  id: number;
+  workflow_id: number;
+  started_at: number;
+  finished_at: number | null;
+  status: 'running' | 'success' | 'partial' | 'failed' | 'missed' | 'aborted' | 'disabled_by_failure';
+  fail_reason: string | null;
+  summary: string | null;
+  steps_log: string | null;
+  error: string | null;
+}
+
+export interface TemplateMetaP {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+  paramsSchema: Record<string, { type: 'int' | 'enum' | 'string' | 'image_list'; min?: number; max?: number; options?: string[]; default?: unknown; label: string }>;
+}
+
+function onPush<T>(channel: string, cb: (e: T) => void): () => void {
+  const handler = (_e: unknown, payload: T) => cb(payload);
+  ipcRenderer.on(channel, handler);
+  return () => { ipcRenderer.removeListener(channel, handler); };
+}
+
 interface MediaAsset {
   id: string;
   filename: string;
@@ -134,6 +186,32 @@ const api = {
   web: {
     search: (query: string, n?: number) =>
       ipcRenderer.invoke('web:search', query, n) as Promise<Array<{ title: string; url: string; snippet: string }>>,
+  },
+
+  // v0.7 M7: 工作流
+  workflow: {
+    list: () => ipcRenderer.invoke('workflow:list') as Promise<WorkflowP[]>,
+    get: (id: number) => ipcRenderer.invoke('workflow:get', id) as Promise<WorkflowP | null>,
+    create: (input: {
+      template_id: string; name: string; params: Record<string, unknown>; schedule: ScheduleP; enabled?: boolean;
+    }) => ipcRenderer.invoke('workflow:create', input) as Promise<WorkflowP>,
+    update: (id: number, patch: { name?: string; params?: Record<string, unknown>; schedule?: ScheduleP; enabled?: number }) =>
+      ipcRenderer.invoke('workflow:update', id, patch) as Promise<{ ok: boolean }>,
+    enable: (id: number, on: boolean) => ipcRenderer.invoke('workflow:enable', id, on) as Promise<{ ok: boolean }>,
+    delete: (id: number) => ipcRenderer.invoke('workflow:delete', id) as Promise<{ ok: boolean }>,
+    runNow: (id: number) => ipcRenderer.invoke('workflow:run-now', id) as Promise<{ runId: number | null }>,
+    runs: (id: number, limit?: number) => ipcRenderer.invoke('workflow:runs', id, limit) as Promise<WorkflowRunP[]>,
+    getTemplates: () => ipcRenderer.invoke('workflow:get-templates') as Promise<TemplateMetaP[]>,
+    devFireSoon: (id: number) => ipcRenderer.invoke('workflow:dev-fire-soon', id) as Promise<{ ok: boolean }>,
+    getConfig: (key: string) => ipcRenderer.invoke('workflow:get-config', key) as Promise<string | null>,
+    setConfig: (key: string, value: string) => ipcRenderer.invoke('workflow:set-config', key, value) as Promise<{ ok: boolean }>,
+    onRunStarted: (cb: (e: { runId: number; workflowId: number }) => void) => onPush('workflow:run-started', cb),
+    onRunStepUpdate: (cb: (e: { runId: number; step: { step: string; at: number; result?: unknown; error?: string } }) => void) =>
+      onPush('workflow:run-step-update', cb),
+    onRunFinished: (cb: (e: { runId: number; workflowId: number; status: string; failReason?: string }) => void) =>
+      onPush('workflow:run-finished', cb),
+    onAutoDisabled: (cb: (e: { workflowId: number; lastReason: string }) => void) =>
+      onPush('workflow:auto-disabled', cb),
   },
 
   // 日志导出 + renderer 透传 (内测期间用)

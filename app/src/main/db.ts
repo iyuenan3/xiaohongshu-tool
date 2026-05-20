@@ -58,6 +58,40 @@ export function initDb(): Database.Database {
       analyzed      INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_media_assets_last_used ON media_assets(last_used_at DESC);
+
+    CREATE TABLE IF NOT EXISTS workflows (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_id  TEXT NOT NULL,
+      name         TEXT NOT NULL,
+      params       TEXT NOT NULL,
+      schedule     TEXT NOT NULL,
+      enabled      INTEGER NOT NULL DEFAULT 1,
+      deleted_at   INTEGER,
+      fail_count   INTEGER NOT NULL DEFAULT 0,
+      created_at   INTEGER NOT NULL,
+      updated_at   INTEGER NOT NULL,
+      last_fire_at INTEGER,
+      next_fire_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflows_enabled ON workflows(enabled, deleted_at, next_fire_at);
+
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_id  INTEGER NOT NULL,
+      started_at   INTEGER NOT NULL,
+      finished_at  INTEGER,
+      status       TEXT NOT NULL,
+      fail_reason  TEXT,
+      summary      TEXT,
+      steps_log    TEXT,
+      error        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_id ON workflow_runs(workflow_id, started_at DESC);
+
+    CREATE TABLE IF NOT EXISTS appConfig (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 
   // 老 db 升级: 给 media_assets 加 tags/description/analyzed 列 (SQLite 不支持 ALTER IF NOT EXISTS)
