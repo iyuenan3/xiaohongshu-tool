@@ -198,12 +198,16 @@ export async function handleAdminRevoke(req: Request, env: Env): Promise<Respons
     } catch (e) {
       return err('TENANT_VIOLATION', e instanceof Error ? e.message : String(e), 403);
     }
-    // Sync disable newapi token (best-effort, don't fail revoke if newapi 不可达)
-    if (rec.newapi_token_id !== null) {
-      await newapi.updateTokenStatus(env, rec.newapi_token_id, 2).catch((e) => {
-        console.warn(`[revoke] disable newapi token failed: ${e}`);
+    // 硬停: invalidate subscription + delete user (级联删 token), 不可逆.
+    // 都 best-effort, newapi 不可达不阻塞 KV 状态写 (KV revoked 已能让 /activate 拒绝)
+    if (rec.newapi_sub_id !== null) {
+      await newapi.invalidateSubscription(env, rec.newapi_sub_id).catch((e) => {
+        console.warn(`[revoke] invalidate sub failed: ${e}`);
       });
     }
+    await newapi.deleteUser(env, rec.newapi_user_id).catch((e) => {
+      console.warn(`[revoke] delete user failed: ${e}`);
+    });
   }
 
   rec.status = 'revoked';
@@ -246,12 +250,13 @@ export async function handleAdminSuspend(req: Request, env: Env): Promise<Respon
     }
   }
 
-  // Disable newapi token (核心动作, 失败要 abort 不写 KV, 保证状态一致)
-  if (rec.newapi_token_id !== null) {
+  // 软停: invalidate subscription (quota → 0, token 不动, 客户端调 LLM 自然 fail)
+  // 用 admin 端点不需 user cookie. 失败要 abort 不写 KV, 保证状态一致
+  if (rec.newapi_sub_id !== null) {
     try {
-      await newapi.updateTokenStatus(env, rec.newapi_token_id, 2);
+      await newapi.invalidateSubscription(env, rec.newapi_sub_id);
     } catch (e) {
-      return err('NEWAPI_FAILED', `disable token failed: ${e}`, 502);
+      return err('NEWAPI_FAILED', `invalidate sub failed: ${e}`, 502);
     }
   }
 
@@ -295,12 +300,18 @@ export async function handleAdminResume(req: Request, env: Env): Promise<Respons
     }
   }
 
-  // Enable newapi token
-  if (rec.newapi_token_id !== null) {
+  // 恢复: rebind XHS Plan 新建一个 user_subscription (满 quota, 月度自动 reset)
+  // newapi 没"reactivate 旧 sub"端点, 只能新建. 新 sub_id 写回 KV
+  if (rec.newapi_user_id !== null) {
     try {
-      await newapi.updateTokenStatus(env, rec.newapi_token_id, 1);
+      const newSub = await newapi.bindSubscription(
+        env,
+        rec.newapi_user_id,
+        parseInt(env.XHS_PLAN_ID, 10),
+      );
+      rec.newapi_sub_id = newSub.id;
     } catch (e) {
-      return err('NEWAPI_FAILED', `enable token failed: ${e}`, 502);
+      return err('NEWAPI_FAILED', `rebind sub failed: ${e}`, 502);
     }
   }
 
