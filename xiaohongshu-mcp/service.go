@@ -100,6 +100,8 @@ func (s *XiaohongshuService) DeleteCookies(ctx context.Context) error {
 }
 
 // CheckLoginStatus 检查登录状态
+// 已登录时调 GetMyProfile 拿真实昵称替换 configs.Username 占位 (xiaohongshu-mcp).
+// 拿不到昵称不致 error, 退回 configs.Username 占位.
 func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatusResponse, error) {
 	b := newBrowser()
 	defer b.Close()
@@ -114,9 +116,19 @@ func (s *XiaohongshuService) CheckLoginStatus(ctx context.Context) (*LoginStatus
 		return nil, err
 	}
 
+	username := configs.Username
+	if isLoggedIn {
+		// 复用 page 拿真实昵称 (避免开新 browser/page)
+		profileAction := xiaohongshu.NewUserProfileAction(page)
+		if profile, perr := profileAction.GetMyProfileViaSidebar(ctx); perr == nil && profile.UserBasicInfo.Nickname != "" {
+			username = profile.UserBasicInfo.Nickname
+		}
+		// 拿不到不报错, 保留 configs.Username 占位
+	}
+
 	response := &LoginStatusResponse{
 		IsLoggedIn: isLoggedIn,
-		Username:   configs.Username,
+		Username:   username,
 	}
 
 	return response, nil
@@ -579,7 +591,8 @@ func closeIfNotAttached(b *browser.Browser, page *rod.Page) {
 //
 // launcher 模式: 创建新 page, 操作结束后关闭。
 // attach 模式:   复用 Electron 中已有 page (xiaohongshu page 优先),
-//                操作结束不关 page (用户的窗口不能被我们关掉)。
+//
+//	操作结束不关 page (用户的窗口不能被我们关掉)。
 func withBrowserPage(fn func(*rod.Page) error) error {
 	b := newBrowser()
 	defer b.Close()
