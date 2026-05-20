@@ -472,6 +472,29 @@ body {
 .help-callout p {
   font-size: 13px; line-height: 1.7; color: var(--ink-soft);
 }
+.help-callout h4 small {
+  font-size: 11px; font-weight: 400; color: var(--ink-mute); margin-left: 6px;
+}
+.help-callout code {
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  font-size: 12px;
+  background: var(--paper); padding: 1px 6px; border-radius: 2px;
+}
+.help-eg {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--rule);
+  font-size: 12px !important;
+  color: var(--ink-mute) !important;
+}
+.help-section-title {
+  font-family: Georgia, serif;
+  font-size: 18px; font-weight: 600;
+  color: var(--ink);
+  margin-top: 36px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 8px;
+}
 
 /* ========== Settings Modal ========== */
 .settings-overlay {
@@ -481,10 +504,12 @@ body {
 .settings-modal {
   background: var(--surface); border-radius: 6px; min-width: 480px; max-width: 600px;
   box-shadow: 0 12px 48px rgba(0,0,0,0.15);
+  max-height: 85vh; display: flex; flex-direction: column;
 }
 .settings-modal header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 24px; border-bottom: 1px solid var(--rule);
+  flex-shrink: 0;
 }
 .settings-modal h2 { font-family: Georgia, serif; font-size: 18px; font-weight: 600; }
 .close-btn {
@@ -492,7 +517,7 @@ body {
   color: var(--ink-mute);
 }
 .close-btn:hover { color: var(--ink); }
-.settings-body { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.settings-body { padding: 24px; display: flex; flex-direction: column; gap: 16px; flex: 1; overflow-y: auto; }
 .settings-body label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .settings-body label > span { color: var(--ink-soft); font-weight: 500; }
 .settings-body input, .settings-body select {

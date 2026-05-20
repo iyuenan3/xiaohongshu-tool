@@ -271,9 +271,6 @@ export default function Settings({ onClose }: Props) {
                 <button onClick={exitDevMode}>退出开发者模式</button>
               </div>
 
-              <p className="hint" style={{ fontSize: 11 }}>
-                常见 baseURL: 火山 <code>ark.cn-beijing.volces.com/api/v3</code> · DeepSeek <code>api.deepseek.com/v1</code> · Kimi <code>api.moonshot.cn/v1</code>
-              </p>
             </div>
           )}
         </div>

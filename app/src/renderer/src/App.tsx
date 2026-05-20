@@ -147,7 +147,7 @@ export default function App() {
         </div>
 
         <div className={`tab-pane tab-pane--help ${tab === 'help' ? '' : 'tab-pane--hidden'}`}>
-          <HelpPanel />
+          <HelpPanel devMode={licenseState.dev_mode === true} />
         </div>
       </div>
 

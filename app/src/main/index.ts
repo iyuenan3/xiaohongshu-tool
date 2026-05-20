@@ -30,9 +30,9 @@ function createWindow(): void {
   const { workArea } = screen.getPrimaryDisplay();
   log.info(`[main] workArea=${workArea.width}x${workArea.height}`);
 
-  // Chromium 在某些 macOS retina fractional scaling (如 14" "Looks Like 1800") 下
-  // inner viewport 锁死 1280x800。锁定 BrowserWindow 1280x800 + 禁用 resize,
-  // 让 outer = inner = 1280x800, 消除留白。最低屏幕要求 1440x900。
+  // Chromium 在用户机器 macOS Tahoe + Retina 下 inner viewport 锁死 1280x800,
+  // 2026-05-20 实测: 切到整数倍 Scaling (Default) 拖大窗口仍有白边, 推翻"整数倍解锁"假设.
+  // 接受方案: 锁定 BrowserWindow 1280x800 + 禁用 resize, outer=inner=1280x800, 消除留白.
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
