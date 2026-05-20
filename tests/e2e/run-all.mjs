@@ -8,6 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const modules = [
   'license.mjs',
   'ipc-surface.mjs',
+  'workflow.mjs',
   'assets.mjs',
   'chat.mjs',
   'tabs.mjs',

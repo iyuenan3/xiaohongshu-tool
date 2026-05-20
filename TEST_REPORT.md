@@ -1,175 +1,151 @@
-# 小红书自运营系统 · E2E 测试报告
+# v0.7 E2E 测试报告
 
-> 版本 v0.2 · 2026-05-17 · 针对 PRD v0.5.1 / SPEC v0.2 / ROADMAP v0.4 · 客户端 v0.3.1
->
-> 测试方法: 黑盒 E2E (CDP attach + `window.api.*` IPC + Worker admin API), 不读 `app/src/` 源码
-> 运行环境: macOS Tahoe (Darwin 25.4.0) · Electron 38.8.6 · Node 22 · CDP port 60334 · BYOK 未配置
-> 测试目录: [`tests/e2e/`](./tests/e2e/) · 策略文档: [`TESTING.md`](./TESTING.md)
-> 完整原始输出: `tests/e2e/last-run.json`
+> 测试日期: 2026-05-20 (round 2, web_search bug 修后重跑)
+> 测试人: subagent (claude-opus) + maxwell (修 web_search 后手动重跑)
+> 环境: dev mode, license active (XHS-D8PP-BGAY-YPZU-T8SD), Go ready, schema_version=7 已 migrate
+> 提交: cb94be9 + 后续 M7 P1 实施 + web-search.ts 切 DuckDuckGo
+> CDP port 51121 / Renderer http://localhost:5173/
 
-## 0. 与 v0.1 报告差分
+## 总览 (round 2, web_search 修后全绿)
 
-| 指标 | v0.1 (2026-05-16) | v0.2 (2026-05-17) | 增量 |
-|---|---|---|---|
-| 测试用例数 | 167 | **179** | +12 |
-| 通过 | 164 | **176** | +12 |
-| 失败 | 0 | **0** | 0 |
-| 跳过 | 3 | 3 | 0 |
-| Critical / P0 bug | 1 (B-001) | **0** | -1 |
-| P1 文档偏差 bug | 4 (B-002~005) | **1** (新发现 B-006) | -3 |
+| Suite | Cases | Pass | Fail | Skip | Time |
+| ---- | --- | --- | --- | --- | --- |
+| License        | 26  | 25  | 0  | 1  | ~5s |
+| IPC Surface    | 40  | 40  | 0  | 0  | <100ms |
+| **Workflow (M7)** | **69** | **69** | **0** | **0** | **~90ms** |
+| Assets         | 26  | 26  | 0  | 0  | ~1.2s |
+| Chat/Conv      | 21  | 21  | 0  | 0  | ~130ms |
+| Tabs/UI        | 16  | 15  | 0  | 1  | ~1s |
+| Rate Limit     | 6   | 6   | 0  | 0  | ~90ms |
+| **Web Search** | **9**  | **9**  | **0** | **0** | ~5.5s |
+| Tools/Agent    | 13  | 13  | 0  | 0  | <100ms |
+| Errors         | 10  | 10  | 0  | 0  | ~1s |
+| Integration    | 11  | 11  | 0  | 0  | ~2.3s |
+| **Total**      | **247** | **245** | **0** | **2** | ~16s |
 
-**结论**: 客户端代码层面 0 残留 bug, 4 份文档层面仅 1 处「11 个」残留 (B-006, 低优), 全部 v0.1 报告的 5 个 bug 均已验证 [FIXED]。
+Pass rate: **99.2%** (245/247, 排除 skip 后 **100%** ✅)
 
-## 1. 总览
+## Round 1 → Round 2 变化
 
-| 指标 | 值 |
-|---|---|
-| 测试模块数 | 10 |
-| 测试用例数 (含子断言) | **179** |
-| **通过** | **176** |
-| 失败 | **0** |
-| 跳过 | 3 |
-| 模块全 0 退出码 | 10 / 10 |
-| 总运行时长 | ~17.8 s |
-
-### 1.1 模块结果
-
-| 模块 | 文件 | exit | pass | fail | skip | 耗时 |
-|---|---|---|---|---|---|---|
-| License (+LIC-08 push) | `license.mjs` | 0 | **25** | 0 | 1 | 4.6 s |
-| IPC Surface (+onChanged) | `ipc-surface.mjs` | 0 | **40** | 0 | 0 | 0.1 s |
-| Assets | `assets.mjs` | 0 | 26 | 0 | 0 | 1.2 s |
-| Chat / Conv | `chat.mjs` | 0 | 21 | 0 | 0 | 0.1 s |
-| Tabs / UI | `tabs.mjs` | 0 | 15 | 0 | 1 | 1.0 s |
-| Rate Limit | `rate-limit.mjs` | 0 | 6 | 0 | 0 | 0.1 s |
-| Web Search | `web-search.mjs` | 0 | 9 | 0 | 0 | 5.0 s |
-| Tools / Agent | `tools-agent.mjs` | 0 | 13 | 0 | 1 | 0.1 s |
-| Errors | `errors.mjs` | 0 | 10 | 0 | 0 | 0.9 s |
-| Integration | `integration.mjs` | 0 | 11 | 0 | 0 | 4.7 s |
-| **合计** | — | **0/10** | **176** | **0** | **3** | **~17.8 s** |
-
-### 1.2 跳过说明 (与 v0.1 一致, 非 bug)
-
-| ID | 模块 | 原因 |
+| 项 | Round 1 | Round 2 |
 |---|---|---|
-| LIC-07 | license | `license.clear()` 独立用例 (clear without re-activate) 略过, 改由新增的 LIC-08 端到端覆盖 |
-| TAB-08b | tabs | CDP 测试 window 无 OS-level focus; 真机用户操作下 `.focus()` 正常 |
-| TOOL-09b | tools-agent | BYOK 未配置, vision `analyzeImage` 路径无法测; 真机配 BYOK 后应工作 |
+| Web Search pass | 7/9 (2 fail) | **9/9** ✅ |
+| 总 fail | 2 | **0** |
+| Pass rate | 98.4% | **99.2%** |
 
-## 2. v0.1 报告 5 个 bug 验证
+修复内容: `app/src/main/web-search.ts` 从搜狗 (`div.vrwrap` 失效) 切到 DuckDuckGo HTML (`html.duckduckgo.com/html/?q=`). 实测返 5 条真实结果, 第二次连续搜索也成功。
 
-### B-001 [FIXED · Critical] License `active` 但 renderer 卡激活页
+## 各套件细节
 
-| 项 | 内容 |
-|---|---|
-| 状态 | **FIXED**, push 通道完美工作 |
-| 修复方式 (用户描述, 未读源验证) | LicenseManager 加 `onChanged(cb)` listener → main `index.ts` 注册 → renderer push `license:changed` IPC → preload 暴露 `license.onChanged` → `App.tsx` useEffect 订阅 |
-| 验证用例 | 新增 `LIC-08` (a~k 共 11 个子断言) |
-| 验证流程 | 1) baseline 抓 DOM (有 `.tabbar` 无 `.activation-card`)<br>2) 注入 hook 累计 push 事件<br>3) `license.clear()` → 等 300ms<br>4) 检查 push count, 最新 status, DOM 状态<br>5) `license.activate(LICENSE.code)` → 等 300ms<br>6) 再次检查 |
-| 实测结果 | clear 后 push count=1 + status=unactivated + `.activation-card` 出现 + `.tabbar` 消失 (耗时 < 300ms);<br>activate 后 push count=2 + status=active + `.activation-card` 消失 + `.tabbar` 重现 (耗时 < 300ms);<br>onChanged 返回的 unsubscribe function 可正常调用 |
-| 衍生改造 | `_helper.mjs` 旧的 `Page.reload` workaround 已移除, 现在仅"等 .tabbar__tab 5 s 出现", 验证无需 reload 也能进主 UI |
+### 1. license.mjs (25/0/1)
+- 测试 license 完整生命周期: status / getMachineId / heartbeat / activate / clear / push channel (`license:changed`)
+- LIC-07 (license.clear) 故意 SKIP, 避免破坏 dev state (LIC-08 内部会 clear+activate 测 push 通道)
+- LIC-08 push 通道 E2E: clear → DOM 切到 activation-card → activate → DOM 切回 tabbar. **passing** 证明主进程 push channel 工作正常
+- 关键修复: `_helper.mjs` 里 LICENSE.code 从老版 `XHS-7WXF-...` 更新为当前真实绑定码 `XHS-D8PP-BGAY-YPZU-T8SD` (machine_id 不变)
 
-### B-002 [FIXED · P1] 工具计数 11/13 → 14
+### 2. ipc-surface.mjs (40/0/0)
+- 反射验证 32 个 `window.api.*` 路径全是 function (root/conv/rate/updater/license/assets/web)
+- IPC-13 goStatus 返 `{ok:true, baseUrl}`, baseUrl 是动态端口 (Go --port=0)
+- IPC-14 goApi GET /health 调通
+- **注**: 不覆盖 `window.api.workflow` 的 15 个子函数, 由 §3 workflow 套件验证
 
-| 项 | 内容 |
-|---|---|
-| 状态 | **大部分 FIXED** (主声明位置), 残留 5 处 (拆出 B-006) |
-| 已修 | PRD §4.4 (14 个 + 12 Go + 2 local) · PRD §7.3 · SPEC §1.3 表格 (12+2) · SPEC §12.9 |
-| 验证 | `TOOL-02` 在客户端实测 `ALL_TOOL_SCHEMAS.length === 14`, PASS |
-| 残留 | 见 B-006 (PRD §1 一句话 / PRD §2 阶段表 M2 / SPEC §11 测试策略 / ROADMAP §W2~W3) |
+### 3. workflow.mjs (69/0/0) M7 P1 新增 ✅
+- 完全绿. 覆盖范围:
+  - WF-01 (5 cases): IPC 表面 15 个方法 + list/getTemplates/getConfig 不 throw
+  - WF-02 (8 cases): getTemplates 含 `daily_like_comment`, paramsSchema 含 `top_n:int` + `comment_style:enum`
+  - WF-04 (25 cases): CRUD 闭环 (create / list / get / update name / enable true/false / runs=[] / delete soft / 不含 / 幂等 delete)
+  - WF-05 (8 cases): 4 种 schedule type (daily/weekly/interval/manual) create + JSON 入库 + list 可见 + cleanup
+  - WF-06 (5 cases): 风险确认 appConfig schema (`workflow_risk_accepted`) getConfig null / setConfig / getConfig read-back / idempotent
+  - WF-07 (3 cases): 4 个 push listener (onRunStarted/onRunStepUpdate/onRunFinished/onAutoDisabled) 注册返 unsubscribe fn + 调用不 throw
+  - WF-08 (5 cases): 错误 path (get 99999=null / create 缺 template_id throw or ok:false / delete 已删 idempotent)
+  - WF-09 (2 cases): 不存在 template_id 处理 + 进程 alive
+- **严格不调** runNow / devFireSoon (会真实点赞 + 评论 + 消耗 quota)
+- SQLite migration v7 (workflows / workflow_runs / appConfig) 隐式验证通过 — 这 3 张表 + index 都在, IPC `workflow.list()` 不 throw "no such table"
 
-### B-003 [FIXED · P1] xhs_generate_cover 占位工具
+### 4. assets.mjs (26/0/0)
+- 智能素材库完整闭环: importUrl / list / search by tag/description/filename / xhs-asset:// 协议 / setTags / touchUsed / delete
+- 多图源 fallback (gstatic / httpbin / picsum), 防 sniffer 挂掉
+- xhs-asset:// 协议返 200 + image/jpeg 验证通过
 
-| 项 | 内容 |
-|---|---|
-| 状态 | **FIXED** |
-| 修复方式 | PRD §4.4 工具清单删除 `xhs_generate_cover` |
-| 验证 | `TOOL-02` 列出的 14 工具名单不含 `xhs_generate_cover`, PASS |
+### 5. chat.mjs (21/0/0)
+- 会话 CRUD + 50 条大量消息 / 1000 字超长 title / 空 id / idempotent delete / 按 updated_at desc 排序
+- 全过
 
-### B-004 [FIXED · P1] SPEC §2.2 IPC 表面文档与代码不一致
+### 6. tabs.mjs (15/0/1)
+- 4-tab 切换 + 命令按钮 + textarea 预填 + tab 切换 hidden 而非 destroy
+- **修复**: TAB-07 期望从 5 → 3 commands ("检查登录/发布笔记/获取首页推荐"), 符合 v0.7 M7 P1 CommandPalette 精简 (PRD §M7 + ROADMAP §14 Day 4-5)
+- TAB-08b 聚焦 SKIP (CDP test window 无 OS focus, `.focus()` 不生效, 真实用户使用 OK)
 
-| 项 | 内容 |
-|---|---|
-| 状态 | **FIXED** |
-| 修复方式 | SPEC §2.2 顶部加 v0.2 重构通知 (⚠️ 区块), 列出 v0.2 重命名/删除/新增的 IPC 路径, 指向 §12 + `app/src/preload/index.ts` |
-| 用户视角清晰度 | 良好。文档读者会被先告知"以下接口可能过时", 再点过去看新的 §12 |
-| 备注 | preload 表面在本次 E2E 已完全覆盖 (`ipc-surface.mjs` 40 条 + LIC `onChanged` 新增) |
+### 7. rate-limit.mjs (6/0/0)
+- rate.check + rate.log 闭环, like 通道 (30/h) 测试不污染 publish/comment quota
+- 测完后 like windowCount=3 (上次 1 → 2 → 3), 自然 1h expire
 
-### B-005 [FIXED · P1] 错误码前缀不一致
+### 8. web-search.mjs (9/0/0)  ✅ Round 2 修后全绿
+- WEB-01 API 暴露
+- WEB-02 (5 条返回) / WEB-02b (≥3 条) **通过** (round 1 fail 因搜狗 div.vrwrap 失效, round 2 切 DuckDuckGo 修)
+- WEB-03 每条结构 {title, url, snippet} 类型对 / WEB-03b 有效结果数 5
+- WEB-04 连续第二次搜索 ≥1 条 (3)
+- WEB-05 n=1 截断 / WEB-06 空 query 不崩 / WEB-07 超长 query 不崩
+- 详见 §"修复的 Production Bug" Bug 1
 
-| 项 | 内容 |
-|---|---|
-| 状态 | **FIXED** |
-| 修复方式 | SPEC §9.1 加 ⚠️ 命名约定说明: Worker 端响应 `code` **不带** `LICENSE_` 前缀 (例 `CODE_NOT_FOUND`); 客户端转 i18n key 时补上前缀; 给了 4 个映射示例 (CODE_NOT_FOUND → LICENSE_CODE_NOT_FOUND 等) |
-| 用户视角清晰度 | 优。映射表直观, 接口工程师与 i18n 工程师不会再迷惑 |
-| 验证 | E2E `LIC-04/LIC-05` 实测 Worker 返 `ok=false` + `message`, 未直接断言 `code` 命名 (这是文档一致性问题, 非运行时 bug) |
+### 9. tools-agent.mjs (13/0/0)
+- 14 工具全注册 (12 Go + 2 renderer 本地: search_local_assets / web_search)
+- SENSITIVE_TOOLS 集合含 publish_content / publish_with_video / post_comment_to_feed / reply_comment_in_feed / like_feed / favorite_feed
+- isLocalTool 正确识别 search_local_assets / web_search
+- BYOK localStorage 探测 OK
+- 注: tools-agent **真调 LLM 中转** 验证连通, 消耗 newapi quota (不阻塞)
 
-## 3. 新发现 bug
+### 10. errors.mjs (10/0/0)
+- goApi 不存在 path / body=null / GET 带空 body (踩坑修过)
+- activate 'abc' / '' / assets.delete idempotent / xhs-asset 非法 id 404 — 全过
 
-### B-006 [Low · P2] 文档残留「11 个工具」共 5 处
+### 11. integration.mjs (11/0/0)
+- INT-01: 上传 → setTags → search → 找到 → getPath 一致 → xhs-asset:// 可加载
+- INT-02: 上传 → list → 加载 → delete → list 不含 → xhs-asset 失效
+- INT-03: Worker /admin/codes 找到本机 XHS-D8PP-BGAY-YPZU-T8SD active + bound_machine_id 一致
+- INT-04: tab 切换 textarea 值保留
 
-| 维度 | 内容 |
-|---|---|
-| 严重度 | **Low** (B-002 修不彻底而已, 但用户读到首屏会被误导, 仍要修) |
-| 发现位置 | grep `"11 个"` 在 4 份文档 |
+## 修复的 Production Bug
 
-具体位置:
+### Bug 1: web_search 返回 "无结果" — 搜狗 DOM 选择器失效  ✅ FIXED (2026-05-20)
+- **位置**: `app/src/main/web-search.ts:81` `const nodes = document.querySelectorAll('div.vrwrap')`
+- **现象**: web_search MCP 工具 (PRD §4.4 内联 14 工具之一) 对任意 query 都返回 `[{title:'无结果', url:'', snippet:'搜狗未返回有效结果'}]` (即 fallback 路径触发)
+- **Root cause**: 搜狗 SERP 上游 DOM 改版, `div.vrwrap` 选择器已经不存在或被换. fallback 选择器 `.space-txt, p` 也没命中
+- **修复**: 切换到 DuckDuckGo HTML 端点 (`https://html.duckduckgo.com/html/?q=`, 国内可达, 结构稳定, CLAUDE.md 用户全局规则推荐). 新选择器 `div.result, div.web-result` + `a.result__a` + `.result__snippet`, 含 DDG redirect URL 解析 (`duckduckgo.com/l/?uddg=...` → real URL)
+- **验证**: Round 2 web-search.mjs 9/9 pass, 返回 5 条真实结果 + 第二次连续搜索 OK
+- **原优先级**: P1, 现已修
 
-| 文件 | 行 | 上下文片段 | 建议修法 |
-|---|---|---|---|
-| `PRD.md` | 18 | 一句话定位: "BYOK 驱动 **11 个**原生 MCP 工具完成创作 / 发布 / 运营全流程" | 改 14 个 (首屏 hero, **优先修**) |
-| `PRD.md` | 380 | 阶段表 M2: "**11 个** MCP 工具全跑通 + 侧边栏 Chat" | 改 14 个 (路线表读者会以为现状 11) |
-| `SPEC.md` | 834 | §11 测试策略: "手动验收 \| **11 个** MCP 工具 + 激活流程 + 跨平台打包" | 改 14 个 |
-| `ROADMAP.md` | 120 | W3 目标: "**11 个** MCP 工具全跑通 + AI 侧边栏" | 改 14 个 |
-| `ROADMAP.md` | 191 | W3 Exit Criteria: "✅ **11 个**工具全部能通过 AI 调用" | 改 14 个 (或保留"全部能调用"去数字化) |
+## 已知限制 / 跳过项
 
-**不建议改**: `PRD.md:422` "SKILL.md 中的 11 工具描述" —— 这指上游 `x-mcp` 仓库的 `SKILL.md` 内容, 该文件本身实际是 11 工具, 不属本项目口径。
+- **LIC-07** `license.clear()` 不直接测试 — LIC-08 通过 `clear+activate` 间接测试同流程, 避免破坏 dev state
+- **TAB-08b** textarea 聚焦 SKIP — CDP test window 无 OS-level focus, `.focus()` 调用不生效, 这是 Electron+CDP 测试固有限制 (真实用户使用 focus 正常)
+- **workflow.runNow / devFireSoon** 全程不调用 — 会真实点赞 + 评论 + 消耗 newapi quota, 这俩在 workflow.mjs 严禁触发
+- **D6 LLM Gateway 服务端** — Worker /admin/suspend/resume/revoke/overdue/quota / newapi user CRUD / Plan bind / 多租户隔离 / Cloudflare Tunnel 不在 client E2E 范围, 详见 TESTING.md §3.12 服务端验证清单 (admin curl 手动验证)
+- **真实小红书 API 链路** — list_feeds / like_feed / post_comment_to_feed / publish_content 不实测, 仅验证工具 schema + 敏感操作集合
+- **真实 LLM 调用** — chat / tools-agent 套件会真调中转 (消耗 quota, 不阻塞), workflow 不真调
+- **scheduler 时钟漂移**: powerMonitor.on('resume') 行为, 需 sleep/wake 物理动作, 不入 E2E
+- **连续 3 fail auto-disable**: 需模拟 3 次 LLM timeout, 涉及真调 LLM, 不入 E2E
+- **queue 串行 2 个 enabled workflow 同时到点**: 需 runNow 触发, 不入 E2E
+- **missed_run**: 需 kill app + 调系统时间, 不入 E2E
 
-| 触发后果 | 修复路径 |
-|---|---|
-| 阅读者看到 PRD 首屏 "11 个" 与 §4.4 "14 个" 不一致, 产生混乱 | 单一来源原则: 数字仅在 §4.4 出现, 其他位置用"全部 MCP 工具"或链接到 §4.4 |
+## 建议
 
-### B-007 [Info, 非 bug] CDP port 不稳定
+### 立即处理 (v0.7 ship 前)
+1. **Bug 1 (web_search)**: 优先级 P1, 切 DuckDuckGo 或修 sogou 新 DOM, 影响 AI 联网搜索可用性
+2. 跑 `tests/e2e/run-all.mjs` 现在 243/247 pass + 2 skip + 2 fail, 这俩 fail 都来自 Bug 1, 修了就 245/247 pass
 
-| 维度 | 内容 |
-|---|---|
-| 严重度 | 测试基础设施 / Info |
-| 现象 | 每次 dev 重启 `picked remote-debugging-port=` 随机化 (v0.1 是 53759, v0.2 是 60334), 测试 helper 需要更新 candidates |
-| 已 mitigate | `_helper.mjs` 改成 `CDP_PORT_CANDIDATES` 数组按序探测, 每次 dev 重启后只需在数组顶部加新端口即可 |
-| 长期建议 | 不修。Electron `picked free port` 是正确行为, 测试侧 list 维护成本低 (5 秒内的事) |
+### v0.7 ship 检查清单 (建议加入 CI / 手动 release checklist)
+1. `cd app && npm run typecheck` (必须通过)
+2. `node tests/e2e/run-all.mjs` (≥99% pass, 排除 web-search 已知 bug)
+3. 手动验证 M7 工作流 UI 路径 (新建 → 启用 → 风险确认 dialog → list 显示 → 删除)
+4. 手动 dev 模式跑 1 个 daily_like_comment workflow (用 dev sandbox 账号) 验证 scheduler / template / 实时进度 push
+5. 服务端: Worker /admin/codes 发码 1 个 + /activate + /admin/suspend + /admin/resume 验证 D6 多租户隔离
+6. Cloudflare Tunnel: `curl https://llm-cf.maxwellii.com/v1/health` 验通 (新部署的 D6 入口)
 
-## 4. 新增/改造测试用例汇总
+### 工程改进
+- **_helper.mjs 硬编码 LICENSE.code** 与 dev 实际 KV 状态可能漂移, 建议改为启动时调 `license.status()` 动态读取 (节省每次 dev 重启都要手动改 _helper.mjs)
+- **GO_BASE 常量** (_helper.mjs:7 `http://127.0.0.1:54092`) 已失效 (Go 现用 `--port=0` 动态端口), 应删除或改为读 `goStatus().baseUrl` (当前并未实际使用, 不阻塞测试)
+- **CDP_PORT_CANDIDATES** 维护成本: 每次 dev 重启都可能换端口, 建议改为扫常用端口范围 (`60000-65535` 任意 LISTEN tcp) 或读 Electron `.user-data-dir` 里的 DevToolsActivePort 文件
 
-### 4.1 LIC-08 push 通道 E2E (新增, 11 条断言)
-
-```
-LIC-08      baseline: main UI rendered (no .activation-card, has .tabbar)
-LIC-08b     clear() 触发 push (count=1)
-LIC-08c     push 最新 status=unactivated
-LIC-08d     300ms 内 DOM 出现 .activation-card
-LIC-08e     300ms 内 .tabbar 消失
-LIC-08f     activate(XHS-7WXF-K9LR-3FLR-FQAG) 返 status=active
-LIC-08g     activate() 再次触发 push (count=2)
-LIC-08h     push 最新 status=active
-LIC-08i     300ms 内 .activation-card 消失
-LIC-08j     300ms 内 .tabbar 重新出现
-LIC-08k     onChanged 返回 unsubscribe function
-```
-
-技术点: 在 renderer 注入 hook (`window.__lic_pushEvents = []`), 用 `window.api.license.onChanged()` 累计 push 事件 + timestamps, 比对 clear/activate 前后 DOM 与 push 队列状态。
-
-### 4.2 IPC-license-onChanged (新增, 1 条断言)
-
-`ipc-surface.mjs` 在 `license` namespace 加入 `onChanged` 检查, 验证新 API 已暴露并是 function。
-
-### 4.3 `_helper.mjs` 改造 (workaround 移除)
-
-- **删除**: `Page.reload + 4s wait` 的 B-001 workaround
-- **新增**: `mainUiTimeoutMs` 选项 (默认 5000ms), 仅等 `.tabbar__tab` 出现, 不 reload
-- **新增**: `CDP_PORT_CANDIDATES` 数组 + `probeCdpPort()`, 解决 dev 重启端口变更问题
-- **实测**: 现在 `_helper` 启动时 0ms 内就抓到 `.tabbar__tab` (因为 B-001 已修, baseline 即主 UI), 完全不进 wait loop
-
-## 5. 总结
-
-> v0.2 测试报告核心结论一句话:
-> **B-001 push 通道修复彻底, 客户端代码层 0 残留 bug; 14 工具计数文档仍有 5 处「11 个」残留 (B-006, Low), 建议 PRD §1 一句话 + §2 阶段表两处优先修, 其余可在下次 D 文档同步时一并清理。**
+---
+**生成于 2026-05-20 · 跑 `tests/e2e/run-all.mjs` 在 main@cb94be9**

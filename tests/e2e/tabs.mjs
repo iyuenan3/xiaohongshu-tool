@@ -22,14 +22,14 @@ try {
   const activeTab = await evalFn(`() => document.querySelector('.tabbar__tab--active')?.textContent.trim()`);
   r.ok(activeTab && activeTab.includes('控制台'), `TAB-02 默认激活「控制台」`, activeTab);
 
-  // TAB-07: 5 个命令按钮
+  // TAB-07: 3 个命令按钮 (v0.7 M7 P1 精简: PRD §M7 + ROADMAP §14 Day 4-5 "CommandPalette 删减到 3")
   const cmdCount = await evalFn(`() => document.querySelectorAll('.command-btn').length`);
-  r.ok(cmdCount === 5, `TAB-07 5 个 command-btn (${cmdCount})`);
+  r.ok(cmdCount === 3, `TAB-07 3 个 command-btn (${cmdCount})`);
 
   const cmdLabels = await evalFn(`() => [...document.querySelectorAll('.command-btn__label')].map(e => e.textContent)`);
-  const expectedLabels = ['检查登录', '发布笔记', '发布视频', '获取首页推荐', '搜索关键词'];
+  const expectedLabels = ['检查登录', '发布笔记', '获取首页推荐'];
   const labelsMatch = expectedLabels.every((l, i) => cmdLabels?.[i] === l);
-  r.ok(labelsMatch, `TAB-07b 命令标签顺序匹配`, cmdLabels);
+  r.ok(labelsMatch, `TAB-07b 命令标签顺序匹配 (v0.7 精简到 3 个)`, cmdLabels);
 
   // TAB-08: 点命令预填 + 聚焦
   await evalFn(`() => document.querySelectorAll('.command-btn')[0].click()`);
