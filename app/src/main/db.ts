@@ -92,6 +92,19 @@ export function initDb(): Database.Database {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS data_snapshots (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      taken_at    INTEGER NOT NULL,         -- unix ms
+      red_id      TEXT,                     -- 小红书号 (可能变), 用来追多账号场景
+      nickname    TEXT,                     -- 昵称
+      fans        INTEGER,                  -- 粉丝数
+      follows     INTEGER,                  -- 关注数
+      notes_count INTEGER,                  -- 笔记数
+      likes_total INTEGER,                  -- 总获赞数
+      raw         TEXT                      -- 完整 my_profile JSON 备份
+    );
+    CREATE INDEX IF NOT EXISTS idx_data_snapshots_taken_at ON data_snapshots(taken_at DESC);
   `);
 
   // 老 db 升级: 给 media_assets 加 tags/description/analyzed 列 (SQLite 不支持 ALTER IF NOT EXISTS)

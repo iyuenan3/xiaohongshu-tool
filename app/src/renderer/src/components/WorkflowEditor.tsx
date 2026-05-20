@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getLocalTz, WEEKDAY_OPTIONS, type ScheduleP, type TemplateMetaP, type WorkflowP } from '../lib/workflow';
+import AttachmentPicker from './AttachmentPicker';
 
 interface Props {
   editingId: number | null;
@@ -16,6 +17,7 @@ export default function WorkflowEditor({ editingId, onClose, onSaved }: Props) {
     type: 'daily', hour: 9, minute: 0, jitter_min: 10, tz: getLocalTz(),
   });
   const [saving, setSaving] = useState(false);
+  const [pickerOpenForKey, setPickerOpenForKey] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -138,6 +140,22 @@ export default function WorkflowEditor({ editingId, onClose, onSaved }: Props) {
                   >
                     {spec.options?.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                   </select>
+                ) : spec.type === 'image_list' ? (
+                  <div className="we-image-picker">
+                    <div className="we-image-picker__count">
+                      已选 {Array.isArray(params[key]) ? (params[key] as string[]).length : 0} 张
+                    </div>
+                    <button type="button" onClick={() => setPickerOpenForKey(key)}>
+                      从素材库选图…
+                    </button>
+                  </div>
+                ) : key === 'content' || (typeof spec.default === 'string' && (spec.default as string).length > 80) ? (
+                  <textarea
+                    rows={4}
+                    value={String(params[key] ?? spec.default ?? '')}
+                    onChange={(e) => setParams({ ...params, [key]: e.target.value })}
+                    style={{ resize: 'vertical', minHeight: 60, fontFamily: 'inherit', font: 'inherit', padding: 9 }}
+                  />
                 ) : (
                   <input
                     type="text"
@@ -225,6 +243,16 @@ export default function WorkflowEditor({ editingId, onClose, onSaved }: Props) {
           </div>
         </div>
       </div>
+      {pickerOpenForKey && (
+        <AttachmentPicker
+          initialSelected={Array.isArray(params[pickerOpenForKey]) ? (params[pickerOpenForKey] as string[]) : []}
+          onConfirm={(picked) => {
+            setParams({ ...params, [pickerOpenForKey]: picked.map((a) => a.id) });
+            setPickerOpenForKey(null);
+          }}
+          onClose={() => setPickerOpenForKey(null)}
+        />
+      )}
     </div>
   );
 }

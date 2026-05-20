@@ -320,27 +320,31 @@ export class WorkflowScheduler {
   }
 
   private toolToPath(tool: string): string {
-    // 对照 xiaohongshu-mcp/internal/server/http_api.go 路由 (CLAUDE.md §xiaohongshu-mcp API)
+    // 对照 xiaohongshu-mcp/routes.go (api/v1 路由组)
     const map: Record<string, string> = {
-      list_feeds:        '/api/v1/feeds/list',
-      search_feeds:      '/api/v1/feeds/search',
-      get_feed_detail:   '/api/v1/feeds/detail',
-      user_profile:      '/api/v1/users/profile',
-      my_profile:        '/api/v1/users/me',
-      like_feed:         '/api/v1/feeds/like',
-      favorite_feed:     '/api/v1/feeds/favorite',
-      post_comment_to_feed: '/api/v1/feeds/comment',
-      reply_comment_in_feed: '/api/v1/feeds/comment/reply',
-      check_login_status: '/api/v1/login/status',
+      check_login_status:     '/api/v1/login/status',
+      list_feeds:             '/api/v1/feeds/list',
+      search_feeds:           '/api/v1/feeds/search',
+      get_feed_detail:        '/api/v1/feeds/detail',
+      user_profile:           '/api/v1/user/profile',     // 单数 user, 实际 POST
+      my_profile:             '/api/v1/user/me',           // 单数 user, GET
+      like_feed:              '/api/v1/feeds/like',
+      favorite_feed:          '/api/v1/feeds/favorite',
+      post_comment_to_feed:   '/api/v1/feeds/comment',
+      reply_comment_in_feed:  '/api/v1/feeds/comment/reply',
+      publish_content:        '/api/v1/publish',
+      publish_with_video:     '/api/v1/publish_video',
     };
     return map[tool] || `/api/v1/${tool}`;
   }
 
   private toolToMethod(tool: string): string {
-    if (tool === 'list_feeds' || tool === 'search_feeds' || tool === 'get_feed_detail' ||
-        tool === 'user_profile' || tool === 'my_profile' || tool === 'check_login_status') {
-      return 'GET';
-    }
+    // 对照 xiaohongshu-mcp/routes.go: 只读类 GET, 其余 POST (含 user_profile/feed_detail 是 POST 因带 body)
+    if (
+      tool === 'check_login_status' ||
+      tool === 'list_feeds' ||
+      tool === 'my_profile'
+    ) return 'GET';
     return 'POST';
   }
 

@@ -14,6 +14,8 @@ export default function WorkflowList() {
   const [riskOpen, setRiskOpen] = useState(false);
   const [pendingEnableId, setPendingEnableId] = useState<number | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+  const [runningIds, setRunningIds] = useState<Set<number>>(new Set());
+  const [queuedIds, setQueuedIds] = useState<Set<number>>(new Set());
 
   const refresh = async () => {
     const l = await window.api.workflow.list();
@@ -22,8 +24,16 @@ export default function WorkflowList() {
 
   useEffect(() => {
     void refresh();
-    const offFin = window.api.workflow.onRunFinished(() => { void refresh(); });
-    const offStart = window.api.workflow.onRunStarted(() => { void refresh(); });
+    const offFin = window.api.workflow.onRunFinished((e) => {
+      setRunningIds((prev) => { const next = new Set(prev); next.delete(e.workflowId); return next; });
+      setQueuedIds((prev) => { const next = new Set(prev); next.delete(e.workflowId); return next; });
+      void refresh();
+    });
+    const offStart = window.api.workflow.onRunStarted((e) => {
+      setRunningIds((prev) => new Set(prev).add(e.workflowId));
+      setQueuedIds((prev) => { const next = new Set(prev); next.delete(e.workflowId); return next; });
+      void refresh();
+    });
     const offDisabled = window.api.workflow.onAutoDisabled(() => { void refresh(); });
     return () => { offFin(); offStart(); offDisabled(); };
   }, []);
@@ -87,6 +97,8 @@ export default function WorkflowList() {
   };
 
   const handleRunNow = async (id: number) => {
+    // 即时本地 hint: 进入 queue 状态 (实际是否 running / queue 主进程会通过 onRunStarted push 校正)
+    setQueuedIds((prev) => new Set(prev).add(id));
     await window.api.workflow.runNow(id);
     setMenuOpenId(null);
     setTimeout(() => { void refresh(); }, 200);
@@ -111,12 +123,18 @@ export default function WorkflowList() {
         ) : (
           list.map((wf) => {
             const pill = statusPill(wf);
+            const isRunning = runningIds.has(wf.id);
+            const isQueued = queuedIds.has(wf.id) && !isRunning;
             return (
               <div key={wf.id} className="workflow-row">
                 <div className="workflow-row__main" onClick={() => handleEdit(wf.id)} role="button" tabIndex={0}>
                   <div className="workflow-row__line1">
                     <span className="workflow-row__name">{wf.name}</span>
-                    <span className={`workflow-pill workflow-pill--${pill.tone}`}>{pill.text}</span>
+                    {isRunning && <span className="workflow-pill workflow-pill--warn">🔄 运行中</span>}
+                    {isQueued && <span className="workflow-pill workflow-pill--mute">📋 排队中</span>}
+                    {!isRunning && !isQueued && (
+                      <span className={`workflow-pill workflow-pill--${pill.tone}`}>{pill.text}</span>
+                    )}
                   </div>
                   <div className="workflow-row__line2">
                     <span className="workflow-row__sched">{formatSchedule(wf.schedule)}</span>

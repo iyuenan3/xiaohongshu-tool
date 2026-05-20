@@ -1,6 +1,9 @@
 // 工作流模板注册表 (M7 P1: 仅 daily_like_comment, P2 加 4 个).
 
 import { dailyLikeComment } from './daily-like-comment';
+import { scheduledPublish } from './scheduled-publish';
+import { dailyDataSnapshot } from './daily-data-snapshot';
+import { keywordLikeComment } from './keyword-like-comment';
 
 export interface Template {
   id: string;
@@ -31,6 +34,9 @@ export interface ExecResult {
 
 export const TEMPLATES: Record<string, Template> = {
   [dailyLikeComment.id]: dailyLikeComment,
+  [keywordLikeComment.id]: keywordLikeComment,
+  [scheduledPublish.id]: scheduledPublish,
+  [dailyDataSnapshot.id]: dailyDataSnapshot,
 };
 
 export interface TemplateMeta {
