@@ -76,41 +76,50 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
   --namespace-id=a42560054b8241e89ddbe9317d35af21
 ```
 
-## 进度（截止 2026-05-20）
+## 🎯 里程碑 (M) — 工程阶段
 
-- [x] M1 PoC（CDP attach + publish_content E2E 已真实发到小红书）
-- [x] M2 W3-W5（AI 侧边栏 + Tool Calling + 11 工具 + SQLite + 频率护栏）
-- [x] **M3 商业化**（Worker + KV + Custom Domain xhslicense.maxwellii.com + 客户端激活 E2E ✅）
-- [x] **M4 macOS dmg 打包**（identity:null 无证书 + Windows nsis 跨平台 build）
-- [x] **M5 polish (v0.2.x ~ v0.3.x)** — 4-tab UI + 智能素材库 + vision tag + 联网搜索 + 网页管理后台 + 7 次 mac 打包流水线 fix
-- [x] **E2E 黑盒测试** — subagent 18 min ship 176/176 pass + 6 bug 全修
-- [x] **v0.3.2 ship (2026-05-17)** — Worker /version + 联系客服 dialog / 内测日志体系 (启动 banner + renderer 透传 + agent 埋点 + Settings 导出按钮) / 修 search_feeds 卡死 root cause
-- [x] **M6 D6 LLM Gateway ship ✅** (2026-05-20, v0.6.0 tag + GH Actions build): newapi 中转 + Cloudflare Tunnel `llm-cf.maxwellii.com` + 真实 E2E (agent.ts → 火山方舟 doubao 返中文) + 5 个首批正式码已发 (notes: M6 首批正式码 2026-05-20)
-- [x] **publish_content TipTap 修复 ✅** (v0.6.0 一起 ship)
-- [x] **mac install.command 悖论修复 ✅** (改用 `无法正常打开请看我.txt` 替代, v0.6.0 ship)
-- [x] **Help 页重写 + Settings 弹框可滚 ✅** (2026-05-20, HelpPanel 5 步→2 步+4 场景+dev 区, Settings max-height 85vh)
-- [x] **M7 工作流 spec out + 1 轮 subagent review 修 14 项 ✅** (2026-05-20)
-- [x] **M7 P1 ship ✅** (v0.7.0, 2026-05-20): 引擎 (Scheduler + helpers + powerMonitor + mutex + classifyError) + 1 模板 (daily_like_comment) + 4 UI (WorkflowList/Editor/RunHistory/RiskWarning) + 控制台 3 段 + CommandPalette 删到 3 + E2E 69/69
-- [x] **M7 P2 ship ✅** (v0.7.0 同期, 2026-05-20): 加 3 模板 (scheduled_publish + daily_data_snapshot + keyword_like_comment), 5th ✍️ 签到式互动推 P3 (缺 Go MCP `list_following`). Worker scheduler 路径修单数 user/profile + user/me
-- [x] **v0.7.1 ship ✅** (2026-05-20): license heartbeat 24h→1h + ±5min jitter + CODE_NOT_FOUND/REVOKED 触发锁 UI (修 admin revoke 后客户端不感知 P1 漏洞). 朋友需手动升级
-- [x] **admin UI 3 列时间 ✅** (v0.7.1 一起): KV CodeRecord 加 created_at, admin-ui 拆 创建/激活/过期 3 列, 老码自动清空一批后重发 5 个新码
-- [x] **check_login_status 返真昵称 ✅** (v0.7.1 一起): 已登录时复用同 page 调 GetMyProfile 拿 nickname 替换硬编码 'xiaohongshu-mcp'
-- [x] **🎛 小红书独立窗口 ✅** (2026-05-21 ship, 工作分支): helper-popup 路径 — hidden helper (100×100 off-screen opacity:0 same-origin xhs.com) executeJavaScript inject `<a target=_blank>` + sendInputEvent click 触发 popup, viewport lock-free 可 resize fill. 主控 1280×800 仍锁 (popup 路径主控试遍所有 webPreferences/启动顺序都无效, 真因未明, 接受 split-window). 详见 [[project_m7_workflow]] / [[decisions_macos_tahoe_chromium]] 2026-05-21 调研
-- [ ] **🗓 2026-05-21 10:30 讨论方案**: 不创建 newapi user, 只创建令牌, 挂在**超级管理员账号**下. 动机: 避开 user_id 复用孤儿现象 ([[feedback_newapi_user_id_orphan]]) + 简化 newapi 多租户. 待讨论: token 怎么按客户隔离 quota / 怎么 revoke 单个 token 不影响其他 / 后台 UI 如何区分客户 token
-- [ ] **M7 P3 polish**: 5th 签到式互动模板 (需 Go MCP list_following) + dev cron + 详细 step log + failed notification + callTool timeout / 取消按钮 (Go like_feed 卡死案例)
-- [ ] **朋友升级到 v0.7.1** (win, 启动会弹"发现新版"提示, 升级后重激活新码才能完整 revoke 链路 E2E)
-- [ ] M8 公测发售 (待 D3/D5 决策)
+> M = Milestone, 按时间推进的开发阶段. 跟 D (决策) 是不同维度.
 
-## 已拍板 + 待决策
-
-| 编号 | 议题 | 状态 |
+| Mx | 状态 | 内容 |
 |---|---|---|
-| D1 售价 | ¥399 + 客服议价 | ✅ |
-| D2 试用版 | 无 | ✅ |
-| D4 法律主体 | 个人名义 | ✅ |
-| D3 产品名 / 域名 | 影响品牌 | ⏳ |
-| D5 客服渠道 | 影响压力 | ⏳ |
-| **D6 LLM Gateway 中转站** | 自营 newapi 网关, 配额管理 | ✅ **方案 X + M6 代码完成 deploy 完成 (2026-05-19)**, 卡 Cloudflare Tunnel (Worker → newapi 525, 已交 newapi-proxy 项目装 cloudflared) |
+| M1 | ✅ | PoC (CDP attach + publish_content E2E 真实发到小红书) |
+| M2 | ✅ W3-W5 | AI 侧边栏 + Tool Calling + 11 工具 + SQLite + 频率护栏 |
+| M3 | ✅ | 商业化 (Worker + KV + Custom Domain `xhslicense.maxwellii.com` + 客户端激活 E2E) |
+| M4 | ✅ | macOS dmg 打包 (identity:null 无证书 + Windows nsis 跨平台 build) |
+| M5 | ✅ v0.2.x~v0.3.x | polish — 4-tab UI + 智能素材库 + vision tag + 联网搜索 + 网页管理后台 + 7 次 mac 打包流水线 fix + E2E 黑盒测试 (subagent 176/176) |
+| M6 | ✅ v0.6.0 (2026-05-20) | **D6** LLM Gateway ship — newapi 中转 + Cloudflare Tunnel `llm-cf.maxwellii.com` + 真实 E2E (火山方舟 doubao) + 5 个首批正式码已发 |
+| M7 | ✅ P1+P2 v0.7.0 / 🟡 P3 待启动 | 工作流模块 — 引擎 + 4 模板 (👍/⏰/📊/🔍) + 控制台 3 段 + RiskWarningDialog. P3 polish (5th 签到模板 + step log + callTool timeout) 待启动 |
+| M8 | 🟡 待启动 | 公测发售 — 卡 **D3** 产品名 + **D5** 客服渠道 |
+
+## 📦 近期 Ship 时间线 (2026-05-17 ~ 今)
+
+| 日期 / tag | 内容 |
+|---|---|
+| 2026-05-17 v0.3.2 | Worker `/version` + 联系客服 dialog / 内测日志体系 / search_feeds 卡死 fix |
+| 2026-05-20 v0.6.0 | M6 D6 LLM Gateway + publish_content TipTap 修 + mac install.command 修 + Help 页重写 + Settings 弹框可滚 |
+| 2026-05-20 v0.7.0 | M7 P1+P2 工作流 ship — 4 模板 + WorkflowEditor/List/RunHistory/RiskWarning + scheduler routes 修单数 user |
+| 2026-05-20 v0.7.1 | license heartbeat 24h→1h + ±5min jitter + CODE_NOT_FOUND/REVOKED 锁 UI + admin UI 3 列时间 + check_login_status 真昵称 |
+| **2026-05-21 工作分支** (3 commits 未 tag/push) | 🎛 独立 xhs 窗口 ship (helper-popup 路径绕 chromium retina lock) — 主控仍 1280×800 锁 (popup 化失败接受), 详见 [[project_m7_workflow]] / [[decisions_macos_tahoe_chromium]] |
+
+## 🟡 待办
+
+- 🗓 **2026-05-21 10:30 D9 会议**: 讨论"不创建 newapi user, 只创建令牌挂 admin 账号"方案 (动机见 [[feedback_newapi_user_id_orphan]])
+- **M7 P3 polish**: 5th 签到模板 (需 Go MCP `list_following`) + dev cron + step log + failed notification + callTool timeout/取消按钮
+- **朋友升级 v0.7.1** (win, revoke 链路 E2E 验证)
+- **工作分支 commits**: 攒 v0.7.2 tag + push, 还是继续累积?
+
+## 🎲 决策清单 (D) — 议题
+
+> D = Decision, 待拍板或已拍板的方向议题. 跟 M (里程碑) 是不同维度.
+
+| Dx | 议题 | 状态 |
+|---|---|---|
+| D1 | 售价 | ✅ ¥399 + 客服议价 |
+| D2 | 试用版 | ✅ 无 |
+| D3 | 产品名 / 域名 | ⏳ 影响品牌 (M8 公测前) |
+| D4 | 法律主体 | ✅ 个人名义 |
+| D5 | 客服渠道 | ⏳ 影响压力 (M8 公测前) |
+| D6 | LLM Gateway 中转站 | ✅ 方案 X + M6 ship (2026-05-19), 卡 Cloudflare Tunnel (已 deploy) |
 | **D7 mac Intel build** | macOS quota 倍率 10x 卡 queue | ⏳ |
 | **D8 仓库公私** | private 现状 (用户已拒改 public) | ⏳ (临时维持 private) |
 | **更新策略** | 不 auto-update, Worker /version + 联系客服 dialog (方案 C) | ✅ 已实施 (2026-05-17) |
