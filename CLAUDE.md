@@ -99,7 +99,7 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 | 2026-05-20 v0.6.0 | M6 D6 LLM Gateway + publish_content TipTap 修 + mac install.command 修 + Help 页重写 + Settings 弹框可滚 |
 | 2026-05-20 v0.7.0 | M7 P1+P2 工作流 ship — 4 模板 + WorkflowEditor/List/RunHistory/RiskWarning + scheduler routes 修单数 user |
 | 2026-05-20 v0.7.1 | license heartbeat 24h→1h + ±5min jitter + CODE_NOT_FOUND/REVOKED 锁 UI + admin UI 3 列时间 + check_login_status 真昵称 |
-| **2026-05-21 工作分支** (3 commits 未 tag/push) | 🎛 独立 xhs 窗口 ship (helper-popup 路径绕 chromium retina lock) — 主控仍 1280×800 锁 (popup 化失败接受), 详见 [[project_m7_workflow]] / [[decisions_macos_tahoe_chromium]] |
+| **2026-05-21 工作分支** (4 commits 未 tag/push) | 🎛 独立 xhs 窗口 ship (helper-popup 路径绕 chromium retina lock) — 主控仍 1280×800 锁 (popup 化失败接受), 详见 [[project_m7_workflow]] / [[decisions_macos_tahoe_chromium]] |
 
 ## 🟡 待办
 
@@ -122,6 +122,7 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 | D6 | LLM Gateway 中转站 | ✅ 方案 X + M6 ship (2026-05-19), 卡 Cloudflare Tunnel (已 deploy) |
 | **D7 mac Intel build** | macOS quota 倍率 10x 卡 queue | ⏳ |
 | **D8 仓库公私** | private 现状 (用户已拒改 public) | ⏳ (临时维持 private) |
+| **D9** | 不创建 newapi user, 只创建令牌挂 admin 账号 | ⏳ 待讨论 (动机见 [[feedback_newapi_user_id_orphan]]) |
 | **更新策略** | 不 auto-update, Worker /version + 联系客服 dialog (方案 C) | ✅ 已实施 (2026-05-17) |
 
 ## 部署事实（2026-05-19, v0.6.0 Worker deploy, 客户端未 ship）
