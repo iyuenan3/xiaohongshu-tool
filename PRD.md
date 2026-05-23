@@ -380,17 +380,19 @@
 
 ### 6.7 LLM 中转站架构（v0.6 D6 拍板）
 
+> ⚠️ **2026-05-22 D9**：中转的 newapi 实现已从「方案 X · 一码一 user + 绑 XHS Plan」改为「**B' · token-only**（全挂 `xhs-pool` user）+ 服务端 Cron 月度重置」。**商业模式 / UX 不变**，仅底层资源模型与月度重置机制变。技术细节见 SPEC §12.11。
+
 #### 商业模式
 
 - **软件一次性买断 + LLM 服务费月续**: 软件 ¥399 一次性 (永久 license), LLM 服务费按月续 (具体金额由 Maxwell 跟客户协商, 不写文档)
 - **自动续费 vs 手动停用**:
-  - 默认 = 自动续费 (newapi `XHS Plan` 原生 monthly reset, 月初自动恢复 quota)
+  - 默认 = 自动续费 (B': 服务端 Cron 月初自动 refill `token.remain_quota`; 原方案 X 用 newapi XHS Plan 原生 reset)
   - 客户没付月费 → Maxwell **手动**调 Worker `/admin/suspend` → newapi token disable + license.status="suspended"
   - 客户续费 → Maxwell 调 `/admin/resume` → token enable + license.status 恢复 "active"
 - **分级停用** (松绑定, 防误伤"软件买断"语义):
   - 短期 (≤ 15 天 suspended): 软件能开, chat 锁死 + banner 提示续费, 其他功能 (浏览/手动发布/查素材) 正常
   - 长期 (> 15 天 suspended 未恢复): Maxwell 手动 `/admin/revoke` → license 永久失效, 软件硬停
-- **配额机制**: 客户绑 `XHS Plan` (newapi 原生 monthly reset), Maxwell 后台配 `total_amount` 调整 cap, 具体数值不写文档
+- **配额机制**: B': 每码一个 token, per-客户 cap = `token.remain_quota`, 服务端 Cron 月初重置; Maxwell 配月额度值 (算法 ¥N/7.3×500000), 具体数值不写文档
 - 选型: 自营 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 中转 (alicloud-sh 部署, Caddy 反代。**域名 `llm.maxwellii.com` 走 LE 合法证书** (Worker 跨境用); **IP `139.196.157.57` 走 Caddy 自签 sni-fallback** (客户端国内用, DPI 拦 SNI 必须 IP)。详见 [newapi-proxy/USAGE.md](../newapi-proxy/USAGE.md))
 
 #### 用户体验
@@ -421,11 +423,11 @@
 
 #### 跟其他模块的关系
 
-- **激活码生命周期**: 发码同步建 newapi user + sub + token (强一致回滚), 吊销同步 disable newapi token, 换绑不动 newapi (LLM key 跟 machine 解耦)
+- **激活码生命周期**: B': 发码建 1 个 token (挂 `xhs-pool` user), 吊销 = 删 token (pool 拥有, 干净无孤儿), suspend = token disable, 换绑不动 newapi (LLM key 跟 machine 解耦)
 - **base_url 动态下发**: Worker `/activate` + `/heartbeat` 都返回最新 `llm.base_url`, 客户端检测变化 → push renderer 更新 → Maxwell 改 IP 后客户端最迟 heartbeat 周期 (1h) 内自动 catch
 - **客户端 SSL**: 主进程 `app.on('certificate-error')` 仅对 `139.196.157.57` 放行 (Caddy 自签证书), 其他 HTTPS 仍严格验证
 
-### 6.5 License Server（Cloudflare Workers）
+### 6.5 License Server（~~Cloudflare Workers~~ → 2026-05-23 迁 alicloud-bj Node 服务，见 SPEC §12.11.0）
 
 接口设计：
 
@@ -461,10 +463,12 @@ value: {
   rebind_count: number,
   notes: string,
   // v0.6 D6 加 (完整 schema 详见 SPEC §6.4)
-  newapi_user_id: number | null,
-  newapi_sub_id: number | null,
+  // ⚠️ B' (2026-05-22): newapi_user_id/sub_id 弃用 (改 token-only 挂 xhs-pool); 加 next_reset_at
+  newapi_user_id: number | null,    // B' 弃用 (恒指 xhs-pool 或 null)
+  newapi_sub_id: number | null,     // B' 弃用 (无 subscription)
   newapi_token_id: number | null,
   api_key_encrypted: string | null,
+  next_reset_at: string | null,     // B' 加: 月度重置日 (cron 读)
   suspended_at: ISO timestamp | null,
   suspend_reason: string | null,         // 仅运营内部, 客户端不展示
   resumed_at: ISO timestamp | null,

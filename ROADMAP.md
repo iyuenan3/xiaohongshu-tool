@@ -459,6 +459,8 @@ LLM 费用由用户自付（BYOK），不计入。
 
 ## 13. M6 · LLM Gateway 实施 (D6 已拍板, 2026-05-19 起)
 
+> ⚠️ **2026-05-22 D9：本节方案 X 实施已 ship 但被取代 → 见 [§13b「B' token-only 重写」](#13b-d9--b-token-only-重写-2026-05-22-起-取代-13-方案-x)。下方保留作历史。**
+
 **目标**: 把 D6 自营中转 + LLM 月续费 + suspend/resume 分级停用机制落地, 详细 spec 见 PRD §6.7 + SPEC §12.10。
 
 ### 一次性 Setup (Maxwell 操作, 阻塞性前置)
@@ -556,6 +558,54 @@ Renderer:
 ### Blocker
 
 - [x] 一次性 setup 完成 (Maxwell 建 xhs group / XHS Plan / 清测试码 / 给 plan_id) - ✅ 2026-05-19
+
+---
+
+## 13b. D9 · B' token-only 重写 (2026-05-22 起, 取代 §13 方案 X)
+
+> D9 拍板把中转 newapi 实现从方案 X (一码一 user + 绑 XHS Plan) 改为 **B' (token-only 挂 xhs-pool + 服务端 Cron 月度重置)**。spec 见 SPEC §12.11。§13 方案 X 已 ship 但被取代, 保留作历史。**旧 xhs- 测试资源已于 2026-05-22 清空** (5 个 user id 3-7 + token 含孤儿 + sub, XHS Plan id=2 disabled; 见 memory)。
+
+> **2026-05-23 hosting**：本节 "Worker" = **部署在 alicloud-bj 的 Node 服务**（移植 `worker/`，跟 newapi v2 同机）。`KV→SQLite` / `Workers Cron→node-cron` / `wrangler secret→容器 .env` / `NEW_API_BASE_URL=http://new-api:3000`(内网无 cert) / 入站走共享 edge Caddy `xhslicense.doublel.top`。详见 SPEC §12.11.0。**前置**：newapi-proxy M1（newapi 起）→ 建 `xhs` group + `xhs-pool` + newapi admin token → 才能部署联调。
+
+### 一次性 Setup (Maxwell)
+- [x] 清空旧方案 X 资源 (5 user + token + sub 删净, XHS Plan disabled) ✅ 2026-05-22
+- [ ] 建 `xhs-pool` user (unlimited_quota=true, group=xhs) → id/password 进 secret
+- [ ] `xhs` group 模型请求速率限制设宽 (`[0, N]` 不限总数, 避 pool 下多 token 共享限速互挤)
+- [ ] 写 `Dockerfile` + `docker-compose`（接 `edge` 网）部署 `/home/admin/xhs-license/`；node-cron（北京每日 00:05）
+- [ ] edge Caddy 加 `xhslicense.doublel.top` 路由 → xhs-license 容器
+- [ ] `.env`: 删 `XHS_PLAN_ID`, 加 `XHS_POOL_USER_ID/PASSWORD` + `NEW_API_BASE_URL=http://new-api:3000` + `SIGNING_PRIVATE_KEY`(从旧 Worker 迁) + 新 `NEW_API_ACCESS_TOKEN`
+
+### 服务端改动 (Node, 移植 worker/, 净减代码)
+- [ ] `newapi.ts`: 加 `loginPool`(缓存 cookie) + `createTokenUnderPool`(remain_quota, expired_time); 发码不再用 createUser/bindSubscription; `assertXhsTenant` → `assertXhsToken`(验 user_id===pool + name `xhs-`); 保留 deleteToken/updateTokenStatus/getToken
+- [ ] `POST /admin/codes`: 简化为 createTokenUnderPool + KV 存 token_id/api_key/next_reset_at
+- [ ] `POST /admin/suspend|resume`: `updateTokenStatus(2/1)`, 删 sub invalidate/rebind
+- [ ] `POST /admin/revoke`: `deleteToken` (pool 拥有, 干净无孤儿)
+- [ ] `GET /quota`: 改读 token remain/used + KV next_reset_at (返回字段不变, 客户端零改)
+- [ ] 新增 `scheduled()` cron handler: 遍历 KV `code:*` status=active, 过 next_reset_at 则 refill `token.remain_quota` + 推进日期 (幂等)
+- [ ] admin UI: suspend/resume 按钮逻辑不变 (底层 sub→token, UI 无感)
+
+### 客户端改动
+- [ ] **改 license 端点 base url** (Worker 域名 → `xhslicense.doublel.top` 或 IP 直连+cert allowlist, 跟 LLM 同 预案 A/B) + **发新版** (零存量无痛); license schema/验签/agent/quota 字段全不变
+
+### 测试
+- [ ] 发码 → 激活 → chat → `token.remain_quota` 减 → `/quota` 正确
+- [ ] cron 手动触发: active 码 refill / suspended 码跳过 / **幂等** (重复跑不重复充)
+- [ ] suspend → token disable → chat 锁; resume → 解锁; revoke → token 删除
+- [ ] 多租户: 构造 KV token_id 指向非 pool token → `assertXhsToken` 拒绝
+- [ ] RPM: pool 下 2+ token 并发不互卡 (xhs group 限速设宽后)
+
+### 工程量
+| 任务 | 时间 |
+|---|---|
+| Worker 重写 (净减) + cron + secret | 0.5-1 天 |
+| setup (pool user + group 限速 + cron) | 0.5 天 |
+| E2E (含 cron 幂等 + suspend/resume) | 0.5 天 |
+| **合计** | **~1-1.5 天** |
+
+### Exit Criteria
+- [ ] 发码/激活/chat/quota/suspend/resume/revoke/**cron** 全链路 E2E 通过
+- [ ] revoke 后 token 真删 (无孤儿)
+- [x] PRD/SPEC/ROADMAP/CLAUDE 同步 ✅ 2026-05-22
 
 ---
 

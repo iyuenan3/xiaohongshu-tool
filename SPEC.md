@@ -1072,6 +1072,8 @@ for (k of list.keys) {
 
 ### 12.10 D6 LLM Gateway 中转架构（v0.6 / 2026-05-19）
 
+> ⚠️ **2026-05-22 D9 拍板：本节「方案 X · 一码一 user + 绑 XHS Plan」已被 [§12.11 B' token-only](#1211-d9--b-token-only-架构v08--2026-05-22取代-1210-方案-x) 取代。** 下方 §12.10.1~.13 保留作方案 X 历史 / 翻盘参考；**当前实现以 §12.11 为准**。
+
 #### 12.10.1 总览
 
 跟 PRD §6.7 配套。自营 newapi 网关 + Worker 中转激活码 ↔ newapi 资源映射, 客户端零配置 + dev 模式 BYOK 逃生口。
@@ -1755,6 +1757,139 @@ async function handleSuspend(req, env) {
 - [ ] 正常 xhs- 前缀 user → 操作正常通过
 
 ---
+
+### 12.11 D9 · B' token-only 架构（v0.8 / 2026-05-22，取代 §12.10 方案 X）
+
+> **承重事实**（2026-05-22 官方文档复核）：newapi Token schema 无任何周期重置字段（仅 id/user_id/name/key/status/expired_time/remain_quota/unlimited_quota + used_quota/group/model_limits）；周期重置是 `SubscriptionPlan.quota_reset_period:monthly` 属性，作用于 **user 级 subscription**，绑不到 token。方案 X 因此走"一码一 user + 绑 Plan"借 newapi 原生 reset。B' 反向选择：弃 subscription，把额度上限挪到 `token.remain_quota`，**月度重置自建 服务端 Cron**，换取 ① 孤儿结构性消失 ② provisioning/suspend 大幅简化 ③ KV 单一真相源。本质 = 复活 2026-05-18 被否的方案 B（同一事实，因孤儿痛 + 零存量客户导向相反结论）。详见 memory `project_pending_decisions.md` D9 节。
+
+#### 12.11.0 部署形态 (hosting — 2026-05-23 大改)
+
+> **license 服务从 Cloudflare Worker 迁到 alicloud-bj**（跟 newapi v2 同机）。原因：newapi v1（alicloud-sh + maxwellii.com）已退役，v2 重部署到 bj（公网 39.96.12.136 / 域名 doublel.top / Docker + `edge` 网）；license 搬同机 → **溶解 Worker→newapi 跨境 / CF Tunnel / 自签 cert 整套噩梦**。
+>
+> **本节下文凡 'Worker' 一律读作「部署在 bj 的 Node 服务」**，以下覆盖项为准：
+
+| 原 Worker 写法 | B' 实际 (bj Node) |
+|---|---|
+| Cloudflare Worker runtime | **Node 服务**（移植 `worker/` TS），Docker 容器 `/home/admin/xhs-license/` 接 `edge` 网 |
+| Cloudflare KV | **SQLite**（容器内 `./data`） |
+| Workers Cron / `wrangler.toml [triggers]` | **node-cron**（容器内） |
+| `wrangler secret` | 容器 **`.env`**（见 §12.11.6） |
+| `NEW_API_BASE_URL=https://llm...` (跨境+cert) | **`http://new-api:3000`**（edge 网内，明文内网，无 cert/tunnel） |
+| 客户端→Worker (CF 边缘) | 客户端→`xhslicense.doublel.top` → **共享 edge Caddy** → 容器；跟 LLM 同 预案 A(域名+LE)/B(IP 直连+自签) |
+| — | **保留 Cloudflare**：仅极简 `/version`(+support_contact) 作 origin-down 兜底 |
+
+> 代码归 xiaohongshu-tool repo（移植 `worker/`）；newapi-proxy 是独立项目，同机共享 box/edge/Caddy/newapi-admin-token（交汇点，改其文件走转达流程）。
+
+#### 12.11.1 核心模型
+
+```
+所有客户 token 挂【一个】专用 user: xhs-pool (username=xhs-pool, group=xhs, unlimited_quota=true 当"伞")
+                                            │
+                          ┌─────────────────┼─────────────────┐
+                       token A           token B           token C   ... (一码一 token)
+                  remain_quota=月额度   remain_quota=月额度    ...
+                  name=xhs-<code后缀>   expired_time=下次重置
+                  group=xhs / model_limits=auto-llm
+
+[Maxwell] ─POST /admin/codes─► [Worker] ─(impersonate xhs-pool)─► newapi POST /api/token/ (remain_quota + expired_time)
+                                          └► KV code:CODE → { token_id, api_key, next_reset_at, status }
+[CF Cron 每日] ─► 遍历 KV code:* status=active → 过重置日则 token.remain_quota 复位 + expired_time +1月 (impersonate xhs-pool PUT)
+```
+
+**为什么是"一个专用 pool user"而非 admin(id=1)**：admin 账户混着 maxwell 自用资源，隔离失效 + 爆炸半径大。专用 `xhs-pool`（`xhs-` 前缀）保持硬隔离，且 pool 拥有所有 token → impersonate pool 可干净 `DELETE token`（根治孤儿，见 [memory feedback_newapi_user_id_orphan]）。
+
+#### 12.11.2 newapi 资源（一次性 setup，取代 §12.10.2）
+
+```yaml
+# group xhs: 沿用; 但【模型请求速率限制】设宽 — pool 下多 token 共享 group 限速,
+#            设成 vip 那种 [0, N] (总数不限) 避免客户互挤 (RPM 隐患的缓解, 已验证可控)
+# XHS Plan: 整套 subscription 弃用 (现存 id=2 已 disabled; newapi 无 API 硬删 plan, 留着无害)
+
+# 专用 pool user (一次性建):
+POST /api/user/  { username: "xhs-pool", password: <强随机>, display_name: "XHS Pool" }
+# 再 admin PUT 设 group=xhs + unlimited_quota=true ("伞": pool 自身不限额, per-客户 cap 全靠 token.remain_quota)
+# → user_id 存 secret XHS_POOL_USER_ID; password 存 XHS_POOL_PASSWORD (impersonation 登录用)
+```
+
+每激活码一个 token（在 xhs-pool 下创建）:
+
+```yaml
+POST /api/token/   # impersonate xhs-pool: login → session cookie → New-Api-User=<pool id>
+body: {
+  name: `xhs-${code.slice(-9).toLowerCase()}`,   # 沿用命名 e.g. xhs-wx2a-bcdf, UI 便搜
+  unlimited_quota: false,                          # ← 关键: 用 token 自身额度做 per-客户 cap
+  remain_quota: <月额度 raw>,                       # = ¥N/7.3×500000 (同原 XHS Plan total_amount 算法)
+  expired_time: <下次月初 00:00 unix>,              # belt+suspenders: 没被 cron 续也会硬过期
+  model_limits_enabled: true,
+  model_limits: "auto-llm",
+  group: "xhs",
+}
+→ returns { id, key: "sk-xxx" }
+```
+
+#### 12.11.3 月度重置（B' 自建，取代 newapi 原生）
+
+- **触发**：容器内 **node-cron**（北京每日 00:05，cron 表达式 `0 5 0 * * *`）；或宿主 crontab 调容器内部端点 `/internal/reset`。
+- **对齐**：日历月对齐（每月 1 日重置），跟原 UX "下月 1 日重置" 一致。
+- **逻辑（幂等）**：
+  ```
+  for each KV code:* where status === 'active':
+    if now >= rec.next_reset_at:
+      impersonate xhs-pool → PUT /api/token/ { ...token, remain_quota: 月额度, status: 1, expired_time: 下次月初 }
+      rec.next_reset_at = 下次月初; putKV(rec)
+  ```
+  只在"过了重置日"才动 + 原子推进 `next_reset_at` → 漏跑一天下次补，不重复充。
+- **非续费**：Maxwell `/admin/suspend` 把 KV status→suspended → cron 跳过 → token 不再 refill，用尽/过期自然停。**续费 gate 与额度刷新同一套 KV status 逻辑**（比方案 X 的"原生 reset + 手动 invalidate 两套机制"更不易飘）。
+
+#### 12.11.4 Worker 端点改动（取代 §12.10.3）
+
+- **`POST /admin/codes`（大幅简化）**：不再 createUser + bindSubscription。改为 login xhs-pool（cookie 跨 code 复用）→ `createToken(poolId, { remain_quota, expired_time, ... })` → KV 存 `{ token_id, api_key_encrypted, next_reset_at, status:'unused' }`。回滚只需 `deleteToken`（pool 拥有，干净）。
+- **`POST /admin/suspend`（简化）**：`updateTokenStatus(token_id, 2)`（impersonate pool PUT status=2）+ KV status=suspended。**不再 invalidate-sub**。
+- **`POST /admin/resume`（简化）**：`updateTokenStatus(token_id, 1)` + KV status=active（已过重置日则顺带 refill）。**不再 rebind 新 sub**（方案 X 每次 resume 堆一条 sub 的问题消失）。
+- **`POST /admin/revoke`（干净）**：impersonate pool `DELETE /api/token/{id}` + KV status=revoked。**无孤儿**。
+- **`GET /quota`（改读 token）**：读 token 的 remain_quota/used_quota（admin `GET /api/token/:id`）+ KV next_reset_at。返回字段 `{ remain_cny, total_cny, used_cny, next_reset_at }` 不变（**客户端零改动**）。
+- **`/activate` `/heartbeat`**：不变（仍下发 `llm` + `status`，status 来自 KV）。
+
+#### 12.11.5 多租户隔离（取代 §12.10.13）
+
+B' 下所有 xhs token 归 `xhs-pool` 一个 user。护栏改为双重校验：
+
+```typescript
+// 任何 token 写操作 (suspend/resume/revoke/cron-refill) 前:
+async function assertXhsToken(env: Env, tokenId: number): Promise<void> {
+  const t = await newapi.getToken(env, tokenId);                 // admin GET /api/token/:id
+  if (t.user_id !== Number(env.XHS_POOL_USER_ID) || !t.name?.startsWith('xhs-')) {
+    throw new Error(`TENANT_VIOLATION: token ${tokenId} 不属于 xhs-pool 或非 xhs- 命名`);
+  }
+}
+```
+
+- ❌ 绝不调全量 user/token list 批量操作；❌ 绝不碰 `XHS_POOL_USER_ID` 以外的 user。
+- `GET /admin/codes` 只列 KV，不调 newapi list，不泄露其他租户（不变）。
+
+#### 12.11.6 服务端 `.env`（容器，取代 §12.10.10；`wrangler secret put X` → `.env` 的 `X=`，注意 `NEW_API_BASE_URL=http://new-api:3000` 内网明文、`XHS_LLM_BASE_URL`=新 bj 入口、`SIGNING_PRIVATE_KEY` 从旧 Worker 迁来）
+
+```bash
+# 删除:  XHS_PLAN_ID                           (subscription 弃用)
+# 新增:
+wrangler secret put XHS_POOL_USER_ID    # xhs-pool 的 newapi user id
+wrangler secret put XHS_POOL_PASSWORD   # xhs-pool 登录密码 (impersonation 建/改/删 token)
+# 保留:  NEW_API_BASE_URL / NEW_API_ACCESS_TOKEN / NEW_API_USER_ID(=1, admin 仍用于 getToken 读) /
+#        XHS_NEWAPI_GROUP=xhs / XHS_LLM_BASE_URL=https://139.196.157.57/v1
+```
+
+#### 12.11.7 一次性 setup checklist（取代 §12.10.12 newapi 部分）
+
+- [ ] 建 `xhs-pool` user（unlimited_quota=true, group=xhs）→ id/password 进 secret
+- [ ] `xhs` group 模型请求速率限制设宽（`[0, N]` 不限总数，避 pool 共享限速互挤）
+- [ ] 写 `Dockerfile` + `docker-compose`（接 `edge` 网）部署 `/home/admin/xhs-license/`；容器内 node-cron（北京每日 00:05）
+- [ ] Node 服务（移植 `worker/`）provision/suspend/resume/revoke/quota + node-cron + edge Caddy 加 `xhslicense.doublel.top` 路由
+- [ ] 删 `XHS_PLAN_ID` secret，加 `XHS_POOL_USER_ID` / `XHS_POOL_PASSWORD`
+- [ ] （XHS Plan id=2 已 disabled；旧测试 user/token 已于 2026-05-22 清空，见 memory）
+
+#### 12.11.8 沿用 §12.10 不变的部分
+
+client `license.json` schema (§12.10.4) / cert 放行 (§12.10.5) / agent 选 LLM (§12.10.6) / 暗号解锁 (§12.10.7) / 配额展示 UX (§12.10.8，仅数据源 sub→token) / chat 锁 UX (§12.10.9) / 失败兜底 (§12.10.11) 均不变。
 
 ## 13. 工作流引擎（M7 / v0.7，待启动）
 

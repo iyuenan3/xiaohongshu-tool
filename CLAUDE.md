@@ -13,7 +13,7 @@
 - 服务端: Cloudflare Worker (激活, M3 启动) + 自营 newapi 中转站 (LLM 网关, M6 启动, 部署在 alicloud-sh)
 - 不卖 token (已剥离独立项目); 不申请 Apple/Win 代码签名 (无证书)
 - 商业模式: 软件一次性买断 + LLM 服务费月续 (维护者运营时定价, 具体不写文档); 未续费分级停用 (15 天软停 → revoke 硬停)
-- newapi `XHS Plan` 原生 monthly reset 等同于 "自动续费"; 客户没付月费 → Maxwell 手动 `/admin/suspend` 停 token
+- **B' (2026-05-22 D9)**: token-only 挂 `xhs-pool` user + 服务端 Cron 月度 refill `token.remain_quota` (取代方案 X 的 newapi 原生 reset); 客户没付月费 → Maxwell `/admin/suspend` → cron 跳过自然停。技术细节 SPEC §12.11
 
 ## 目录结构
 
@@ -87,7 +87,7 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 | M3 | ✅ | 商业化 (Worker + KV + Custom Domain `xhslicense.maxwellii.com` + 客户端激活 E2E) |
 | M4 | ✅ | macOS dmg 打包 (identity:null 无证书 + Windows nsis 跨平台 build) |
 | M5 | ✅ v0.2.x~v0.3.x | polish — 4-tab UI + 智能素材库 + vision tag + 联网搜索 + 网页管理后台 + 7 次 mac 打包流水线 fix + E2E 黑盒测试 (subagent 176/176) |
-| M6 | ✅ v0.6.0 (2026-05-20) | **D6** LLM Gateway ship — newapi 中转 + Cloudflare Tunnel `llm-cf.maxwellii.com` + 真实 E2E (火山方舟 doubao) + 5 个首批正式码已发 |
+| M6 | ✅ v0.6.0 (2026-05-20) | **D6** LLM Gateway ship (方案 X) — newapi 中转 + Cloudflare Tunnel `llm-cf.maxwellii.com` + 真实 E2E (火山方舟 doubao). 注: 5 个首批码**已发码但未分发** (测试码, 2026-05-22 已全清). **⚠️ 方案 X 已被 D9 B' 取代** |
 | M7 | ✅ P1+P2 v0.7.0 / 🟡 P3 待启动 | 工作流模块 — 引擎 + 4 模板 (👍/⏰/📊/🔍) + 控制台 3 段 + RiskWarningDialog. P3 polish (5th 签到模板 + step log + callTool timeout) 待启动 |
 | M8 | 🟡 待启动 | 公测发售 — 卡 **D3** 产品名 + **D5** 客服渠道 |
 
@@ -100,10 +100,11 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 | 2026-05-20 v0.7.0 | M7 P1+P2 工作流 ship — 4 模板 + WorkflowEditor/List/RunHistory/RiskWarning + scheduler routes 修单数 user |
 | 2026-05-20 v0.7.1 | license heartbeat 24h→1h + ±5min jitter + CODE_NOT_FOUND/REVOKED 锁 UI + admin UI 3 列时间 + check_login_status 真昵称 |
 | **2026-05-21 工作分支** (4 commits 未 tag/push) | 🎛 独立 xhs 窗口 ship (helper-popup 路径绕 chromium retina lock) — 主控仍 1280×800 锁 (popup 化失败接受), 详见 [[project_m7_workflow]] / [[decisions_macos_tahoe_chromium]] |
+| **2026-05-22 D9 拍板** (文档 only) | LLM Gateway newapi 实现 方案 X → **B' token-only** (全挂 xhs-pool + 服务端 Cron 月度重置). 旧 5 user+token+sub 已清, XHS Plan disabled. PRD/SPEC(§12.11)/ROADMAP(§13b)/CLAUDE 已同步; Worker 代码重写待启动 |
 
 ## 🟡 待办
 
-- 🗓 **2026-05-21 10:30 D9 会议**: 讨论"不创建 newapi user, 只创建令牌挂 admin 账号"方案 (动机见 [[feedback_newapi_user_id_orphan]])
+- **D9 B' + hosting 迁 bj** (2026-05-22~23): license server CF Worker → **alicloud-bj Node 服务** (跟 newapi v2 同机, token-only + node-cron; 见 SPEC §12.11.0 + [[reference_infra]] v2 banner). 文档已同步 (PRD/SPEC/ROADMAP/CLAUDE/INFRA). **待启动: Node 服务移植 (worker/→Node+SQLite+node-cron) + 部署**, 卡前置 = newapi-proxy M1 (newapi v2 起) → 建 xhs group + xhs-pool user
 - **M7 P3 polish**: 5th 签到模板 (需 Go MCP `list_following`) + dev cron + step log + failed notification + callTool timeout/取消按钮
 - **朋友升级 v0.7.1** (win, revoke 链路 E2E 验证)
 - **工作分支 commits**: 攒 v0.7.2 tag + push, 还是继续累积?
@@ -119,13 +120,15 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 | D3 | 产品名 / 域名 | ⏳ 影响品牌 (M8 公测前) |
 | D4 | 法律主体 | ✅ 个人名义 |
 | D5 | 客服渠道 | ⏳ 影响压力 (M8 公测前) |
-| D6 | LLM Gateway 中转站 | ✅ 方案 X + M6 ship (2026-05-19), 卡 Cloudflare Tunnel (已 deploy) |
+| D6 | LLM Gateway 中转站 | ✅ 方案 X M6 ship (2026-05-19) → **被 D9 B' 取代 (2026-05-22)** |
 | **D7 mac Intel build** | macOS quota 倍率 10x 卡 queue | ⏳ |
 | **D8 仓库公私** | private 现状 (用户已拒改 public) | ⏳ (临时维持 private) |
-| **D9** | 不创建 newapi user, 只创建令牌挂 admin 账号 | ⏳ 待讨论 (动机见 [[feedback_newapi_user_id_orphan]]) |
+| **D9** | token-only 架构 (取代 D6 方案 X) | ✅ **B' (2026-05-22)**: 全 token 挂专用 `xhs-pool` user + 服务端 Cron 月度重置 (非 admin id=1). 本质复活方案 B. 旧资源已清, 代码重写待启动 |
 | **更新策略** | 不 auto-update, Worker /version + 联系客服 dialog (方案 C) | ✅ 已实施 (2026-05-17) |
 
 ## 部署事实（2026-05-19, v0.6.0 Worker deploy, 客户端未 ship）
+
+> ⚠️ **2026-05-23 license server 迁 alicloud-bj**（CF Worker → bj Node 服务，跟 newapi v2 同机；见 SPEC §12.11.0 + memory pending_decisions「B' hosting」）。newapi v1 实例已退役，新实例在 bj（公网 `39.96.12.136` / 域名 `doublel.top`）。**以下 Cloudflare Worker 事实多数将退役**，仅 `/version`+support_contact 保留作 origin-down 兜底。
 
 - Worker URL（fallback）：`https://xhs-license.liyuenan93.workers.dev`
 - Custom Domain（客户端默认）：`https://xhslicense.maxwellii.com`
@@ -135,6 +138,7 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 - **Worker Secrets (8 项 M6 注入完毕)**：
   - M3: SIGNING_PRIVATE_KEY + ADMIN_TOKEN
   - M6: NEW_API_BASE_URL + NEW_API_ACCESS_TOKEN + NEW_API_USER_ID=1 + XHS_PLAN_ID=2 + XHS_NEWAPI_GROUP=xhs + XHS_LLM_BASE_URL=`https://139.196.157.57/v1`
+  - **B' 待改**: 删 `XHS_PLAN_ID`, 加 `XHS_POOL_USER_ID` + `XHS_POOL_PASSWORD` (impersonation 登录 pool 建/改/删 token)
   - 真值备份: `~/.secrets/xhs-secrets.txt` (chmod 600, gitignored)
 - **newapi 资源 (M6 setup)**: xhs group ratio=1 + XHS Plan id=2 total_amount=68493151 (placeholder ¥1000/月)
 - 首发码发码 CLI：`worker/scripts/xhs-license.mjs`，详见 `worker/DEPLOY.md`
@@ -144,7 +148,7 @@ cd worker && ./node_modules/.bin/wrangler kv key put "config:release_notes" "...
 ## 多租户隔离 (newapi 共享租户, 2026-05-19 起)
 
 newapi 实例 `https://llm.maxwellii.com` 同时服务 xhs / lijunfeng / maxwell 自用. **xhs 只管 `xhs-` 前缀资源**:
-- 所有 Worker newapi 写操作前 `assertXhsTenant(env, userId)` 验证 user.username 以 `xhs-` 开头
+- 所有 Worker newapi 写操作前护栏验证: **方案 X** = `assertXhsTenant(userId)` 验 user.username `xhs-` 前缀; **B' (2026-05-22)** = `assertXhsToken(tokenId)` 验 token.user_id===xhs-pool + token.name `xhs-` 前缀
 - 不动: maxwell-homepage / 测试 / liyuenan / lijunfeng / VIP Plan(id=1) / default group / vip group
 - 详见 SPEC §12.10.13 + memory [[feedback_pitfalls]] 坑 24
 
