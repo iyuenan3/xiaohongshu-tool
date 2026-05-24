@@ -15,8 +15,8 @@
 - **license server (迁后)**：`/home/admin/xhs-license/` docker-compose，接 `edge` 网，自带 SQLite + node-cron 月度重置。
 
 ## 域名 / 入口
-- license：`https://xhslicense.maxwellii.com` (CF custom domain，绕 *.workers.dev DNS 劫持) → 迁后拟 `xhslicense.doublel.top` (跟 LLM 同 预案 A 域名+LE / 预案 B IP 直连+自签)。
-- 客户端 → newapi LLM：经 newapi-proxy 入口 (现 IP `139.196.157.57` 直连 + 关 SSL verify，因 *.maxwellii.com 被国内 DPI 拦 SNI；迁后随 doublel.top 预案)。
+- license：`https://xhslicense.maxwellii.com` (CF custom domain) → 迁后走 **IP:port 直连 + 自签**（`*.doublel.top` 域名 2026-05-24 被阿里云备案拦截 → 退**预案 B**；port 部署时定，同 edge Caddy）。
+- 客户端 → newapi LLM：**`https://39.96.12.136:8888/v1`**（OpenAI 兼容，**IP 直连 + Caddy 自签 root CA，port 8888**；旧 `139.196.157.57` 是已退役 v1）。客户端 `certificate-error` allowlist 放行该 IP 或装 root CA「Caddy Local Authority 2026 ECC Root」。契约详见 `../newapi-proxy/AIREADME/SPEC`。
 
 ## 共享底座引用
 - alicloud-bj `edge` Caddy + `edge` docker 网 → `../newapi-proxy/AIREADME/` (DEPLOYMENT)。license 迁后加一条 Caddy 路由 + 接 edge 网调 `new-api:3000` (内网明文无 cert)。

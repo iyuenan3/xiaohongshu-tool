@@ -52,3 +52,8 @@
 ## v0.3.1 老用户永远收不到升级提醒
 - 现象: v0.3.1 用 electron-updater + 私仓 atom feed (404)，新 `/version` 机制 v0.3.2 才有。
 - 结论: 发新版必须客服 1V1 私发给已知 v0.3.1 用户，不能假设自动收到。
+
+## doublel.top 域名被阿里云备案拦截 → 退回 IP 直连自签 · 2026-05-24
+- 现象: newapi-proxy v2 的域名入口 `llm.doublel.top` (443 LE) 被阿里云**域名级 Host 拦截** (server: Beaver)，域名入口暂停 (此前预期"新域名大概率不被拦"被推翻)。
+- 根因: 阿里云备案对该域名 Host 拦截。
+- 结论: 退回 **IP 直连 + Caddy 自签** 为当前基线 — LLM = `https://39.96.12.136:8888/v1`。**连带 xhs**: 客户端 LLM 端点 + xhs license 端点 (原拟 `xhslicense.doublel.top` 同域被拦) 都改走 IP:port 自签 (非域名+LE)。客户端 cert-error allowlist 放行 IP 或装 root CA。备案恢复才可能切回域名。详见 `../newapi-proxy/AIREADME/SPEC`。

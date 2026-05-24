@@ -1775,7 +1775,7 @@ async function handleSuspend(req, env) {
 | Workers Cron / `wrangler.toml [triggers]` | **node-cron**（容器内） |
 | `wrangler secret` | 容器 **`.env`**（见 §12.11.6） |
 | `NEW_API_BASE_URL=https://llm...` (跨境+cert) | **`http://new-api:3000`**（edge 网内，明文内网，无 cert/tunnel） |
-| 客户端→Worker (CF 边缘) | 客户端→`xhslicense.doublel.top` → **共享 edge Caddy** → 容器；跟 LLM 同 预案 A(域名+LE)/B(IP 直连+自签) |
+| 客户端→Worker (CF 边缘) | 客户端→**IP:port 自签**（同 edge Caddy）；⚠️ `*.doublel.top` 域名 2026-05-24 被阿里云备案拦截 → 退**预案 B**；LLM 现 `https://39.96.12.136:8888/v1` |
 | — | **保留 Cloudflare**：仅极简 `/version`(+support_contact) 作 origin-down 兜底 |
 
 > 代码归 xiaohongshu-tool repo（移植 `worker/`）；newapi-proxy 是独立项目，同机共享 box/edge/Caddy/newapi-admin-token（交汇点，改其文件走转达流程）。
@@ -1875,7 +1875,7 @@ async function assertXhsToken(env: Env, tokenId: number): Promise<void> {
 wrangler secret put XHS_POOL_USER_ID    # xhs-pool 的 newapi user id
 wrangler secret put XHS_POOL_PASSWORD   # xhs-pool 登录密码 (impersonation 建/改/删 token)
 # 保留:  NEW_API_BASE_URL / NEW_API_ACCESS_TOKEN / NEW_API_USER_ID(=1, admin 仍用于 getToken 读) /
-#        XHS_NEWAPI_GROUP=xhs / XHS_LLM_BASE_URL=https://139.196.157.57/v1
+#        XHS_NEWAPI_GROUP=xhs / XHS_LLM_BASE_URL=https://39.96.12.136:8888/v1 (旧 139.196.157.57=退役 v1; doublel.top 域名备案被拦走 IP)
 ```
 
 #### 12.11.7 一次性 setup checklist（取代 §12.10.12 newapi 部分）
@@ -1883,7 +1883,7 @@ wrangler secret put XHS_POOL_PASSWORD   # xhs-pool 登录密码 (impersonation �
 - [ ] 建 `xhs-pool` user（unlimited_quota=true, group=xhs）→ id/password 进 secret
 - [ ] `xhs` group 模型请求速率限制设宽（`[0, N]` 不限总数，避 pool 共享限速互挤）
 - [ ] 写 `Dockerfile` + `docker-compose`（接 `edge` 网）部署 `/home/admin/xhs-license/`；容器内 node-cron（北京每日 00:05）
-- [ ] Node 服务（移植 `worker/`）provision/suspend/resume/revoke/quota + node-cron + edge Caddy 加 `xhslicense.doublel.top` 路由
+- [ ] Node 服务（移植 `worker/`）provision/suspend/resume/revoke/quota + node-cron + edge Caddy 加 license 路由（**IP:port 自签**；`*.doublel.top` 备案被拦→不用域名）
 - [ ] 删 `XHS_PLAN_ID` secret，加 `XHS_POOL_USER_ID` / `XHS_POOL_PASSWORD`
 - [ ] （XHS Plan id=2 已 disabled；旧测试 user/token 已于 2026-05-22 清空，见 memory）
 
