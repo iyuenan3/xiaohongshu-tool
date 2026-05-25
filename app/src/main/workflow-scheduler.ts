@@ -1,7 +1,7 @@
 // 工作流调度引擎 (M7). 主进程持有, 启动时 init + 注册 setTimeout, 到点触发 execute.
 // 参考 SPEC §13.3 + §13.6 + §13.9.
 
-import { BrowserWindow, powerMonitor } from 'electron';
+import { BrowserWindow, powerMonitor, net } from 'electron';
 import log from 'electron-log/main';
 import type { GoSubprocess } from './go-subprocess';
 import { licenseManager, type LlmConfig } from './license';
@@ -382,7 +382,7 @@ async function callLLMOnce(llm: LlmConfig, system: string, user: string, maxToke
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30 * 1000);
   try {
-    const resp = await fetch(`${llm.base_url}/chat/completions`, {
+    const resp = await net.fetch(`${llm.base_url}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${llm.api_key}` },
       body: JSON.stringify({
