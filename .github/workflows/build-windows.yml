@@ -99,9 +99,9 @@ jobs:
         with:
           name: xhs-app-windows-x64
           path: |
-            app/release/*/xhs-app-Setup-*.exe
+            app/release/*/xhspilot-Setup-*.exe
             app/release/*/latest.yml
-            app/release/*/xhs-app-Setup-*.exe.blockmap
+            app/release/*/xhspilot-Setup-*.exe.blockmap
           retention-days: 14
 
       - name: Create / Update GitHub Release
@@ -110,8 +110,8 @@ jobs:
         with:
           tag_name: ${{ inputs.release_tag }}
           files: |
-            app/release/*/xhs-app-Setup-*.exe
+            app/release/*/xhspilot-Setup-*.exe
             app/release/*/latest.yml
-            app/release/*/xhs-app-Setup-*.exe.blockmap
+            app/release/*/xhspilot-Setup-*.exe.blockmap
           draft: false
           body: "Windows / macOS 安装包。auto-update 通过 latest.yml / latest-mac.yml 工作。"
