@@ -72,5 +72,5 @@ gh workflow run "Build macOS" --ref main -f release_tag=v0.x.y --repo iyuenan3/x
 ## 元信息
 
 - repo `iyuenan3/xiaohongshu-tool` (private)，分支 `main`，git user `Maxwell`。
-- 组件：`app/` (Electron 主体) · `worker/` (旧 CF license server，**已迁出 → 新 sibling monorepo `doubleL-license` 建成**，ADR-011/013；worker/ 留参考待清) · `xiaohongshu-mcp/` (vendored 上游 Go MCP) · `x-mcp/` (参考代码，gitignored)。
+- 组件：`app/` (Electron 主体) · ~~`worker/`~~ (旧 CF license server **2026-05-25 P-E 删** — 已迁 `doubleL-license` + 生产上线，git 历史留) · `xiaohongshu-mcp/` (vendored 上游 Go MCP) · `x-mcp/` (参考代码，gitignored)。
 - 导航：`AIREADME/INDEX.md` (路由) · memory `MEMORY.md` (索引)。

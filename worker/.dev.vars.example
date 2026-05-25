@@ -1,8 +1,0 @@
-# 复制为 .dev.vars (已 .gitignore) 用于本地 wrangler dev
-# 生产环境用 `wrangler secret put` 注入, 不读这个文件
-#
-# SIGNING_PRIVATE_KEY: 从 INFRA.md 复制 (Ed25519 32 字节 raw 的 base64)
-# ADMIN_TOKEN: 任意字符串, dev 环境用; 生产环境用 openssl rand -base64 32
-
-SIGNING_PRIVATE_KEY=REPLACE_WITH_PRIVATE_KEY_FROM_INFRA_MD
-ADMIN_TOKEN=dev-only-token-replace-in-production
