@@ -8,7 +8,7 @@
 基于 Electron + Chromium 内核的桌面小红书浏览器，内嵌 `xiaohongshu-mcp`(Go)，AI 侧边栏走**自营 newapi 中转**操作 14 工具 (12 Go + 2 renderer)。软件买断 + LLM 月费、激活码授权、无证书发布。
 
 - **生命周期**：active (pre-launch)。M6 LLM Gateway + M7 工作流已 ship (→ v0.7.1)。
-- **当前焦点**：**xhs-license 服务已建成** (新 sibling monorepo `doubleL-license`：发码/激活/heartbeat/quota/admin/node-cron/admin-ui 全实现 + 全生命周期 e2e 对真 newapi 通过，3 commits 未 push；D9 **B'** token-only + Hono + **访问令牌鉴权** + 砍 CF + 轮换密钥；ADR-011/012/013)。**入部署阶段** = 轮换 keypair + 客户端(cert/端点/发版) + Docker 上 bj + 转达 newapi-proxy(Caddy/限速/成本)；部署规划草案见 memory `project_pending_decisions` 收尾节。
+- **当前焦点**：**xhs-license 服务已建成** (新 sibling monorepo `doubleL-license`：发码/激活/heartbeat/quota/admin/node-cron/admin-ui 全实现 + 全生命周期 e2e 对真 newapi 通过，3 commits 已 push (github.com/iyuenan3/doubleL-license, private)；D9 **B'** token-only + Hono + **访问令牌鉴权** + 砍 CF + 轮换密钥；ADR-011/012/013)。**入部署阶段** = 轮换 keypair + 客户端(cert/端点/发版) + Docker 上 bj + 转达 newapi-proxy(Caddy/限速/成本)；部署规划草案见 memory `project_pending_decisions` 收尾节。
 - **卡 M8 公测**：D3 产品名 / 域名 + D5 客服渠道。
 
 ## 📂 加载路由 (任务 → 读哪个)

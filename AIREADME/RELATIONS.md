@@ -4,7 +4,7 @@
 ## 出向依赖（我用了谁）
 | 依赖 | 用途 | 路径 |
 |---|---|---|
-| **doubleL-license** | xhs 的 license/激活码服务 (Hono+better-sqlite3+node-cron，落此 repo 的 `apps/xhs-license`，见 DECISIONS ADR-011)。**服务已建成**（发码/激活/heartbeat/quota/admin/cron/admin-ui 全实现 + 全生命周期 e2e 对真 newapi 通过，3 commits 未 push），**入部署阶段**。客户端调 activate/heartbeat/quota；token Ed25519 验签 (公钥 bake 进客户端，迁移轮换) | `../doubleL-license/AIREADME/` (repo 已建，AIREADME 待建) |
+| **doubleL-license** | xhs 的 license/激活码服务 (Hono+better-sqlite3+node-cron，落此 repo 的 `apps/xhs-license`，见 DECISIONS ADR-011)。**服务已建成**（发码/激活/heartbeat/quota/admin/cron/admin-ui 全实现 + 全生命周期 e2e 对真 newapi 通过，3 commits 已 push private repo），**入部署阶段**。客户端调 activate/heartbeat/quota；token Ed25519 验签 (公钥 bake 进客户端，迁移轮换) | `../doubleL-license/AIREADME/` (repo 已建，AIREADME 待建) |
 | **newapi-proxy** | 自营 LLM Gateway 中转 (D6)。客户端经它调 LLM (model 写死 `auto-llm`，火山方舟智能调度)。〔license→newapi 的 token provisioning (B' token-only) 现属 **doubleL-license** 对 newapi 的依赖，不再是本项目直接依赖〕 | `../newapi-proxy/AIREADME/` |
 
 > **接入现状（2026-05-24 读 `../newapi-proxy/AIREADME/SPEC` 确认）**：

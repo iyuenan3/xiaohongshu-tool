@@ -5,7 +5,7 @@
 
 ## 主机 + 环境
 - **客户端**：用户本机 (macOS / Windows)。Electron app，内嵌 Go MCP 二进制 + Chromium。
-- **license server**：**当前** Cloudflare Worker (`xhs-license`) v0.6.0 LIVE；**迁移中 → alicloud-bj** (公网 39.96.12.136 / Ubuntu 24.04 / Docker)，作 **Hono Node 服务**跟 newapi v2 同机，溶解 Worker→newapi 跨境 / tunnel / cert。代码已落新 sibling repo **`doubleL-license`** 的 `apps/xhs-license` (多工具 monorepo，非本 repo `worker/`；见 DECISIONS ADR-011)，**服务全实现 + e2e 通过、入部署阶段** (3 commits 未 push)；**CF 全退役** (不留 /version，ADR-012)。
+- **license server**：**当前** Cloudflare Worker (`xhs-license`) v0.6.0 LIVE；**迁移中 → alicloud-bj** (公网 39.96.12.136 / Ubuntu 24.04 / Docker)，作 **Hono Node 服务**跟 newapi v2 同机，溶解 Worker→newapi 跨境 / tunnel / cert。代码已落新 sibling repo **`doubleL-license`** 的 `apps/xhs-license` (多工具 monorepo，非本 repo `worker/`；见 DECISIONS ADR-011)，**服务全实现 + e2e 通过、入部署阶段** (3 commits 已 push private repo)；**CF 全退役** (不留 /version，ADR-012)。
 - **LLM 网关 (newapi)**：newapi-proxy 项目 (alicloud-bj)，本项目消费，配置归其节点。
 
 ## 怎么起
