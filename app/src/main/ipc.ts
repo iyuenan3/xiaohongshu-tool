@@ -9,7 +9,7 @@ import {
 } from './conv';
 import { checkRate, logRate, type RateAction } from './rate';
 import { licenseManager } from './license';
-import { checkForUpdatesNow } from './updater';
+import { checkForUpdatesNow, fetchVersionInfo } from './updater';
 import {
   pickAndImport, importFromUrl, listAssets, deleteAsset, getAssetPath, touchUsed,
   setAssetTags, searchAssets,
@@ -179,6 +179,7 @@ export function registerIpcHandlers(
 
   // Auto-update
   ipcMain.handle('updater:check', () => checkForUpdatesNow());
+  ipcMain.handle('updater:versionInfo', () => fetchVersionInfo());
 
   // 媒体素材库
   ipcMain.handle('assets:pick', () => pickAndImport());

@@ -26,7 +26,8 @@
     "electron-log": "^5.2.0",
     "electron-updater": "^6.8.3",
     "node-machine-id": "^1.1.12",
-    "openai": "^6.37.0"
+    "openai": "^6.37.0",
+    "qrcode.react": "^4.2.0"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",
@@ -78,8 +79,12 @@
       "category": "public.app-category.utilities",
       "artifactName": "xhspilot-${version}-mac-${arch}.${ext}",
       "target": [
-        { "target": "dmg" },
-        { "target": "zip" }
+        {
+          "target": "dmg"
+        },
+        {
+          "target": "zip"
+        }
       ],
       "identity": null,
       "hardenedRuntime": false,
@@ -89,11 +94,29 @@
       "writeUpdateInfo": true,
       "sign": false,
       "contents": [
-        { "x": 130, "y": 200, "type": "file" },
-        { "x": 410, "y": 200, "type": "link", "path": "/Applications" },
-        { "x": 270, "y": 360, "type": "file", "path": "dmg-resources/无法正常打开请看我.txt", "name": "无法正常打开请看我.txt" }
+        {
+          "x": 130,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 270,
+          "y": 360,
+          "type": "file",
+          "path": "dmg-resources/无法正常打开请看我.txt",
+          "name": "无法正常打开请看我.txt"
+        }
       ],
-      "window": { "width": 540, "height": 460 }
+      "window": {
+        "width": 540,
+        "height": 460
+      }
     },
     "publish": [
       {

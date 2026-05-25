@@ -43,6 +43,17 @@ export async function checkForUpdatesNow(): Promise<{
   return await runCheck({ manual: true });
 }
 
+// 供 renderer (HelpPanel 客服二维码) 拿 support_contact / version 信息; 复用 /version (net.fetch, pinning 已放行 bj 自签)
+export async function fetchVersionInfo(): Promise<VersionResp | null> {
+  try {
+    const r = await fetchWithTimeout(`${WORKER_URL}/version`, FETCH_TIMEOUT_MS);
+    if (!r.ok) return null;
+    return (await r.json()) as VersionResp;
+  } catch {
+    return null;
+  }
+}
+
 async function runCheck(opts: { manual: boolean }): Promise<{
   ok: boolean;
   current?: string;

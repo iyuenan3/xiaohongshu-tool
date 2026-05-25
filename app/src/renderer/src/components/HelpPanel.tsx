@@ -1,6 +1,17 @@
+import { useEffect, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+
 type Props = { devMode?: boolean };
 
 export default function HelpPanel({ devMode }: Props) {
+  const [contact, setContact] = useState<string>('');
+  useEffect(() => {
+    window.api.updater
+      .versionInfo()
+      .then((v) => { if (v?.support_contact) setContact(v.support_contact); })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="help-pane">
       <div className="help-pane__inner">
@@ -91,7 +102,21 @@ export default function HelpPanel({ devMode }: Props) {
 
         <section className="help-callout">
           <h4>💬 联系客服</h4>
-          <p>遇到问题或换绑设备, 请联系客服 (M5 公测前公布渠道, 敬请期待)。</p>
+          {contact && /^https?:\/\//.test(contact) ? (
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ background: '#fff', padding: 10, borderRadius: 8, lineHeight: 0 }}>
+                <QRCodeSVG value={contact} size={132} />
+              </div>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <p>微信扫码添加客服 — 遇到问题或换绑设备随时联系。</p>
+                <p style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                  <a href={contact} target="_blank" rel="noreferrer">{contact}</a>
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p>{contact || '遇到问题或换绑设备, 请联系客服。'}</p>
+          )}
         </section>
 
         {devMode && (

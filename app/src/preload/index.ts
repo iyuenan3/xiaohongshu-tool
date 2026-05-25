@@ -145,6 +145,9 @@ const api = {
   // Auto-update
   updater: {
     check: () => ipcRenderer.invoke('updater:check') as Promise<{ ok: boolean; version?: string; message?: string }>,
+    versionInfo: () => ipcRenderer.invoke('updater:versionInfo') as Promise<{
+      latest_version?: string; min_version?: string; support_contact?: string; release_notes?: string;
+    } | null>,
   },
 
   // License
