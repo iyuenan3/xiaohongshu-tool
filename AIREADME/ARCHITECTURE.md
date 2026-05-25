@@ -5,7 +5,7 @@
 3 个自有组件 + 1 个 vendored 依赖：
 
 - **`app/`** — Electron 客户端 (主体)。主进程 (CDP attach + Go 子进程管理 + AI agent + SQLite + license) + renderer (React 4-tab UI：控制台 / 素材库 / 帮助，核心 ChatPanel)。
-- **`worker/`** — 自有 license server (TS)。激活码授权 + newapi 资源 provisioning。**当前 Cloudflare Worker，迁移中 → alicloud-bj Node 服务** (见 DEPLOYMENT)。
+- **`worker/`** — 自有 license server (TS)。激活码授权 + newapi 资源 provisioning。**当前 Cloudflare Worker (v0.6.0 LIVE)；迁移中 → 抽出本 repo，落新 sibling monorepo `doubleL-license` 的 `apps/xhs-license` (Hono Node 服务，见 DECISIONS ADR-011/012 + DEPLOYMENT)**。worker/ 迁后留作参考素材 (crypto/admin-ui 复用源)，B' 跑通后清。
 - **`xiaohongshu-mcp/`** — **vendored 上游开源 Go MCP**，作为子进程被 app 拉起，提供 12 个小红书工具。其 README / CLAUDE / CONTRIBUTING 是**上游的**，fork 维护策略见 DECISIONS ADR-010。
 - **`x-mcp/`** — ⚠️ **参考代码，gitignored 不跟踪、未复用** (原 MCP 插件版，仅留参考)。非活跃组件。
 

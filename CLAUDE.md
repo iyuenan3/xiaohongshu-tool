@@ -8,7 +8,7 @@
 基于 Electron + Chromium 内核的桌面小红书浏览器，内嵌 `xiaohongshu-mcp`(Go)，AI 侧边栏走**自营 newapi 中转**操作 14 工具 (12 Go + 2 renderer)。软件买断 + LLM 月费、激活码授权、无证书发布。
 
 - **生命周期**：active (pre-launch)。M6 LLM Gateway + M7 工作流已 ship (→ v0.7.1)。
-- **当前焦点**：license server 迁 alicloud-bj (D9 **B'** token-only + Node 移植 `worker/`)，卡前置 = newapi-proxy M1 (newapi v2 起)。
+- **当前焦点**：license 迁 alicloud-bj 方案**已定稿** (D9 **B'** token-only + Hono + 代码迁新 monorepo `doubleL-license`；砍 CF + 轮换签名密钥；ADR-011/012)，卡前置 = newapi-proxy M1 (newapi v2 起 + 建 `xhs` group/`xhs-pool` user)。
 - **卡 M8 公测**：D3 产品名 / 域名 + D5 客服渠道。
 
 ## 📂 加载路由 (任务 → 读哪个)
@@ -21,7 +21,7 @@
 | 对外契约 (license 端点 / LLM / 14 工具) | `AIREADME/SPEC.md` (字段级 → 根 `SPEC.md`) |
 | 加功能 / 产品意图 | `AIREADME/PRD.md` + `ROADMAP.md` + `CONVENTIONS.md` |
 | 历史 / 版本 | `AIREADME/CHANGELOG.md` |
-| 决策为何 (ADR-001~010) | `AIREADME/DECISIONS.md` |
+| 决策为何 (ADR-001~013) | `AIREADME/DECISIONS.md` |
 | 踩坑 / 事故 | `AIREADME/MEMORY.md` |
 | 依赖 / 跨项目 | `AIREADME/RELATIONS.md` (消费 `../newapi-proxy/AIREADME/`) |
 | 持久知识主源 | `~/.claude/projects/-Users-maxwell-Desktop-Claude-Project-xiaohongshu-tool/memory/` (16 文件，耐久) |
@@ -72,5 +72,5 @@ gh workflow run "Build macOS" --ref main -f release_tag=v0.x.y --repo iyuenan3/x
 ## 元信息
 
 - repo `iyuenan3/xiaohongshu-tool` (private)，分支 `main`，git user `Maxwell`。
-- 组件：`app/` (Electron 主体) · `worker/` (license server，迁 bj) · `xiaohongshu-mcp/` (vendored 上游 Go MCP) · `x-mcp/` (参考代码，gitignored)。
+- 组件：`app/` (Electron 主体) · `worker/` (license server，**迁出本 repo → 新 monorepo `doubleL-license`**，见 ADR-011) · `xiaohongshu-mcp/` (vendored 上游 Go MCP) · `x-mcp/` (参考代码，gitignored)。
 - 导航：`AIREADME/INDEX.md` (路由) · memory `MEMORY.md` (索引)。

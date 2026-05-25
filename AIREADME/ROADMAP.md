@@ -2,7 +2,7 @@
 <!-- 节奏。不放可执行 TODO 颗粒(→项目 TODO / worklog)，只放方向。 -->
 
 ## Now（当前焦点）
-- **license server 迁 alicloud-bj** (D9 **B'** token-only + Node 移植 `worker/`)：建 `xhs-pool` user + 服务端重写 (provision / suspend / quota + node-cron 月度重置) + 客户端改 license 端点发新版。**卡前置 = newapi-proxy M1** (newapi v2 起 + 建 xhs group/pool)。
+- **license server 迁 alicloud-bj — 方案已定稿** (D9 **B'** token-only + Hono Node 服务，代码迁新 monorepo `doubleL-license`/`apps/xhs-license`，ADR-011/012)：建 `xhs-pool` user + 服务端按 B' 写 (provision / suspend / quota + node-cron 月度重置) + **砍 CF**(全落 bj) + **轮换签名密钥** + 客户端 cert 信任改造 + 发新版。**卡前置 = newapi-proxy M1** (newapi v2 起 + 建专用账号 `xiaohongshu-tool` + 拿其访问令牌(服务鉴权, 非密码))。
 
 ## Next
 - **M8 公测发售** — 卡 D3 (产品名 / 域名) + D5 (客服渠道)。

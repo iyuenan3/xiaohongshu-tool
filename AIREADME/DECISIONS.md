@@ -62,5 +62,27 @@
 - Decision: 删 `xiaohongshu-mcp/.git`，作顶层子目录跟踪；baseline 首个 commit，后续只显改造 diff，仅 ignore 其 build 产物。
 - Tradeoff: 上游更新需手动 merge；改造历史干净可见。
 
+## ADR-011 · license 代码迁专用 monorepo `doubleL-license` (取代 ADR-009「代码归 xhs repo」) · 2026-05-24
+- Problem: 第 2 个发码工具 (同形：发激活码 + 中转 LLM key) 即将开做；license 逻辑要在多工具间复用，散在各产品 repo 会漂移 + 安全补丁易漏。
+- Decision: 新建 **sibling git repo `doubleL-license`** (跟 xiaohongshu-tool / newapi-proxy 同级)：`packages/license-core`(Hono+SQLite+node-cron+newapi-client+Ed25519 共享引擎) + `apps/<tool>-license`(workspaces)。每工具独立容器 / SQLite / `.env` / keypair / newapi 租户(`<tool>` group + `<tool>-pool` user)，edge Caddy 按 path 前缀分发。
+- **抽取时机**: 先把 `apps/xhs-license` 做成完整单 app 跑通，`license-core` 等 **tool2 真启动**(2 个真实案例)再抽 — 避免 1 案例上提前 bake 错抽象 (同 newapi-proxy edge「1 消费方暂不抽节点」先例)。
+- Alternatives (否决): 留 xhs repo (ADR-009，多工具下漂移) / 共享 npm 包 + 各产品 repo (跨 repo 发布流水线开销大、版本漂移) / 复制模板 (必然漂移 + 安全补丁易漏)。
+- Tradeoff: 单一 core 改一处生效 + 安全补丁全覆盖 + 契合多工具平台；代价 = license 代码与产品 repo 分家 (耦合面窄：仅端点 URL + 签名公钥) + 需 workspace tooling。⚠️ 每工具一 group 跟 newapi-proxy「单 default group」冲突 + 限速 group 维度 → 转达确认。
+
+## ADR-012 · license hosting 收尾：砍 CF 全落 bj + 轮换签名密钥 + Hono 栈 (精化 ADR-009) · 2026-05-24
+- Problem: ADR-009 拟「留 CF 极简 `/version` 兜底」+「移植 `worker/` 复用旧密钥」，定稿审核发现两点站不住。
+- Decision (3 项):
+  1. **砍 CF 全落 bj**: 客户端无 failover 代码 + CF 只兜最不关键的 `/version` + 已激活客户端本地缓存 license 365 天足抗 bj 短宕 → 单源 bj 更干净 (version 元数据也单源不漂移)。
+  2. **轮换签名密钥**: 旧 `SIGNING_PRIVATE_KEY` 明文进 git (`worker/DEPLOY.md:65`) → 迁移时换全新 Ed25519，新公钥 bake 进迁后必发的新客户端 (验签格式不变、公钥值变 → 客户端须重 bake)。
+  3. **栈**: Hono + @hono/node-server + better-sqlite3 + node-cron；provisioning 走 **password→cookie impersonation** (持 pool 密码非 root admin) + `assertXhsToken` 护栏 (撤回「pool 访问令牌原生隔离」伪命题)。
+- Alternatives (否决): 留 CF /version 镜像 (双源漂移、兜错对象) / 复用旧密钥 (已泄露) / Express｜裸 http (离现有 Web 标准 handler 远、不能双 runtime)。
+- Tradeoff: 单点 bj 可用性靠客户端本地缓存 + SQLite 异地备份兜 (备份目标迁前必落)；客户端 cert 信任改造 (主进程 `net.fetch` 需 `setCertificateVerifyProc` + 硬编码新 IP) 比「改 base url」工作量大。
+
+## ADR-013 · license 鉴权实测定稿 = 账号访问令牌 (修正 ADR-012 的 impersonation) · 2026-05-25
+- Problem: ADR-012 定 provisioning 走 password→cookie impersonation (并撤回「访问令牌」方案为伪命题)。
+- Decision: 2026-05-25 用真 newapi 实测推翻——服务持**专用非 admin 账号 (`xiaohongshu-tool` id=4) 的访问令牌** (`Authorization: Bearer` + `New-Api-User: <id>`) 即可建带 `remain_quota`+`expired_time` 上限、锁 `auto-llm` 的子 token，并 PUT 改额 / DELETE，全 PASS (还实调 LLM 出真实回复)。**采用访问令牌**：比 impersonation 更简 (无 login/cookie/密码存储/过期)，且 newapi UserAuth 天然把令牌锁在该账号名下 (隔离不靠密码)。
+- Alternatives (否决): password→cookie impersonation (ADR-012, 多一层 login + 存密码 + cookie 过期) / 共享 root admin token (爆炸半径大)。
+- Tradeoff: 服务只持一个非 admin 账号令牌；root admin 仅一次性 setup 用 (建账号/设额度)，不进服务。`doubleL-license` 已按此实现 + 全生命周期 e2e 验证 (commit 5aeecd9 / 284b167)。
+
 ## 待拍板 (pending，非 ADR → 详见 ROADMAP)
 - D3 产品名 / 域名 · D5 客服渠道 · D7 mac Intel build · D8 仓库公私 (均 M8 公测前)。

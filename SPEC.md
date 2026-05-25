@@ -1776,9 +1776,17 @@ async function handleSuspend(req, env) {
 | `wrangler secret` | 容器 **`.env`**（见 §12.11.6） |
 | `NEW_API_BASE_URL=https://llm...` (跨境+cert) | **`http://new-api:3000`**（edge 网内，明文内网，无 cert/tunnel） |
 | 客户端→Worker (CF 边缘) | 客户端→**IP:port 自签**（同 edge Caddy）；⚠️ `*.doublel.top` 域名 2026-05-24 被阿里云备案拦截 → 退**预案 B**；LLM 现 `https://39.96.12.136:8888/v1` |
-| — | **保留 Cloudflare**：仅极简 `/version`(+support_contact) 作 origin-down 兜底 |
+| — | ~~保留 Cloudflare /version 兜底~~ → **2026-05-24 取消，CF 全退役**（见下「收尾修订」）|
 
-> 代码归 xiaohongshu-tool repo（移植 `worker/`）；newapi-proxy 是独立项目，同机共享 box/edge/Caddy/newapi-admin-token（交汇点，改其文件走转达流程）。
+> 代码归**新建 sibling monorepo `doubleL-license`** 的 `apps/xhs-license`（移植 `worker/` 逻辑，非留本 repo；见 ADR-011）；newapi-proxy 是独立项目，同机共享 box/edge/Caddy/newapi 实例（交汇点，改其文件走转达流程）。
+
+> **2026-05-24 收尾修订**（方案讨论定稿 + subagent 审核；见 memory `project_pending_decisions.md` 收尾节 + AIREADME ADR-011/012）：
+> - **栈**：Hono + @hono/node-server + better-sqlite3 + node-cron（下文凡 'CF Cron' 一律读 node-cron）。
+> - **代码落点**：不在本 repo `worker/`，而是新建 sibling monorepo `doubleL-license` 的 `apps/xhs-license`（先做完单 app、`license-core` 等 tool2 再抽）。
+> - **砍 CF 全落 bj**：上表「保留 Cloudflare /version」一项**取消** — 客户端无 failover + 只兜最不关键端点 + 已激活客户端本地缓存 license 365 天足抗短宕 → 单源 bj。
+> - **轮换签名密钥**：旧 `SIGNING_PRIVATE_KEY` 明文进 git（`worker/DEPLOY.md:65`）→ 换全新 Ed25519，**公钥值变 → 客户端须重 bake**（验签格式不变）。
+> - **provisioning 鉴权（2026-05-25 实测定稿）**：服务持**专用非 admin 账号（实际 `xiaohongshu-tool` id=4）的访问令牌**（`Authorization: Bearer <NEWAPI_ACCESS_TOKEN>` + `New-Api-User: <id>`）管自己名下 token——**非 root admin、非 password→cookie impersonation**。已实测：该非 admin 账号能自建带 `remain_quota`+`expired_time` 上限、锁 `auto-llm` 的子 token，并 PUT 改额 / DELETE，全 PASS（还实调 LLM 出结果）。**下文凡「impersonate xhs-pool/pool」一律读作「用该账号访问令牌（Bearer + New-Api-User）调」**。详见 AIREADME ADR-013。
+> - **客户端 cert（动手必做）**：主进程 `net.fetch` 调 license 不被 `certificate-error` 覆盖 → 需 `setCertificateVerifyProc` + 硬编码新 IP `39.96.12.136`（现写死退役 `139.196.157.57`）。
 
 #### 12.11.1 核心模型
 
@@ -1793,7 +1801,7 @@ async function handleSuspend(req, env) {
 
 [Maxwell] ─POST /admin/codes─► [Worker] ─(impersonate xhs-pool)─► newapi POST /api/token/ (remain_quota + expired_time)
                                           └► KV code:CODE → { token_id, api_key, next_reset_at, status }
-[CF Cron 每日] ─► 遍历 KV code:* status=active → 过重置日则 token.remain_quota 复位 + expired_time +1月 (impersonate xhs-pool PUT)
+[node-cron 每日] ─► 遍历 KV code:* status=active → 过重置日则 token.remain_quota 复位 + expired_time +1月 (impersonate xhs-pool PUT)
 ```
 
 **为什么是"一个专用 pool user"而非 admin(id=1)**：admin 账户混着 maxwell 自用资源，隔离失效 + 爆炸半径大。专用 `xhs-pool`（`xhs-` 前缀）保持硬隔离，且 pool 拥有所有 token → impersonate pool 可干净 `DELETE token`（根治孤儿，见 [memory feedback_newapi_user_id_orphan]）。
@@ -1808,13 +1816,13 @@ async function handleSuspend(req, env) {
 # 专用 pool user (一次性建):
 POST /api/user/  { username: "xhs-pool", password: <强随机>, display_name: "XHS Pool" }
 # 再 admin PUT 设 group=xhs + unlimited_quota=true ("伞": pool 自身不限额, per-客户 cap 全靠 token.remain_quota)
-# → user_id 存 secret XHS_POOL_USER_ID; password 存 XHS_POOL_PASSWORD (impersonation 登录用)
+# → user_id 存 XHS_POOL_USER_ID; 该账号生成「访问令牌」存 NEWAPI_ACCESS_TOKEN (服务 Bearer 鉴权用, 非密码)
 ```
 
 每激活码一个 token（在 xhs-pool 下创建）:
 
 ```yaml
-POST /api/token/   # impersonate xhs-pool: login → session cookie → New-Api-User=<pool id>
+POST /api/token/   # 用账号访问令牌: Authorization: Bearer <NEWAPI_ACCESS_TOKEN> + New-Api-User: <pool id>
 body: {
   name: `xhs-${code.slice(-9).toLowerCase()}`,   # 沿用命名 e.g. xhs-wx2a-bcdf, UI 便搜
   unlimited_quota: false,                          # ← 关键: 用 token 自身额度做 per-客户 cap
@@ -1873,7 +1881,7 @@ async function assertXhsToken(env: Env, tokenId: number): Promise<void> {
 # 删除:  XHS_PLAN_ID                           (subscription 弃用)
 # 新增:
 wrangler secret put XHS_POOL_USER_ID    # xhs-pool 的 newapi user id
-wrangler secret put XHS_POOL_PASSWORD   # xhs-pool 登录密码 (impersonation 建/改/删 token)
+# (迁 bj 后用 .env 非 wrangler) NEWAPI_ACCESS_TOKEN = 专用账号访问令牌 (Bearer 鉴权, 建/改/删 token; 非密码)
 # 保留:  NEW_API_BASE_URL / NEW_API_ACCESS_TOKEN / NEW_API_USER_ID(=1, admin 仍用于 getToken 读) /
 #        XHS_NEWAPI_GROUP=xhs / XHS_LLM_BASE_URL=https://39.96.12.136:8888/v1 (旧 139.196.157.57=退役 v1; doublel.top 域名备案被拦走 IP)
 ```
@@ -1884,7 +1892,7 @@ wrangler secret put XHS_POOL_PASSWORD   # xhs-pool 登录密码 (impersonation �
 - [ ] `xhs` group 模型请求速率限制设宽（`[0, N]` 不限总数，避 pool 共享限速互挤）
 - [ ] 写 `Dockerfile` + `docker-compose`（接 `edge` 网）部署 `/home/admin/xhs-license/`；容器内 node-cron（北京每日 00:05）
 - [ ] Node 服务（移植 `worker/`）provision/suspend/resume/revoke/quota + node-cron + edge Caddy 加 license 路由（**IP:port 自签**；`*.doublel.top` 备案被拦→不用域名）
-- [ ] 删 `XHS_PLAN_ID` secret，加 `XHS_POOL_USER_ID` / `XHS_POOL_PASSWORD`
+- [ ] 删 `XHS_PLAN_ID`，加 `XHS_POOL_USER_ID` / `NEWAPI_ACCESS_TOKEN`（账号访问令牌, 服务鉴权主凭证）
 - [ ] （XHS Plan id=2 已 disabled；旧测试 user/token 已于 2026-05-22 清空，见 memory）
 
 #### 12.11.8 沿用 §12.10 不变的部分

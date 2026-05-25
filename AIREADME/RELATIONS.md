@@ -4,7 +4,8 @@
 ## 出向依赖（我用了谁）
 | 依赖 | 用途 | 路径 |
 |---|---|---|
-| **newapi-proxy** | 自营 LLM Gateway 中转 (D6)。① license 服务调其 newapi admin API 创建 / 管理客户 token (B' token-only) ② 客户端经它调 LLM (model 写死 `auto-llm`，火山方舟智能调度) | `../newapi-proxy/AIREADME/` |
+| **doubleL-license** | xhs 的 license/激活码服务 (Hono+SQLite，迁后落此 repo 的 `apps/xhs-license`，见 DECISIONS ADR-011)。客户端调 activate/heartbeat/quota；token Ed25519 验签 (公钥 bake 进客户端，迁移轮换) | `../doubleL-license/AIREADME/` (repo 待建) |
+| **newapi-proxy** | 自营 LLM Gateway 中转 (D6)。客户端经它调 LLM (model 写死 `auto-llm`，火山方舟智能调度)。〔license→newapi 的 token provisioning (B' token-only) 现属 **doubleL-license** 对 newapi 的依赖，不再是本项目直接依赖〕 | `../newapi-proxy/AIREADME/` |
 
 > **接入现状（2026-05-24 读 `../newapi-proxy/AIREADME/SPEC` 确认）**：
 > - **LLM 端点** = `https://39.96.12.136:8888/v1`（OpenAI 兼容，**IP 直连 + Caddy 自签 `tls internal`，port 8888**），model 写死 `auto-llm`，`Authorization: Bearer sk-<token>`。new-api v1.0.0-rc.8。

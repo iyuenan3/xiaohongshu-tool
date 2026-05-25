@@ -5,7 +5,7 @@
 > **字段级 schema / 错误码矩阵 / 客户端 `license.json` schema / 工作流 SQLite schema 等实现级细节见根目录 [`../SPEC.md`](../SPEC.md)** (104KB 详细附录)；本文件只放集成契约摘要。
 
 ## 端点 (license server)
-> 当前 Cloudflare Worker；**迁移中 → alicloud-bj Node 服务** (见 DEPLOYMENT / DECISIONS)。base 现 `https://xhslicense.maxwellii.com` → 迁后走 **IP:port 直连自签**（`*.doublel.top` 域名 2026-05-24 被阿里云备案拦截，退**预案 B**；port 部署时定）。token 验签格式迁移不变。
+> 当前 Cloudflare Worker；**迁移中 → alicloud-bj Hono Node 服务**，代码落新 repo `doubleL-license/apps/xhs-license` (见 DEPLOYMENT / DECISIONS ADR-011/012)。base 现 `https://xhslicense.maxwellii.com` → 迁后走 **IP:port 直连自签** (edge Caddy 在 `39.96.12.136:8888` 按 path 路由；`*.doublel.top` 域名 2026-05-24 被阿里云备案拦截，退**预案 B**)。**CF 全退役** (不留 /version)。token 验签格式不变，但**签名密钥迁移轮换** → 公钥值变、客户端须重 bake。
 
 - `POST /activate` {code, machine_id} → {token (Ed25519 签), valid_until, status, llm:{base_url, api_key, model}}
 - `POST /heartbeat` {token} → {ok, status, llm, latest_version, revoked?}
