@@ -1,14 +1,14 @@
 # 小红书自运营系统 · 项目内 Claude 指引 (router)
 
 > 本文件是**路由器**：状态 + 去哪读 + 红线 + 常用命令 + 维护责任。
-> **设计 / 架构 / 部署 / 历史 / 决策细节 → `AIREADME/`** (AI 真相源)。详细技术附录 → `SPEC.md` (104KB)；密钥 → `INFRA.md` (gitignored) + `~/.secrets/xhs-secrets.txt`。
+> **设计 / 架构 / 部署 / 历史 / 决策细节 → `AIREADME/`** (AI 真相源；根 `SPEC.md` 104KB 附录已蒸馏折叠进 AIREADME、git rm)；密钥/凭证真值 → `~/.secrets/xhs-secrets.txt` + 容器 `.env` (均 gitignored)。
 
 ## 一句话 + 当前状态
 
 基于 Electron + Chromium 内核的桌面小红书浏览器，内嵌 `xiaohongshu-mcp`(Go)，AI 侧边栏走**自营 newapi 中转**操作 14 工具 (12 Go + 2 renderer)。软件买断 + LLM 月费、激活码授权、无证书发布。
 
 - **生命周期**：active (pre-launch)。M6 LLM Gateway + M7 工作流已 ship (→ v0.7.1)。
-- **当前焦点**：license 迁 alicloud-bj 方案**已定稿** (D9 **B'** token-only + Hono + 代码迁新 monorepo `doubleL-license`；砍 CF + 轮换签名密钥；ADR-011/012)，卡前置 = newapi-proxy M1 (newapi v2 起 + 建 `xhs` group/`xhs-pool` user)。
+- **当前焦点**：**xhs-license 服务已建成** (新 sibling monorepo `doubleL-license`：发码/激活/heartbeat/quota/admin/node-cron/admin-ui 全实现 + 全生命周期 e2e 对真 newapi 通过，3 commits 未 push；D9 **B'** token-only + Hono + **访问令牌鉴权** + 砍 CF + 轮换密钥；ADR-011/012/013)。**入部署阶段** = 轮换 keypair + 客户端(cert/端点/发版) + Docker 上 bj + 转达 newapi-proxy(Caddy/限速/成本)；部署规划草案见 memory `project_pending_decisions` 收尾节。
 - **卡 M8 公测**：D3 产品名 / 域名 + D5 客服渠道。
 
 ## 📂 加载路由 (任务 → 读哪个)
@@ -18,7 +18,7 @@
 | 了解身份 / 红线 | `AIREADME/CORE.md` |
 | 改架构 / 防偏差 | `AIREADME/ARCHITECTURE.md` (禁改项) + `DECISIONS.md` |
 | 部署 / 运维 | `AIREADME/DEPLOYMENT.md` |
-| 对外契约 (license 端点 / LLM / 14 工具) | `AIREADME/SPEC.md` (字段级 → 根 `SPEC.md`) |
+| 对外契约 (license 端点 / LLM / 14 工具) | `AIREADME/SPEC.md` |
 | 加功能 / 产品意图 | `AIREADME/PRD.md` + `ROADMAP.md` + `CONVENTIONS.md` |
 | 历史 / 版本 | `AIREADME/CHANGELOG.md` |
 | 决策为何 (ADR-001~013) | `AIREADME/DECISIONS.md` |
@@ -72,5 +72,5 @@ gh workflow run "Build macOS" --ref main -f release_tag=v0.x.y --repo iyuenan3/x
 ## 元信息
 
 - repo `iyuenan3/xiaohongshu-tool` (private)，分支 `main`，git user `Maxwell`。
-- 组件：`app/` (Electron 主体) · `worker/` (license server，**迁出本 repo → 新 monorepo `doubleL-license`**，见 ADR-011) · `xiaohongshu-mcp/` (vendored 上游 Go MCP) · `x-mcp/` (参考代码，gitignored)。
+- 组件：`app/` (Electron 主体) · `worker/` (旧 CF license server，**已迁出 → 新 sibling monorepo `doubleL-license` 建成**，ADR-011/013；worker/ 留参考待清) · `xiaohongshu-mcp/` (vendored 上游 Go MCP) · `x-mcp/` (参考代码，gitignored)。
 - 导航：`AIREADME/INDEX.md` (路由) · memory `MEMORY.md` (索引)。

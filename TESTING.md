@@ -62,7 +62,7 @@
 | License | active, code `XHS-7WXF-K9LR-3FLR-FQAG`, machine_id `b4fabf11aa748f11bcfe03f28b08e13d8ec67ce05b97ca39f8150baab98d4a9a` |
 | **SQLite tables** | `app.db` 已含 v7 schema (workflows / workflow_runs / appConfig) — `runMigrations()` 启动时自动跑 |
 | Worker URL | `https://xhslicense.maxwellii.com` |
-| ADMIN_TOKEN | 见 INFRA.md (不入 git) |
+| ADMIN_TOKEN | 见 ~/.secrets/xhs-secrets.txt (不入 git) |
 | **newapi 多租户隔离** | xhs 资源以 `xhs-` 前缀, Worker 写操作前 assertXhsTenant() 护栏 (服务端验证, 不在 client 测试范围) |
 | **Cloudflare Tunnel** | `llm-cf.maxwellii.com` Worker → newapi 入口 (服务端 D6, 不在 client 测试范围) |
 
@@ -281,7 +281,7 @@
 | **Cloudflare Tunnel**: `llm-cf.maxwellii.com` | Worker 内部 fetch, 不在 client | newapi 内网回源, 跨境无 525 SSL 错误 |
 | **客户端 → newapi IP 直连**: `https://139.196.157.57/v1` | renderer agent.ts 调真实 LLM | 必须 main certificate-error 放行 + 关 SSL verify (国内 DPI 拦 SNI) |
 
-> 详见 SPEC §12.10 + INFRA.md "newapi LLM 中转站" 区块 (admin token 真值在 `~/.secrets/xhs-secrets.txt`)。
+> 详见 AIREADME/SPEC (admin token 真值在 `~/.secrets/xhs-secrets.txt`)。
 
 ## 4. 运行方式
 

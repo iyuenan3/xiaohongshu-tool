@@ -1,22 +1,29 @@
 # DEPLOYMENT — 小红书自运营系统
 <!-- 跑哪/怎么跑/共享什么。共享底座自身配置→其独立节点；key→哪都不写。 -->
 
-> 脱敏：本文件不含 key / secret / Account-ID / PII；真值见本地 gitignored `INFRA.md` + `~/.secrets/xhs-secrets.txt`。
+> 脱敏：本文件不含 key / secret / Account-ID / PII；真值见 `~/.secrets/xhs-secrets.txt` + 容器 `.env` (gitignored)。
 
 ## 主机 + 环境
 - **客户端**：用户本机 (macOS / Windows)。Electron app，内嵌 Go MCP 二进制 + Chromium。
-- **license server**：**当前** Cloudflare Worker (`xhs-license`) v0.6.0 LIVE；**迁移中 → alicloud-bj** (公网 39.96.12.136 / Ubuntu 24.04 / Docker)，作 **Hono Node 服务**跟 newapi v2 同机，溶解 Worker→newapi 跨境 / tunnel / cert。代码迁新 sibling repo **`doubleL-license`** (多工具 monorepo，非本 repo `worker/`；见 DECISIONS ADR-011)；**CF 全退役** (不留 /version，ADR-012)。
+- **license server**：**当前** Cloudflare Worker (`xhs-license`) v0.6.0 LIVE；**迁移中 → alicloud-bj** (公网 39.96.12.136 / Ubuntu 24.04 / Docker)，作 **Hono Node 服务**跟 newapi v2 同机，溶解 Worker→newapi 跨境 / tunnel / cert。代码已落新 sibling repo **`doubleL-license`** 的 `apps/xhs-license` (多工具 monorepo，非本 repo `worker/`；见 DECISIONS ADR-011)，**服务全实现 + e2e 通过、入部署阶段** (3 commits 未 push)；**CF 全退役** (不留 /version，ADR-012)。
 - **LLM 网关 (newapi)**：newapi-proxy 项目 (alicloud-bj)，本项目消费，配置归其节点。
 
 ## 怎么起
 - **客户端开发**：`cd app && npm run dev` (自动 build Go 二进制 → vite + electron + spawn Go 子进程)。
 - **客户端打包**：`npm run build` → mac arm64 dmg (ad-hoc 签) / win nsis exe。
 - **license server (当前)**：`cd worker && wrangler deploy` (旧 CF，迁后退役)。
-- **license server (迁后)**：`doubleL-license` repo build `apps/xhs-license` 镜像 → `/home/admin/xhs-license/` docker-compose 接 `edge` 网，自带 better-sqlite3 + node-cron 月度重置 (`TZ=Asia/Shanghai`)。
+- **license server (迁后)**：`doubleL-license` repo build `apps/xhs-license` 镜像 → `/home/admin/xhs-license/` docker-compose 接 `edge` 网，自带 better-sqlite3 + node-cron 月度重置 (`TZ=Asia/Shanghai`)。容器 `.env` 变量清单见 `../doubleL-license/apps/xhs-license/.env.example`，真值填 `~/.secrets`。
 
 ## 域名 / 入口
 - license：旧 `https://xhslicense.maxwellii.com` (CF，迁后退役) → 迁后走 **IP:port 直连 + 自签**，共享 edge Caddy 在 `39.96.12.136:8888` 按 **path 前缀**路由 (跟 LLM `/v1` 同端口不同 path)；`*.doublel.top` 域名 2026-05-24 被阿里云备案拦截 → 退**预案 B**。客户端须 `setCertificateVerifyProc` 信任该 IP (`certificate-error` 不覆盖主进程 `net.fetch`) + 硬编码新 IP。
 - 客户端 → newapi LLM：**`https://39.96.12.136:8888/v1`**（OpenAI 兼容，**IP 直连 + Caddy 自签 root CA，port 8888**；旧 `139.196.157.57` 是已退役 v1）。客户端 `certificate-error` allowlist 放行该 IP 或装 root CA「Caddy Local Authority 2026 ECC Root」。契约详见 `../newapi-proxy/AIREADME/SPEC`。
+
+## 迁移 cutover (一次性，按序；详见 memory `project_pending_decisions` 部署规划草案)
+1. **定端点 + 轮换密钥** — 选 license path 前缀 (如 `39.96.12.136:8888/xhs-lic/`) + 生成新 Ed25519 keypair (旧私钥曾泄漏，必换 → 公钥变、客户端重 bake)。
+2. **上 bj** — 写 `docker-compose.yml` + 填容器 `.env` (真值 `~/.secrets`) + `up -d` 接 edge 网 + SQLite 每日异地备份。
+3. **转达 newapi-proxy** — edge Caddy 加 license path 路由 + tools group 限速 + auto-llm 成本兜底 (跨项目，走转达流程)。
+4. **客户端** — bake 新公钥 + 端点改 IP + `setCertificateVerifyProc` 信任 `39.96.12.136` + 发新版。
+5. **清理** — worker/ 删、shell profile 清旧 `NEWAPI_*`、admin 端点 Caddy IP allowlist、CF 退役。
 
 ## 共享底座引用
 - alicloud-bj `edge` Caddy + `edge` docker 网 → `../newapi-proxy/AIREADME/` (DEPLOYMENT)。license 迁后加一条 Caddy 路由 + 接 edge 网调 `new-api:3000` (内网明文无 cert)。

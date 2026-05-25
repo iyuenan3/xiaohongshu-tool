@@ -1,5 +1,4 @@
-# Sensitive infrastructure files
-INFRA.md
+# Secrets — 真值仅 ~/.secrets/xhs-secrets.txt + 容器 .env (gitignored)
 .env
 .env.local
 .env.*.local
