@@ -73,6 +73,7 @@ jobs:
         run: ls -lh release/*/*.dmg release/*/*.zip release/*/*.yml 2>&1
 
       - name: Upload artifacts
+        continue-on-error: true   # CI 临时 artifact 撞存储配额也不阻断下面的 Create Release (Release 直传 DMG、不占 artifact quota)
         uses: actions/upload-artifact@v4
         with:
           name: xhs-app-macos-${{ matrix.arch }}

@@ -94,6 +94,7 @@ jobs:
 
       - name: Upload .exe artifact
         if: ${{ github.event.inputs.upload_artifact != 'false' }}
+        continue-on-error: true   # 撞 artifact 配额也不阻断下面的 Create Release (Release 直传 exe、不占 quota)
         uses: actions/upload-artifact@v4
         with:
           name: xhs-app-windows-x64
