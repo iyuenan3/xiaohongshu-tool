@@ -105,7 +105,7 @@ async function bootstrap(): Promise<void> {
   app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
   await app.whenReady();
-  electronApp.setAppUserModelId('com.xhs.app');
+  electronApp.setAppUserModelId('top.doublel.xhspilot');
 
   // v0.8 证书固定 (pinning): 自签连接 (license/LLM via bj Caddy) 仅放行证书链锚定到打包 Caddy root CA 的;
   // 正常公网 HTTPS (isIssuedByKnownRoot) 走 Chromium 默认校验、不受影响。防 MITM + 不写死 host。详见 cert-pinning.ts。

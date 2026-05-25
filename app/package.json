@@ -2,7 +2,7 @@
   "name": "xhs-app",
   "version": "0.7.1",
   "private": true,
-  "description": "小红书自运营系统 - Electron 客户端",
+  "description": "xhsPilot - 小红书自运营系统",
   "main": "./out/main/index.js",
   "author": "TBD",
   "scripts": {
@@ -46,10 +46,10 @@
     "zustand": "^4.5.5"
   },
   "build": {
-    "appId": "com.xhs.app",
-    "productName": "小红书自运营",
+    "appId": "top.doublel.xhspilot",
+    "productName": "xhsPilot",
     "copyright": "Copyright © 2026",
-    "artifactName": "xhs-app-${version}-${arch}.${ext}",
+    "artifactName": "xhspilot-${version}-${arch}.${ext}",
     "afterPack": "scripts/ad-hoc-sign.cjs",
     "directories": {
       "output": "release/${version}"
@@ -76,7 +76,7 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "artifactName": "xhs-app-${version}-mac-${arch}.${ext}",
+      "artifactName": "xhspilot-${version}-mac-${arch}.${ext}",
       "target": [
         { "target": "dmg" },
         { "target": "zip" }
@@ -118,7 +118,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "artifactName": "xhs-app-Setup-${version}.${ext}"
+      "artifactName": "xhspilot-Setup-${version}.${ext}"
     },
     "linux": {
       "target": [
