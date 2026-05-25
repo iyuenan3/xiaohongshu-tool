@@ -109,9 +109,6 @@ export default function HelpPanel({ devMode }: Props) {
               </div>
               <div style={{ flex: 1, minWidth: 180 }}>
                 <p>微信扫码添加客服 — 遇到问题或换绑设备随时联系。</p>
-                <p style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                  <a href={contact} target="_blank" rel="noreferrer">{contact}</a>
-                </p>
               </div>
             </div>
           ) : (
