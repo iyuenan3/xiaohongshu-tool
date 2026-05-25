@@ -11,8 +11,8 @@ import log from 'electron-log/main';
 // (类型断言绕过 @noble/hashes 与 @noble/ed25519 d.ts 间的微小不兼容)
 ed.hashes.sha512 = sha512 as unknown as typeof ed.hashes.sha512;
 
-const PUBLIC_KEY_B64 = '8aC5Ujl8syPRmowRgYBPlbRFfkwM5/Eb3DKyLj7UKW8=';
-const WORKER_URL = process.env.XHS_WORKER_URL ?? 'https://xhslicense.maxwellii.com';
+const PUBLIC_KEY_B64 = '0TVH+g8Gl0cAVAhTLfL6+r7sQ3ZpQ26H0ApnBEkePVQ=';  // v0.8 迁 bj 轮换 (旧 8aC5… 曾泄漏作废)
+const WORKER_URL = process.env.XHS_WORKER_URL ?? 'https://39.96.12.136:8888/xhs-lic';
 const MACHINE_SALT = 'xhs-app-v1';
 // v0.7.1: 24h → 1h + ±5min jitter. 让 revoke/CODE_NOT_FOUND 1h 内生效 (24h 太迟).
 // CF Workers 压力: 1000 用户 × 24 次/天 ≈ 720k/月, Paid tier 7.2% (Free tier 也够 100 用户内).

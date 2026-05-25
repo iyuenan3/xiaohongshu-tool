@@ -1,9 +1,9 @@
-import { app, dialog, BrowserWindow, clipboard } from 'electron';
+import { app, dialog, BrowserWindow, clipboard, net } from 'electron';
 import log from 'electron-log/main';
 
 // 中间路线: 不 auto-update, 启动 8s 后调 Worker /version, 有新版弹 dialog 让用户联系客服获取最新包
 // 跟 license.ts 共用同一个 Worker base
-const WORKER_URL = process.env.XHS_WORKER_URL ?? 'https://xhslicense.maxwellii.com';
+const WORKER_URL = process.env.XHS_WORKER_URL ?? 'https://39.96.12.136:8888/xhs-lic';
 const CHECK_DELAY_MS = 8 * 1000;
 const FETCH_TIMEOUT_MS = 8 * 1000;
 
@@ -151,7 +151,7 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(url, { signal: ctrl.signal });
+    return await net.fetch(url, { signal: ctrl.signal });  // v0.8: net.fetch 走 session, 受 setCertificateVerifyProc 放行 bj 自签 (Node fetch/undici 不受)
   } finally {
     clearTimeout(t);
   }

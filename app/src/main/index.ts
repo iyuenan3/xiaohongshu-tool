@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, screen, shell, net } from 'electron';
+import { app, BrowserWindow, protocol, screen, shell, net, session } from 'electron';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
@@ -106,10 +106,16 @@ async function bootstrap(): Promise<void> {
   await app.whenReady();
   electronApp.setAppUserModelId('com.xhs.app');
 
+  // v0.8: 主进程 net.fetch (license/version → bj 自签) 不走下方 certificate-error 事件,
+  // 需 session 级 setCertificateVerifyProc 放行 newapi 中转 IP 的自签证书。
+  session.defaultSession.setCertificateVerifyProc((req, callback) => {
+    callback(req.hostname === '39.96.12.136' ? 0 : -3);   // 0=信任该自签 / -3=其余沿用 Chromium 默认校验
+  });
+
   // v0.6 D6: cert-error 动态放行 newapi 中转 IP (Caddy 自签 sni-fallback)
   // allowedHosts 从 license.llm.base_url 动态解析, 兜底硬编码 IP
   app.on('certificate-error', (event, _webContents, url, _error, _cert, callback) => {
-    const allowed = new Set<string>(['139.196.157.57']);
+    const allowed = new Set<string>(['39.96.12.136']);
     // 同步读 license cache (loadStored 已在 cacheLoaded 时初始化)
     try {
       // void Promise: 不 await, 同步用 cached llm config 即可 (cacheLoaded 在 getStatus 时已 load)
