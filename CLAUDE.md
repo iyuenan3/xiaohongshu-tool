@@ -8,7 +8,7 @@
 基于 Electron + Chromium 内核的桌面小红书浏览器，内嵌 `xiaohongshu-mcp`(Go)，AI 侧边栏走**自营 newapi 中转**操作 14 工具 (12 Go + 2 renderer)。软件买断 + LLM 月费、激活码授权、无证书发布。
 
 - **生命周期**：active (pre-launch)。M6 LLM Gateway + M7 工作流已 ship (→ v0.7.1)。
-- **当前焦点**：**xhs-license 服务已建成** (新 sibling monorepo `doubleL-license`：发码/激活/heartbeat/quota/admin/node-cron/admin-ui 全实现 + 全生命周期 e2e 对真 newapi 通过，3 commits 已 push (github.com/iyuenan3/doubleL-license, private)；D9 **B'** token-only + Hono + **访问令牌鉴权** + 砍 CF + 轮换密钥；ADR-011/012/013)。**入部署阶段** = 轮换 keypair + 客户端(cert/端点/发版) + Docker 上 bj + 转达 newapi-proxy(Caddy/限速/成本)；部署规划草案见 memory `project_pending_decisions` 收尾节。
+- **当前焦点**：**xhs-license 已部署上线 bj、生产可用** (2026-05-25：P-A 轮换 Ed25519 keypair → P-B rsync 代码 + docker compose up → P-C edge Caddy reload + 端到端 200 → 生产冒烟全链路通 [发码→激活→LLM→扣费→revoke，抓修 createToken 脱敏 key bug]。对外 `https://39.96.12.136:8888/xhs-lic/`；D9 **B'** token-only + 访问令牌鉴权；ADR-011/012/013；代码 `doubleL-license` private repo)。**剩** = 客户端 build 发版 (P-D 代码已 push，卡 D3) + CF 线上退役 (挂起、卡发版迁移) + admin 配 latest_version/客服 (卡 D5)；shell `NEWAPI_*` stale 交用户清。部署细节见 memory `reference_infra`「部署上线完成」节。
 - **卡 M8 公测**：D3 产品名 / 域名 + D5 客服渠道。
 
 ## 📂 加载路由 (任务 → 读哪个)
