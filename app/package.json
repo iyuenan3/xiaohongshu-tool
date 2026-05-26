@@ -95,18 +95,25 @@
       "sign": false,
       "contents": [
         {
-          "x": 130,
-          "y": 200,
+          "x": 150,
+          "y": 190,
           "type": "file"
         },
         {
-          "x": 410,
-          "y": 200,
+          "x": 450,
+          "y": 190,
           "type": "link",
           "path": "/Applications"
         },
         {
-          "x": 270,
+          "x": 150,
+          "y": 360,
+          "type": "link",
+          "path": "/System/Applications/Utilities/Terminal.app",
+          "name": "打开终端"
+        },
+        {
+          "x": 450,
           "y": 360,
           "type": "file",
           "path": "dmg-resources/无法正常打开请看我.txt",
@@ -114,8 +121,8 @@
         }
       ],
       "window": {
-        "width": 540,
-        "height": 460
+        "width": 600,
+        "height": 480
       }
     },
     "publish": [
