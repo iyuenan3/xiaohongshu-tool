@@ -8,8 +8,8 @@
 基于 Electron + Chromium 内核的桌面小红书浏览器，内嵌 `xiaohongshu-mcp`(Go)，AI 侧边栏走**自营 newapi 中转**操作 14 工具 (12 Go + 2 renderer)。软件买断 + LLM 月费、激活码授权、无证书发布。
 
 - **生命周期**：active (pre-launch)。M6 LLM Gateway + M7 工作流已 ship (→ v0.7.1)。
-- **当前焦点**：**xhs-license 已部署上线 bj、生产可用** (2026-05-25：P-A 轮换 Ed25519 keypair → P-B rsync 代码 + docker compose up → P-C edge Caddy reload + 端到端 200 → 生产冒烟全链路通 [发码→激活→LLM→扣费→revoke，抓修 createToken 脱敏 key bug]。对外 `https://39.96.12.136:8888/xhs-lic/`；D9 **B'** token-only + 访问令牌鉴权；ADR-011/012/013；代码 `doubleL-license` private repo)。**剩** = 客户端 build 发版 (P-D 代码已 push，卡 D3) + CF 线上退役 (挂起、卡发版迁移) + admin 配 latest_version/客服 (卡 D5)；shell `NEWAPI_*` stale 交用户清。部署细节见 memory `reference_infra`「部署上线完成」节。
-- **卡 M8 公测**：D3 产品名 / 域名 + D5 客服渠道。
+- **当前焦点**：**v0.8.0 xhsPilot 首个正式版已发版** (2026-05-26)。license 上线 bj 后发版前置全清 → 发版：证书 pinning(双链路验证) + D3 命名 xhsPilot + D5 客服二维码 + admin config 端点 → push + GH Actions build → Release v0.8.0 = arm64 mac dmg/zip + Windows exe + auto-update yml，可分发 (github.com/iyuenan3/xiaohongshu-tool/releases/tag/v0.8.0)。license 服务 `https://39.96.12.136:8888/xhs-lic/` 生产可用 (D9 B' token-only + 访问令牌鉴权；ADR-011/012/013；`doubleL-license` private repo)。**剩** = mac x64(Intel) 后补 (GH Intel runner 排队卡 8h、workflow 保留 x64) + 设 bj `latest_version=0.8.0` + 测安装包 + CF 退役(仅当有 v0.7.1 老用户)；shell `NEWAPI_*` stale 交用户清。决策见 memory `project_pending_decisions`「2026-05-26 发版」节，部署/pinning 见 `reference_infra`。
+- **M8 公测**：D3(xhsPilot) + D5(客服二维码) 已拍、v0.8.0 已发 → 公测前置基本就绪。
 
 ## 📂 加载路由 (任务 → 读哪个)
 
