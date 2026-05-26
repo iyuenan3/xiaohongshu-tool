@@ -1,8 +1,11 @@
 // Common helper for E2E tests
 // Usage: import { connect, evalFn, sleep, makeReporter, ADMIN, WORKER, LICENSE } from './_helper.mjs'
 
-// CDP port may change every dev restart. We probe a small list of candidates.
-// Add new port at the top after each dev restart if it differs.
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+
+// CDP port 每次 dev 重启都变。优先从 dev 日志动态读 (见 portsFromDevLog),
+// 下面的硬编码列表仅作 fallback (日志不可读时)。
 export const CDP_PORT_CANDIDATES = [52705, 51121, 64818, 60334, 53759];
 export const GO_BASE = 'http://127.0.0.1:54092';
 export const WORKER = 'https://xhslicense.maxwellii.com';
@@ -15,10 +18,27 @@ export const LICENSE = {
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * 从 dev 日志读最近启动的 CDP 端口。dev 每次重启端口随机,
+ * main.log 里有 "picked remote-debugging-port=N", 最新一次在文件末尾。
+ */
+function portsFromDevLog() {
+  try {
+    const log = readFileSync(`${homedir()}/Library/Logs/xhs-app/main.log`, 'utf8');
+    const ports = [...log.matchAll(/picked remote-debugging-port=(\d+)/g)].map((m) => Number(m[1]));
+    return ports.reverse(); // 最新重启的端口优先
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Probe CDP candidates and return the first one that responds.
+ * 先试 dev 日志里最近的端口 (免手动维护), 再 fallback 到硬编码候选。
  */
 async function probeCdpPort() {
-  for (const port of CDP_PORT_CANDIDATES) {
+  const seen = new Set();
+  const candidates = [...portsFromDevLog(), ...CDP_PORT_CANDIDATES].filter((p) => !seen.has(p) && seen.add(p));
+  for (const port of candidates) {
     try {
       const r = await fetch(`http://127.0.0.1:${port}/json`, {
         signal: AbortSignal.timeout(800),

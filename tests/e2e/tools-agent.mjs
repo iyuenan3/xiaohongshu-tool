@@ -27,13 +27,12 @@ const EXPECTED_TOOLS = [
   'web_search',
 ];
 
-// 敏感工具 (SPEC §3.2 / 12 工具集变化里 PRD §4.4 列举)
+// 敏感工具 (需二次确认). like_feed 自 v0.8.x 起免确认 (用户高频点赞), 已移出
 const EXPECTED_SENSITIVE = new Set([
   'publish_content',
   'publish_with_video',
   'post_comment_to_feed',
   'reply_comment_in_feed',
-  'like_feed',
   'favorite_feed',
 ]);
 
@@ -114,8 +113,8 @@ try {
       try {
         const m = await import(p);
         if (typeof m.isSensitive === 'function' || m.SENSITIVE_TOOLS) {
-          const expected = ['publish_content','publish_with_video','post_comment_to_feed','reply_comment_in_feed','like_feed','favorite_feed'];
-          const harmless = ['list_feeds','get_feed_detail','my_profile','user_profile','check_login_status','search_feeds','search_local_assets','web_search'];
+          const expected = ['publish_content','publish_with_video','post_comment_to_feed','reply_comment_in_feed','favorite_feed'];
+          const harmless = ['like_feed','list_feeds','get_feed_detail','my_profile','user_profile','check_login_status','search_feeds','search_local_assets','web_search'];
           let actualSens = [];
           let actualNon = [];
           if (typeof m.isSensitive === 'function') {
@@ -135,7 +134,7 @@ try {
   if (!sensProbe.ok) {
     r.skip(`TOOL-08 isSensitive import`, '路径未知或未暴露');
   } else {
-    r.ok(sensProbe.missing.length === 0, `TOOL-08 isSensitive 覆盖 6 个敏感工具 (path=${sensProbe.path})`, sensProbe);
+    r.ok(sensProbe.missing.length === 0, `TOOL-08 isSensitive 覆盖 5 个敏感工具 (path=${sensProbe.path})`, sensProbe);
     r.ok(sensProbe.actualNon.length >= 4, `TOOL-08b 安全工具未被误标 (sample=${sensProbe.actualNon.length})`, sensProbe.actualNon);
   }
 

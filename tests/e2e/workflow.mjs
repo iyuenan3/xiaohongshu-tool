@@ -60,8 +60,8 @@ try {
   // ============ 2. getTemplates 内容校验 ============
   const templates = tmplSurface.r || [];
   r.ok(templates.length >= 1, `WF-02a getTemplates 返 >=1 (${templates.length})`);
-  const daily = templates.find((t) => t.id === 'daily_like_comment');
-  r.ok(!!daily, 'WF-02b 含 daily_like_comment 模板', { ids: templates.map((t) => t.id) });
+  const daily = templates.find((t) => t.id === 'daily_comment');
+  r.ok(!!daily, 'WF-02b 含 daily_comment 模板', { ids: templates.map((t) => t.id) });
   if (daily) {
     r.ok(typeof daily.name === 'string' && daily.name.length > 0, 'WF-02c daily.name 是非空 string', daily.name);
     r.ok(typeof daily.paramsSchema === 'object' && daily.paramsSchema, 'WF-02d daily.paramsSchema 是 object');
@@ -77,9 +77,9 @@ try {
   const initialLen = initialList.length;
   console.log(`  · 初始 workflow 数: ${initialLen} (非干净环境, 仅记录基线)`);
 
-  // ============ 4. CRUD 闭环 (daily_like_comment) ============
+  // ============ 4. CRUD 闭环 (daily_comment) ============
   const createInput = {
-    template_id: 'daily_like_comment',
+    template_id: 'daily_comment',
     name: 'E2E-CRUD-TEST',
     params: { top_n: 2, comment_style: 'praise' },
     schedule: { type: 'daily', hour: 9, minute: 0, jitter_min: 10, tz: 'Asia/Shanghai' },
@@ -90,7 +90,7 @@ try {
   const wfId = created.r?.id;
   trackId(wfId);
   if (wfId) {
-    r.ok(created.r.template_id === 'daily_like_comment', 'WF-04b template_id 入库', created.r.template_id);
+    r.ok(created.r.template_id === 'daily_comment', 'WF-04b template_id 入库', created.r.template_id);
     r.ok(created.r.name === 'E2E-CRUD-TEST', 'WF-04c name 入库', created.r.name);
     // params 入库是 JSON string
     r.ok(typeof created.r.params === 'string', 'WF-04d params 入库 是 string', typeof created.r.params);
@@ -111,7 +111,7 @@ try {
     const got = await callApi(`window.api.workflow.get(${wfId})`);
     r.ok(got.ok && got.r?.id === wfId, 'WF-04l get(id) 返同 id', got);
     r.ok(got.r?.name === 'E2E-CRUD-TEST', 'WF-04m get.name 一致', got.r?.name);
-    r.ok(got.r?.template_id === 'daily_like_comment', 'WF-04n get.template_id 一致', got.r?.template_id);
+    r.ok(got.r?.template_id === 'daily_comment', 'WF-04n get.template_id 一致', got.r?.template_id);
 
     // 4.x update name
     const updRes = await callApi(`window.api.workflow.update(${wfId}, { name: 'NEW NAME' })`);
@@ -164,7 +164,7 @@ try {
   const variantIds = [];
   for (const sched of scheduleVariants) {
     const input = {
-      template_id: 'daily_like_comment',
+      template_id: 'daily_comment',
       name: `E2E-SCHED-${sched.type}`,
       params: { top_n: 2, comment_style: 'short' },
       schedule: sched,
@@ -273,7 +273,7 @@ try {
 
   // 8.c delete 已删 id (新建一个删了再删一遍)
   const tmpInput = {
-    template_id: 'daily_like_comment',
+    template_id: 'daily_comment',
     name: 'E2E-TMP-DEL',
     params: { top_n: 1, comment_style: 'praise' },
     schedule: { type: 'manual', tz: 'Asia/Shanghai' },
