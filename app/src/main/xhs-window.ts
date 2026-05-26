@@ -106,6 +106,12 @@ function attachXhsWindow(win: BrowserWindow): void {
   });
 
   log.info('[xhs-window] attached (helper-popup) partition=persist:xhs');
+  // popup 由 chromium 默认路径创建: 'show' 事件可能在上面 win.on('show') 绑定前已触发(错过),
+  // 且 attach 瞬间 isVisible() 未必就绪 → 延迟一拍主动 push 真实可见态。
+  // 否则 renderer 初始 xhsVisible 停在 false (与实际不符 → toggle 方向反、按钮文字不更新)。
+  setTimeout(() => {
+    if (xhsWindow === win && !win.isDestroyed()) emit(win.isVisible());
+  }, 800);
 }
 
 export async function createXhsWindow(): Promise<void> {

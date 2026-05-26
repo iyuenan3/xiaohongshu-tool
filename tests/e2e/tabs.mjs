@@ -58,11 +58,21 @@ try {
   }`);
 
   // TAB-03: 「小红书」改独立窗口后是 toggle 按钮 (window.api.xhs.toggle), 不再是内嵌 pane/webview。
-  // 仅验证按钮 + IPC 入口存在; 不点击 (toggle 会显隐独立窗口、有副作用, 且 visible 状态同步另议)。
   const xhsBtnText = await evalFn(`() => { const b = [...document.querySelectorAll('.tabbar__tab')].find(b => b.textContent.includes('小红书')); return b ? b.textContent.trim() : null; }`);
   r.ok(xhsBtnText !== null && /小红书/.test(xhsBtnText), `TAB-03 小红书 toggle 按钮存在 (${xhsBtnText})`);
-  const xhsToggleFn = await evalFn(`() => typeof window.api?.xhs?.toggle === 'function'`);
-  r.ok(xhsToggleFn === true, `TAB-03b window.api.xhs.toggle 入口存在 (独立窗口架构)`);
+  // TAB-03b: 点击 toggle 后按钮文字应与实际窗口可见态一致 (验证 renderer↔window 同步, 即本次修复的本质)。
+  // 不测"必然切换": run-all 中前序 LIC-08(clear→activate) 会重建 xhs 窗口, tabs 紧接跑时初始态不定。
+  await evalFn(`() => { const b = [...document.querySelectorAll('.tabbar__tab')].find(b => b.textContent.includes('小红书')); b && b.click(); }`);
+  await sleep(600);
+  const after = await evalFn(`async () => {
+    const real = await window.api.xhs.isVisible();
+    const b = [...document.querySelectorAll('.tabbar__tab')].find((b) => b.textContent.includes('小红书'));
+    return { real, showsHidden: b ? b.textContent.includes('隐藏') : null };
+  }`);
+  r.ok(after.showsHidden === after.real, `TAB-03b 点击后按钮文字与实际窗口态一致 (real=${after.real})`, after);
+  // 恢复原状 (再点一次)
+  await evalFn(`() => { const b = [...document.querySelectorAll('.tabbar__tab')].find(b => b.textContent.includes('小红书')); b && b.click(); }`);
+  await sleep(400);
 
   // TAB-04: 切到「素材库」
   await evalFn(`() => { const b = [...document.querySelectorAll('.tabbar__tab')].find(b => b.textContent.trim() === '素材库'); b && b.click(); }`);

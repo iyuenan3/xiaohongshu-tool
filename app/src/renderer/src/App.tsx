@@ -75,11 +75,14 @@ export default function App() {
   useEffect(() => {
     if (licenseState?.status !== 'active') return;
     let alive = true;
-    void window.api.xhs.isVisible().then((v) => { if (alive) setXhsVisible(v); });
+    const sync = () => { void window.api.xhs.isVisible().then((v) => { if (alive) setXhsVisible(v); }); };
+    sync();
+    // xhs 独立窗口创建+show 需时间, 初次 isVisible 可能 race 返 false → 延迟再同步一次
+    const t = setTimeout(sync, 2500);
     const unsub = window.api.xhs.onVisibilityChanged((v) => {
       if (alive) setXhsVisible(v);
     });
-    return () => { alive = false; unsub(); };
+    return () => { alive = false; clearTimeout(t); unsub(); };
   }, [licenseState?.status]);
 
   if (licenseState === null) {
@@ -113,7 +116,11 @@ export default function App() {
         </button>
         <button
           className={`tabbar__tab ${xhsVisible ? 'tabbar__tab--active' : ''}`}
-          onClick={() => { void window.api.xhs.toggle(); }}
+          onClick={async () => {
+            await window.api.xhs.toggle();
+            // 直接复核真实可见态 (不依赖 emit 时序), 确保按钮文字与窗口一致
+            setXhsVisible(await window.api.xhs.isVisible());
+          }}
           title={xhsVisible ? '点击隐藏小红书窗口' : '点击显示小红书窗口'}
         >
           {xhsVisible ? '隐藏小红书' : '显示小红书'}
