@@ -130,6 +130,12 @@ func (s *AppServer) listFeedsHandler(c *gin.Context) {
 		return
 	}
 
+	// 填序号 + 记入 registry: AI 用 seq 引用 feed, 真实 id/token 不经 LLM 复述
+	for i := range result.Feeds {
+		result.Feeds[i].Seq = i + 1
+	}
+	rememberFeeds(result.Feeds)
+
 	c.Set("account", "ai-report")
 	respondSuccess(c, result, "获取Feeds列表成功")
 }
@@ -168,6 +174,12 @@ func (s *AppServer) searchFeedsHandler(c *gin.Context) {
 		return
 	}
 
+	// 填序号 + 记入 registry (同 list_feeds)
+	for i := range result.Feeds {
+		result.Feeds[i].Seq = i + 1
+	}
+	rememberFeeds(result.Feeds)
+
 	c.Set("account", "ai-report")
 	respondSuccess(c, result, "搜索Feeds成功")
 }
@@ -178,6 +190,11 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST",
 			"请求参数错误", err.Error())
+		return
+	}
+
+	feedID, xsecToken, ok := resolveFeed(c, req.Seq, req.FeedID, req.XsecToken)
+	if !ok {
 		return
 	}
 
@@ -192,10 +209,10 @@ func (s *AppServer) getFeedDetailHandler(c *gin.Context) {
 			MaxCommentItems:     req.CommentConfig.MaxCommentItems,
 			ScrollSpeed:         req.CommentConfig.ScrollSpeed,
 		}
-		result, err = s.xiaohongshuService.GetFeedDetailWithConfig(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments, config)
+		result, err = s.xiaohongshuService.GetFeedDetailWithConfig(c.Request.Context(), feedID, xsecToken, req.LoadAllComments, config)
 	} else {
 		// 使用默认配置
-		result, err = s.xiaohongshuService.GetFeedDetail(c.Request.Context(), req.FeedID, req.XsecToken, req.LoadAllComments)
+		result, err = s.xiaohongshuService.GetFeedDetail(c.Request.Context(), feedID, xsecToken, req.LoadAllComments)
 	}
 
 	if err != nil {
@@ -238,8 +255,13 @@ func (s *AppServer) postCommentHandler(c *gin.Context) {
 		return
 	}
 
+	feedID, xsecToken, ok := resolveFeed(c, req.Seq, req.FeedID, req.XsecToken)
+	if !ok {
+		return
+	}
+
 	// 发表评论
-	result, err := s.xiaohongshuService.PostCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.Content)
+	result, err := s.xiaohongshuService.PostCommentToFeed(c.Request.Context(), feedID, xsecToken, req.Content)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "POST_COMMENT_FAILED",
 			"发表评论失败", err.Error())
@@ -259,7 +281,12 @@ func (s *AppServer) replyCommentHandler(c *gin.Context) {
 		return
 	}
 
-	result, err := s.xiaohongshuService.ReplyCommentToFeed(c.Request.Context(), req.FeedID, req.XsecToken, req.CommentID, req.UserID, req.Content)
+	feedID, xsecToken, ok := resolveFeed(c, req.Seq, req.FeedID, req.XsecToken)
+	if !ok {
+		return
+	}
+
+	result, err := s.xiaohongshuService.ReplyCommentToFeed(c.Request.Context(), feedID, xsecToken, req.CommentID, req.UserID, req.Content)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "REPLY_COMMENT_FAILED",
 			"回复评论失败", err.Error())
@@ -277,12 +304,16 @@ func (s *AppServer) likeFeedHandler(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数错误", err.Error())
 		return
 	}
+	feedID, xsecToken, ok := resolveFeed(c, req.Seq, req.FeedID, req.XsecToken)
+	if !ok {
+		return
+	}
 	var result *ActionResult
 	var err error
 	if req.Unlike {
-		result, err = s.xiaohongshuService.UnlikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.xiaohongshuService.UnlikeFeed(c.Request.Context(), feedID, xsecToken)
 	} else {
-		result, err = s.xiaohongshuService.LikeFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.xiaohongshuService.LikeFeed(c.Request.Context(), feedID, xsecToken)
 	}
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "LIKE_FAILED", "点赞操作失败", err.Error())
@@ -299,12 +330,16 @@ func (s *AppServer) favoriteFeedHandler(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数错误", err.Error())
 		return
 	}
+	feedID, xsecToken, ok := resolveFeed(c, req.Seq, req.FeedID, req.XsecToken)
+	if !ok {
+		return
+	}
 	var result *ActionResult
 	var err error
 	if req.Unfavorite {
-		result, err = s.xiaohongshuService.UnfavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.xiaohongshuService.UnfavoriteFeed(c.Request.Context(), feedID, xsecToken)
 	} else {
-		result, err = s.xiaohongshuService.FavoriteFeed(c.Request.Context(), req.FeedID, req.XsecToken)
+		result, err = s.xiaohongshuService.FavoriteFeed(c.Request.Context(), feedID, xsecToken)
 	}
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "FAVORITE_FAILED", "收藏操作失败", err.Error())

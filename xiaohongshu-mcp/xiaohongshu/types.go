@@ -24,6 +24,7 @@ type Feed struct {
 	ModelType string   `json:"modelType"`
 	NoteCard  NoteCard `json:"noteCard"`
 	Index     int      `json:"index"`
+	Seq       int      `json:"seq"` // AI 引用用短序号(1-based), 由 list/search handler 填充, 见 feed_registry.go
 }
 
 // NoteCard 表示笔记卡片信息

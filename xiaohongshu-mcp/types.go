@@ -48,8 +48,9 @@ type CommentLoadConfig struct {
 
 // FeedDetailRequest Feed详情请求
 type FeedDetailRequest struct {
-	FeedID          string             `json:"feed_id" binding:"required"`
-	XsecToken       string             `json:"xsec_token" binding:"required"`
+	Seq             int                `json:"seq,omitempty"`
+	FeedID          string             `json:"feed_id,omitempty"`
+	XsecToken       string             `json:"xsec_token,omitempty"`
 	LoadAllComments bool               `json:"load_all_comments,omitempty"`
 	CommentConfig   *CommentLoadConfig `json:"comment_config,omitempty"`
 }
@@ -67,8 +68,9 @@ type FeedDetailResponse struct {
 
 // PostCommentRequest 发表评论请求
 type PostCommentRequest struct {
-	FeedID    string `json:"feed_id" binding:"required"`
-	XsecToken string `json:"xsec_token" binding:"required"`
+	Seq       int    `json:"seq,omitempty"`
+	FeedID    string `json:"feed_id,omitempty"`
+	XsecToken string `json:"xsec_token,omitempty"`
 	Content   string `json:"content" binding:"required"`
 }
 
@@ -81,8 +83,9 @@ type PostCommentResponse struct {
 
 // ReplyCommentRequest 回复评论请求
 type ReplyCommentRequest struct {
-	FeedID    string `json:"feed_id" binding:"required"`
-	XsecToken string `json:"xsec_token" binding:"required"`
+	Seq       int    `json:"seq,omitempty"`
+	FeedID    string `json:"feed_id,omitempty"`
+	XsecToken string `json:"xsec_token,omitempty"`
 	CommentID string `json:"comment_id" binding:"required_without=UserID"`
 	UserID    string `json:"user_id" binding:"required_without=CommentID"`
 	Content   string `json:"content" binding:"required"`
@@ -112,14 +115,16 @@ type ActionResult struct {
 
 // LikeFeedRequest 点赞/取消点赞请求
 type LikeFeedRequest struct {
-	FeedID    string `json:"feed_id" binding:"required"`
-	XsecToken string `json:"xsec_token" binding:"required"`
-	Unlike    bool   `json:"unlike,omitempty"` // true 取消点赞
+	Seq       int    `json:"seq,omitempty"`        // 优先: list/search 结果序号 (LLM 用, 防抄错)
+	FeedID    string `json:"feed_id,omitempty"`    // 兼容: 显式 id (workflow 等脚本用)
+	XsecToken string `json:"xsec_token,omitempty"` // 兼容: 显式 token
+	Unlike    bool   `json:"unlike,omitempty"`     // true 取消点赞
 }
 
 // FavoriteFeedRequest 收藏/取消收藏请求
 type FavoriteFeedRequest struct {
-	FeedID     string `json:"feed_id" binding:"required"`
-	XsecToken  string `json:"xsec_token" binding:"required"`
+	Seq        int    `json:"seq,omitempty"`
+	FeedID     string `json:"feed_id,omitempty"`
+	XsecToken  string `json:"xsec_token,omitempty"`
 	Unfavorite bool   `json:"unfavorite,omitempty"` // true 取消收藏
 }

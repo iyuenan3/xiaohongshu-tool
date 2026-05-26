@@ -47,7 +47,7 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
       type: 'function',
       function: {
         name: 'list_feeds',
-        description: '获取小红书首页推荐 Feed 列表 (含 feed_id 和 xsec_token, 后续工具会用到)',
+        description: '获取小红书首页推荐 Feed 列表。返回每篇带 seq 序号(1,2,3…), 之后点赞/收藏/评论/看详情都用 seq 引用该篇',
         parameters: { type: 'object', properties: {}, additionalProperties: false },
       },
     },
@@ -59,7 +59,7 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
       type: 'function',
       function: {
         name: 'search_feeds',
-        description: '按关键词搜索小红书笔记',
+        description: '按关键词搜索小红书笔记。返回每篇带 seq 序号(1,2,3…), 之后用 seq 引用',
         parameters: {
           type: 'object',
           properties: {
@@ -90,11 +90,10 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
         parameters: {
           type: 'object',
           properties: {
-            feed_id: { type: 'string', description: '笔记 ID, 从 list_feeds/search_feeds 获取' },
-            xsec_token: { type: 'string', description: '访问令牌, 从 list_feeds/search_feeds 获取' },
+            seq: { type: 'integer', description: '笔记序号 (1,2,3…), 来自 list_feeds/search_feeds 结果' },
             load_all_comments: { type: 'boolean', description: '是否加载全部评论' },
           },
-          required: ['feed_id', 'xsec_token'],
+          required: ['seq'],
         },
       },
     },
@@ -141,11 +140,10 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
         parameters: {
           type: 'object',
           properties: {
-            feed_id: { type: 'string' },
-            xsec_token: { type: 'string' },
+            seq: { type: 'integer', description: '笔记序号 (1,2,3…), 来自 list_feeds/search_feeds 结果' },
             content: { type: 'string', description: '评论内容' },
           },
-          required: ['feed_id', 'xsec_token', 'content'],
+          required: ['seq', 'content'],
         },
       },
     },
@@ -161,13 +159,12 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
         parameters: {
           type: 'object',
           properties: {
-            feed_id: { type: 'string' },
-            xsec_token: { type: 'string' },
+            seq: { type: 'integer', description: '笔记序号 (1,2,3…), 来自 list_feeds/search_feeds 结果' },
             comment_id: { type: 'string', description: '目标评论 ID (二选一)' },
             user_id: { type: 'string', description: '目标用户 ID (二选一)' },
             content: { type: 'string' },
           },
-          required: ['feed_id', 'xsec_token', 'content'],
+          required: ['seq', 'content'],
         },
       },
     },
@@ -183,16 +180,15 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
         parameters: {
           type: 'object',
           properties: {
-            feed_id: { type: 'string' },
-            xsec_token: { type: 'string' },
+            seq: { type: 'integer', description: '笔记序号 (1,2,3…), 来自 list_feeds/search_feeds 结果' },
             unlike: { type: 'boolean', description: 'true 取消点赞, false 点赞' },
           },
-          required: ['feed_id', 'xsec_token'],
+          required: ['seq'],
         },
       },
     },
     http: { method: 'POST', path: '/api/v1/feeds/like' },
-    sensitive: true,
+    sensitive: false,
   },
   favorite_feed: {
     schema: {
@@ -203,11 +199,10 @@ export const TOOLS: Record<ToolName, ToolBinding> = {
         parameters: {
           type: 'object',
           properties: {
-            feed_id: { type: 'string' },
-            xsec_token: { type: 'string' },
+            seq: { type: 'integer', description: '笔记序号 (1,2,3…), 来自 list_feeds/search_feeds 结果' },
             unfavorite: { type: 'boolean' },
           },
-          required: ['feed_id', 'xsec_token'],
+          required: ['seq'],
         },
       },
     },

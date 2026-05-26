@@ -56,7 +56,8 @@ func (a *interactAction) preparePage(ctx context.Context, actionType interactAct
 }
 
 func (a *interactAction) performClick(page *rod.Page, selector string) {
-	element := page.MustElement(selector)
+	// 限定找按钮最多 10s, 避免选择器失配时死等到 page 的 60s 超时
+	element := page.Timeout(10 * time.Second).MustElement(selector)
 	element.MustClick()
 }
 
@@ -89,8 +90,9 @@ func (a *LikeAction) perform(ctx context.Context, feedID, xsecToken string, targ
 
 	liked, _, err := a.getInteractState(page, feedID)
 	if err != nil {
-		logrus.Warnf("failed to read interact state: %v (continue to try clicking)", err)
-		return a.toggleLike(page, feedID, targetLiked, actionType)
+		// 详情页没加载到目标笔记 (序号失效/笔记已删/id 不对): 立即失败,
+		// 不再硬点 —— 否则后续 MustElement 找不到点赞按钮会死等到超时。
+		return errors.Wrapf(err, "笔记详情未加载, 无法%s (feed=%s)", actionType, feedID)
 	}
 
 	if targetLiked && liked {
@@ -165,8 +167,8 @@ func (a *FavoriteAction) perform(ctx context.Context, feedID, xsecToken string, 
 
 	_, collected, err := a.getInteractState(page, feedID)
 	if err != nil {
-		logrus.Warnf("failed to read interact state: %v (continue to try clicking)", err)
-		return a.toggleFavorite(page, feedID, targetCollected, actionType)
+		// 同 Like: 详情页没加载到目标笔记则立即失败, 不硬点死等。
+		return errors.Wrapf(err, "笔记详情未加载, 无法%s (feed=%s)", actionType, feedID)
 	}
 
 	if targetCollected && collected {
