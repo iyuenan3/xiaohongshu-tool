@@ -164,11 +164,26 @@ export class GoSubprocess {
       method !== 'HEAD' &&
       body != null &&
       !(typeof body === 'object' && Object.keys(body as object).length === 0);
-    const r = await fetch(`${this.baseUrl()}${path}`, {
-      method,
-      headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
-      body: hasBody ? JSON.stringify(body) : undefined,
-    });
+    // 兜底超时: 发布/互动正常 <100s, 最坏(多图慢网)~200s。240s 后 abort,
+    // 避免 Go 端卡死时 renderer 靠 undici 默认行为干等 ~5 分钟后才 fetch failed。
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 240_000);
+    let r: Response;
+    try {
+      r = await fetch(`${this.baseUrl()}${path}`, {
+        method,
+        headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
+        body: hasBody ? JSON.stringify(body) : undefined,
+        signal: ac.signal,
+      });
+    } catch (e) {
+      if (ac.signal.aborted) {
+        throw new Error(`API ${method} ${path} 超时(240s)，操作可能未完成，请稍后重试`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     const json = (await r.json()) as T;
     if (!r.ok) {
       throw new Error(`API ${method} ${path} failed: HTTP ${r.status}: ${JSON.stringify(json)}`);

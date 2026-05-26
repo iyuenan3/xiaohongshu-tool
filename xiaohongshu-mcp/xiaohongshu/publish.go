@@ -36,13 +36,29 @@ const (
 	urlOfPublic = `https://creator.xiaohongshu.com/publish/publish?source=official`
 )
 
+// navigateToPublishPage 导航到发布页, 失败重试 3 次。
+// attach 模式复用的页可能正停在 www.xiaohongshu.com, 跨子域导航首次易 ERR_ABORTED, 重试通常成功。
+func navigateToPublishPage(pp *rod.Page) error {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		if err := pp.Navigate(urlOfPublic); err != nil {
+			lastErr = err
+			logrus.Warnf("导航到发布页失败(第%d次): %v, 重试", i+1, err)
+			time.Sleep(time.Second)
+			continue
+		}
+		return nil
+	}
+	return errors.Wrap(lastErr, "导航到发布页面失败(已重试3次)")
+}
+
 func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
 
 	pp := page.Timeout(300 * time.Second)
 
 	// 使用更稳健的导航和等待策略
-	if err := pp.Navigate(urlOfPublic); err != nil {
-		return nil, errors.Wrap(err, "导航到发布页面失败")
+	if err := navigateToPublishPage(pp); err != nil {
+		return nil, err
 	}
 
 	// 等待页面加载，使用 WaitLoad 代替 WaitIdle（更宽松）
@@ -117,7 +133,16 @@ func clickEmptyPosition(page *rod.Page) {
 }
 
 func mustClickPublishTab(page *rod.Page, tabname string) error {
-	page.MustElement(`div.upload-content`).MustWaitVisible()
+	// upload-content 是发布页路标元素: 页面正确加载才出现。
+	// 独立 20s 超时——attach 选中的页若非发布页(跨子域导航失败/停在搜索页等),
+	// 20s 内快速失败, 不再死等到外层 300s(曾致发布卡满 5 分钟后 fetch failed)。
+	el, err := page.Timeout(20 * time.Second).Element(`div.upload-content`)
+	if err != nil {
+		return errors.Wrap(err, "发布页未正确加载(未找到上传区域), 可能当前不在发布页")
+	}
+	if err := el.WaitVisible(); err != nil {
+		return errors.Wrap(err, "发布页上传区域未显示")
+	}
 
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {

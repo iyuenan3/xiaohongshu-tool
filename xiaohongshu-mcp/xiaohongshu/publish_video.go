@@ -26,8 +26,8 @@ type PublishVideoContent struct {
 func NewPublishVideoAction(page *rod.Page) (*PublishAction, error) {
 	pp := page.Timeout(300 * time.Second)
 
-	if err := pp.Navigate(urlOfPublic); err != nil {
-		return nil, errors.Wrap(err, "导航到发布页面失败")
+	if err := navigateToPublishPage(pp); err != nil {
+		return nil, err
 	}
 
 	// 使用 WaitLoad 代替 WaitIdle（更宽松）
