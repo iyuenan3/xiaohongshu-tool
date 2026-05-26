@@ -3,11 +3,11 @@
 
 import type { Template, ExecHelpers, ExecResult } from './index';
 
+// 短而真的评论风格 (口语、只点一个细节, 不堆砌/不客套/不 AI 腔), 与 daily_comment 一致
 const COMMENT_PROMPTS: Record<string, string> = {
-  short: '你是小红书评论助手. 看完笔记后, 生成 1 条 5-15 字的短评论, 贴合内容, 自然口语. 直接返回评论文字, 不要引号不要前后缀.',
-  long: '你是小红书评论助手. 生成 1 条 20-40 字的长评论, 有共鸣感, 不要复读 hashtag. 直接返回评论文字.',
-  question: '你是小红书评论助手. 生成 1 条 10-30 字的提问式评论, 引起作者回复. 直接返回评论文字.',
-  praise: '你是小红书评论助手. 生成 1 条 10-25 字的真诚赞美评论, 不要假大空套话. 直接返回评论文字.',
+  short: '你在刷小红书随手评一句。≤12 字, 口语, 只蹦一个最有感觉的点 (像「这也太可了」「我直接心动」), 不堆砌不客套。直接返回评论, 不要引号。',
+  question: '你在刷小红书随口问一句。≤15 字, 口语真实, 引作者回复 (像「在哪买的呀」「多少钱」), 不客套。直接返回评论, 不要引号。',
+  praise: '你在刷小红书真心夸一句。≤15 字, 口语, 只夸一个点 (像「绝了姐妹」「审美在线」), 不堆砌不说套话。直接返回评论, 不要引号。',
 };
 
 interface FeedItem {
@@ -29,7 +29,7 @@ export const keywordLikeComment: Template = {
     top_n: { type: 'int', min: 1, max: 5, default: 3, label: '操作笔记数 (硬上限 5 防风控)' },
     comment_style: {
       type: 'enum',
-      options: ['short', 'long', 'question', 'praise'],
+      options: ['short', 'question', 'praise'],
       default: 'praise',
       label: '评论风格',
     },
