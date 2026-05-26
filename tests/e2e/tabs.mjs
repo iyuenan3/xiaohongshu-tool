@@ -57,15 +57,12 @@ try {
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }`);
 
-  // TAB-03: 切到「小红书」
-  await evalFn(`() => { const b = [...document.querySelectorAll('.tabbar__tab')].find(b => b.textContent.trim() === '小红书'); b && b.click(); }`);
-  await sleep(150);
-  const xhsVisible = await evalFn(`() => { const p = document.querySelector('.tab-pane--xhs'); return !!p && !p.classList.contains('tab-pane--hidden'); }`);
-  r.ok(xhsVisible === true, `TAB-03 小红书 pane 显示`);
-  const consoleHidden = await evalFn(`() => { const p = document.querySelector('.tab-pane--console'); return !!p && p.classList.contains('tab-pane--hidden'); }`);
-  r.ok(consoleHidden === true, `TAB-03b 控制台 pane hidden`);
-  const webviewExists = await evalFn(`() => !!document.getElementById('xhs-webview')`);
-  r.ok(webviewExists === true, `TAB-03c webview 节点存在`);
+  // TAB-03: 「小红书」改独立窗口后是 toggle 按钮 (window.api.xhs.toggle), 不再是内嵌 pane/webview。
+  // 仅验证按钮 + IPC 入口存在; 不点击 (toggle 会显隐独立窗口、有副作用, 且 visible 状态同步另议)。
+  const xhsBtnText = await evalFn(`() => { const b = [...document.querySelectorAll('.tabbar__tab')].find(b => b.textContent.includes('小红书')); return b ? b.textContent.trim() : null; }`);
+  r.ok(xhsBtnText !== null && /小红书/.test(xhsBtnText), `TAB-03 小红书 toggle 按钮存在 (${xhsBtnText})`);
+  const xhsToggleFn = await evalFn(`() => typeof window.api?.xhs?.toggle === 'function'`);
+  r.ok(xhsToggleFn === true, `TAB-03b window.api.xhs.toggle 入口存在 (独立窗口架构)`);
 
   // TAB-04: 切到「素材库」
   await evalFn(`() => { const b = [...document.querySelectorAll('.tabbar__tab')].find(b => b.textContent.trim() === '素材库'); b && b.click(); }`);

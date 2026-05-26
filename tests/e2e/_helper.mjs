@@ -8,11 +8,15 @@ import { homedir } from 'node:os';
 // 下面的硬编码列表仅作 fallback (日志不可读时)。
 export const CDP_PORT_CANDIDATES = [52705, 51121, 64818, 60334, 53759];
 export const GO_BASE = 'http://127.0.0.1:54092';
-export const WORKER = 'https://xhslicense.maxwellii.com';
-export const ADMIN = 'LFW50BqUFVzJwqb/vqFoGPJqSEtlnx9wq/FY7vVBP8U=';
+// license 服务 base: bj 生产 (IP 直连自签, 见 memory reference_infra)。可用 env 覆盖。
+export const WORKER = process.env.XHS_LICENSE_BASE || 'https://39.96.12.136:8888/xhs-lic';
+// admin token 高敏感: 只从环境变量读, 绝不硬编码进 git。缺失时 admin 类测试 skip。
+export const ADMIN = process.env.XHS_ADMIN_TOKEN || '';
+// 本机激活码 / machine_id: 默认空 → license.mjs runtime 从 status() 兜底
+// (不把激活凭证写进 git); 也可用 env 显式指定。
 export const LICENSE = {
-  code: 'XHS-D8PP-BGAY-YPZU-T8SD',
-  machine_id: 'b4fabf11aa748f11bcfe03f28b08e13d8ec67ce05b97ca39f8150baab98d4a9a',
+  code: process.env.XHS_LICENSE_CODE || '',
+  machine_id: process.env.XHS_MACHINE_ID || '',
 };
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

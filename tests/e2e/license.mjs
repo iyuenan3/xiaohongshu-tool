@@ -2,6 +2,10 @@
 // 不调 license.clear() (会破坏 dev state)
 import { connect, makeReporter, WORKER, ADMIN, LICENSE } from './_helper.mjs';
 
+// bj license 自签证书 (Caddy tls internal): 放行本套件 node fetch 的自签校验。
+// 只影响本进程的 node fetch; IPC (window.api.license) 走 main 进程 pinning, 不受此。
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const { evalFn, ws } = await connect();
 const r = makeReporter('License');
 
@@ -10,8 +14,11 @@ console.log('=== E2E License ===\n');
 // LIC-01: status active
 const status = await evalFn(`async () => await window.api.license.status()`);
 r.ok(status?.status === 'active', `LIC-01 license.status() = active`, status);
-r.ok(status?.code === LICENSE.code, `LIC-01b code 与文档一致`, status?.code);
-r.ok(status?.machine_id === LICENSE.machine_id, `LIC-01c machine_id 与文档一致`, status?.machine_id);
+// code / machine_id: 优先 env, 否则用 runtime status 的值 (不把激活凭证写进 git)
+const CODE = LICENSE.code || status?.code;
+const MID = LICENSE.machine_id || status?.machine_id;
+r.ok(!!CODE && status?.code === CODE, `LIC-01b code 非空且与 status 一致`, status?.code);
+r.ok(!!MID && /^[0-9a-f]{64}$/.test(MID) && status?.machine_id === MID, `LIC-01c machine_id 64hex 且与 status 一致`, status?.machine_id);
 
 // LIC-02: machineId
 const mid = await evalFn(`async () => await window.api.license.getMachineId()`);
@@ -56,22 +63,26 @@ try {
   r.ok(false, `LIC-05 throw`, e.message);
 }
 
-// LIC-06: Worker admin/codes list 看到本机码
-try {
-  const adminRes = await fetch(`${WORKER}/admin/codes?limit=50`, {
-    headers: { Authorization: `Bearer ${ADMIN}` },
-  });
-  const adminJson = await adminRes.json();
-  r.ok(adminJson?.ok === true, `LIC-06 admin/codes 端点联通`, { count: adminJson?.count });
-  const found = adminJson?.codes?.find((c) => c.code === LICENSE.code);
-  r.ok(!!found, `LIC-06b admin list 找到本机码 ${LICENSE.code}`, found);
-  r.ok(found?.status === 'active', `LIC-06c 本机码 status=active`, found?.status);
-  r.ok(found?.bound_machine_id === LICENSE.machine_id, `LIC-06d bound_machine_id 一致`, {
-    expect: LICENSE.machine_id,
-    got: found?.bound_machine_id,
-  });
-} catch (e) {
-  r.ok(false, `LIC-06 admin/codes throw`, e.message);
+// LIC-06: admin/codes list 看到本机码 (需 XHS_ADMIN_TOKEN env)
+if (!ADMIN) {
+  r.skip('LIC-06 admin/codes', '需 XHS_ADMIN_TOKEN env (bj admin 鉴权)');
+} else {
+  try {
+    const adminRes = await fetch(`${WORKER}/admin/codes?limit=50`, {
+      headers: { Authorization: `Bearer ${ADMIN}` },
+    });
+    const adminJson = await adminRes.json();
+    r.ok(adminJson?.ok === true, `LIC-06 admin/codes 端点联通`, { count: adminJson?.count });
+    const found = adminJson?.codes?.find((c) => c.code === CODE);
+    r.ok(!!found, `LIC-06b admin list 找到本机码 ${CODE}`, found);
+    r.ok(found?.status === 'active', `LIC-06c 本机码 status=active`, found?.status);
+    r.ok(found?.bound_machine_id === MID, `LIC-06d bound_machine_id 一致`, {
+      expect: MID,
+      got: found?.bound_machine_id,
+    });
+  } catch (e) {
+    r.ok(false, `LIC-06 admin/codes throw`, e.message);
+  }
 }
 
 // LIC-07 (clear) skip on purpose
@@ -115,8 +126,8 @@ try {
   r.ok(afterClear?.hasTabbar === false, `LIC-08e 300ms 内 .tabbar 消失`, afterClear);
 
   // Step 2: activate
-  const activateRes = await evalFn(`async () => await window.api.license.activate(${JSON.stringify(LICENSE.code)})`);
-  r.ok(activateRes?.status === 'active', `LIC-08f activate(${LICENSE.code}) 返 status=active`, activateRes);
+  const activateRes = await evalFn(`async () => await window.api.license.activate(${JSON.stringify(CODE)})`);
+  r.ok(activateRes?.status === 'active', `LIC-08f activate(${CODE}) 返 status=active`, activateRes);
   await new Promise((res) => setTimeout(res, 300));
   const afterActivate = await evalFn(`() => ({
     hasActivation: !!document.querySelector('.activation-card'),

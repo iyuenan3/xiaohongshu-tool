@@ -1,6 +1,9 @@
 // 链路集成 E2E tests
 import { connect, makeReporter, sleep, WORKER, ADMIN, LICENSE } from './_helper.mjs';
 
+// bj license 自签证书: 放行本进程 node fetch 自签校验 (INT-03 admin fetch 用)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const { evalFn, ws } = await connect({ requireMainUI: true });
 const r = makeReporter('Integration');
 
@@ -75,20 +78,24 @@ try {
     r.ok(loadAfter.status === 404 || loadAfter.ok === false, `INT-02c delete 后 xhs-asset 失效`, loadAfter);
   }
 
-  // INT-03: 激活码本机绑定 → Worker /admin/codes 看到
-  console.log('  → INT-03: Worker admin list 与本机激活态一致');
-  const status = await evalFn(`async () => await window.api.license.status()`);
-  const adminRes = await fetch(`${WORKER}/admin/codes?limit=50`, {
-    headers: { Authorization: `Bearer ${ADMIN}` },
-  });
-  const adminJson = await adminRes.json();
-  const found = adminJson?.codes?.find((c) => c.code === status?.code);
-  r.ok(!!found, `INT-03 admin/codes 找到本机码 ${status?.code}`);
-  r.ok(found?.status === 'active', `INT-03b 状态=active`, found?.status);
-  r.ok(found?.bound_machine_id === status?.machine_id, `INT-03c bound_machine_id 一致`, {
-    expect: status?.machine_id,
-    got: found?.bound_machine_id,
-  });
+  // INT-03: 激活码本机绑定 → admin/codes 看到 (需 XHS_ADMIN_TOKEN env)
+  if (!ADMIN) {
+    r.skip('INT-03 admin/codes 一致', '需 XHS_ADMIN_TOKEN env (bj admin 鉴权)');
+  } else {
+    console.log('  → INT-03: admin list 与本机激活态一致');
+    const status = await evalFn(`async () => await window.api.license.status()`);
+    const adminRes = await fetch(`${WORKER}/admin/codes?limit=50`, {
+      headers: { Authorization: `Bearer ${ADMIN}` },
+    });
+    const adminJson = await adminRes.json();
+    const found = adminJson?.codes?.find((c) => c.code === status?.code);
+    r.ok(!!found, `INT-03 admin/codes 找到本机码 ${status?.code}`);
+    r.ok(found?.status === 'active', `INT-03b 状态=active`, found?.status);
+    r.ok(found?.bound_machine_id === status?.machine_id, `INT-03c bound_machine_id 一致`, {
+      expect: status?.machine_id,
+      got: found?.bound_machine_id,
+    });
+  }
 
   // INT-04: tab 切换 textarea 值保留
   console.log('  → INT-04: tab 切换 textarea 值保留');
