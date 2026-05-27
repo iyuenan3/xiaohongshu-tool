@@ -74,3 +74,7 @@ xiaohongshu-mcp/app
 .claude/
 AIREADME/
 CLAUDE.md
+
+# 内部测试文档（含过时内部域名，不进公开 repo）
+TESTING.md
+TEST_REPORT.md

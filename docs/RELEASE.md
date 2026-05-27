@@ -8,7 +8,7 @@
 
 ### 1. 决定 GitHub 仓库
 
-在 GitHub 创建一个 public 或 private 仓库（例：`maxwellii/xhs-app`）。
+在 GitHub 创建一个 public 或 private 仓库。
 
 > 公开发布建议 **public** + 简短 README 即可（用户不会真去看源码，但 electron-updater 需要能匿名访问 release/）。私有仓库需要在客户端嵌入 GitHub token，反而更不安全。
 
