@@ -18,12 +18,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14    # Apple Silicon
+          - os: macos-14    # Apple Silicon (arm64)
             arch: arm64
             go_arch: arm64
-          - os: macos-13    # Intel
-            arch: x64
-            go_arch: amd64
+          # Intel (macos-13/x64) 默认不编: GH 私仓 Intel runner 排队卡 8~13h, arm64 已覆盖 2020+ Mac。
+          # 需要 Intel 包时取消下面注释 (用户须特地说明), 再触发 build:
+          # - os: macos-13
+          #   arch: x64
+          #   go_arch: amd64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
