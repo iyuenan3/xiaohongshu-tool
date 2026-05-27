@@ -124,14 +124,7 @@
         "height": 480
       }
     },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "iyuenan3",
-        "repo": "xiaohongshu-tool",
-        "releaseType": "release"
-      }
-    ],
+    "publish": [],
     "win": {
       "target": [
         {

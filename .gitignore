@@ -70,5 +70,7 @@ xiaohongshu-mcp/main
 xiaohongshu-mcp/app
 /cookies.json
 
-# Claude Code 运行时
+# Claude Code 运行时 + AI 内部文档（本地保留，不进公开 repo）
 .claude/
+AIREADME/
+CLAUDE.md
