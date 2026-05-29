@@ -135,6 +135,19 @@ export interface PlanActionP {
 export type GeneratePlanResultP =
   | { ok: true; planId: number; actionsCount: number; rationale: string }
   | { ok: false; error: string };
+export interface PendingPublishP {
+  id: number;
+  plan_action_id: number | null;
+  title: string | null;
+  content: string | null;
+  images: string | null;   // JSON: 素材 id 列表
+  tags: string | null;     // JSON
+  ai_reason: string | null;
+  schedule_at: number | null;
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'published';
+  created_at: number;
+  decided_at: number | null;
+}
 
 const api = {
   ping: () => ipcRenderer.invoke('app:ping'),
@@ -287,6 +300,11 @@ const api = {
     listActions: (planId: number) => ipcRenderer.invoke('operating:list-actions', planId) as Promise<PlanActionP[]>,
     activatePlan: (planId: number) =>
       ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; pendingPublish: number; error?: string }>,
+    listPending: () => ipcRenderer.invoke('operating:list-pending') as Promise<PendingPublishP[]>,
+    approvePublish: (id: number) => ipcRenderer.invoke('operating:approve-publish', id) as Promise<{ ok: boolean; error?: string }>,
+    rejectPending: (id: number) => ipcRenderer.invoke('operating:reject-pending', id) as Promise<{ ok: boolean }>,
+    updatePending: (id: number, patch: { title?: string; content?: string; images?: string[]; tags?: string[] }) =>
+      ipcRenderer.invoke('operating:update-pending', id, patch) as Promise<{ ok: boolean }>,
   },
 
   // 日志导出 + renderer 透传 (内测期间用)

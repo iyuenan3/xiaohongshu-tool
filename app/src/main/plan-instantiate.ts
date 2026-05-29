@@ -15,6 +15,14 @@ interface InteractSpec {
   comment?: number;
 }
 
+interface PublishSpec {
+  theme?: string;
+  title?: string;
+  content?: string;
+  asset_tags?: string[];
+  note_tags?: string[];
+}
+
 export interface ActivatePlanResult {
   ok: boolean;
   created: number;   // 实例化的互动工作流数
@@ -65,9 +73,33 @@ export function activatePlan(planId: number, scheduler: WorkflowScheduler): Acti
       // 纯浏览养号: 现有无对应模板, P2 补「定时浏览」后再实例化
       updateActionStatus(a.id, 'skipped');
       skipped++;
-    } else {
-      // publish: 保持 pending, 留 M4 待审闸门 (到点拟稿 → 待审队列 → 用户确认才发)
+    } else if (a.type === 'publish') {
+      // 发布: 实例化成 planned_publish 工作流 (once 调度), 到点拟稿进待审队列, 用户确认才发
+      let spec: PublishSpec = {};
+      try {
+        spec = JSON.parse(a.spec) as PublishSpec;
+      } catch {
+        /* ignore */
+      }
+      const wf = createWorkflow({
+        template_id: 'planned_publish',
+        name: `[运营] 发布「${spec.theme || spec.title || '笔记'}」`,
+        params: {
+          title: spec.title ?? '',
+          content: spec.content ?? '',
+          asset_tags: (spec.asset_tags ?? []).join(','),
+          note_tags: (spec.note_tags ?? []).join(','),
+          theme: spec.theme ?? '',
+          plan_action_id: a.id,
+        },
+        schedule: { type: 'once', at: a.scheduled_at, jitter_min: 5, tz },
+        enabled: true,
+      });
+      scheduler.rescheduleOne(wf.id);
+      updateActionStatus(a.id, 'scheduled', wf.id);
       pendingPublish++;
+    } else {
+      skipped++;
     }
   }
 

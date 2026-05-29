@@ -5,6 +5,7 @@ import { dailyComment } from './daily-comment';
 import { scheduledPublish } from './scheduled-publish';
 import { dailyDataSnapshot } from './daily-data-snapshot';
 import { keywordLikeComment } from './keyword-like-comment';
+import { plannedPublish } from './planned-publish';
 
 export interface Template {
   id: string;
@@ -39,7 +40,11 @@ export const TEMPLATES: Record<string, Template> = {
   [keywordLikeComment.id]: keywordLikeComment,
   [scheduledPublish.id]: scheduledPublish,
   [dailyDataSnapshot.id]: dailyDataSnapshot,
+  [plannedPublish.id]: plannedPublish,
 };
+
+// 自主运营内部模板, 不在「手动建工作流」列表出现 (仅供 scheduler 执行 + plan-instantiate 用)
+const INTERNAL_TEMPLATE_IDS = new Set(['planned_publish']);
 
 export interface TemplateMeta {
   id: string;
@@ -50,11 +55,13 @@ export interface TemplateMeta {
 }
 
 export function listTemplateMetas(): TemplateMeta[] {
-  return Object.values(TEMPLATES).map((t) => ({
-    id: t.id,
-    name: t.name,
-    emoji: t.emoji,
-    description: t.description,
-    paramsSchema: t.paramsSchema,
-  }));
+  return Object.values(TEMPLATES)
+    .filter((t) => !INTERNAL_TEMPLATE_IDS.has(t.id))
+    .map((t) => ({
+      id: t.id,
+      name: t.name,
+      emoji: t.emoji,
+      description: t.description,
+      paramsSchema: t.paramsSchema,
+    }));
 }

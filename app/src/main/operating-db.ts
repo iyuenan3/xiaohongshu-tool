@@ -220,3 +220,58 @@ export function getLatestSnapshot(): AccountSnapshot | null {
     .get() as AccountSnapshot | undefined;
   return row ?? null;
 }
+
+// ============ 待审发布 CRUD (M4) ============
+
+export interface InsertPendingInput {
+  plan_action_id?: number | null;
+  title: string;
+  content: string;
+  images: string[];   // 素材 id 列表
+  tags: string[];
+  ai_reason?: string;
+  schedule_at?: number | null;
+}
+
+export function insertPending(input: InsertPendingInput): PendingPublish {
+  const now = Date.now();
+  const result = getDb()
+    .prepare(
+      `INSERT INTO pending_publish (plan_action_id, title, content, images, tags, ai_reason, schedule_at, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    )
+    .run(
+      input.plan_action_id ?? null, input.title, input.content,
+      JSON.stringify(input.images), JSON.stringify(input.tags),
+      input.ai_reason ?? null, input.schedule_at ?? null, now,
+    );
+  return getPending(Number(result.lastInsertRowid))!;
+}
+
+export function getPending(id: number): PendingPublish | null {
+  const row = getDb().prepare(`SELECT * FROM pending_publish WHERE id = ?`).get(id) as PendingPublish | undefined;
+  return row ?? null;
+}
+
+export function listPending(status: PendingStatus = 'pending'): PendingPublish[] {
+  return getDb().prepare(`SELECT * FROM pending_publish WHERE status = ? ORDER BY created_at DESC`).all(status) as PendingPublish[];
+}
+
+export function updatePendingStatus(id: number, status: PendingStatus): void {
+  getDb().prepare(`UPDATE pending_publish SET status = ?, decided_at = ? WHERE id = ?`).run(status, Date.now(), id);
+}
+
+export function updatePendingContent(
+  id: number,
+  patch: { title?: string; content?: string; images?: string[]; tags?: string[] },
+): void {
+  const fields: string[] = [];
+  const args: unknown[] = [];
+  if (patch.title !== undefined) { fields.push('title = ?'); args.push(patch.title); }
+  if (patch.content !== undefined) { fields.push('content = ?'); args.push(patch.content); }
+  if (patch.images !== undefined) { fields.push('images = ?'); args.push(JSON.stringify(patch.images)); }
+  if (patch.tags !== undefined) { fields.push('tags = ?'); args.push(JSON.stringify(patch.tags)); }
+  if (!fields.length) return;
+  args.push(id);
+  getDb().prepare(`UPDATE pending_publish SET ${fields.join(', ')} WHERE id = ?`).run(...args);
+}

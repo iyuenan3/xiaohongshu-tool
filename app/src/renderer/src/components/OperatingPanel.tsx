@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import PendingPublishQueue from './PendingPublishQueue';
 
 interface ProfileConstraints {
   pub_per_week: number;
@@ -241,7 +242,7 @@ export default function OperatingPanel() {
               )}
             </div>
             <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 10 }}>
-              激活后：互动类（💬）按计划时间自动执行；发布类（✍️）将在到点时拟稿进「待审队列」，你确认后才发（M4 开发中）；浏览类（👀）暂未支持。
+              激活后：互动类（💬）按计划时间自动执行；发布类（✍️）到点拟稿进下方「待审发布」，你确认后才发；浏览类（👀）暂未支持。
             </p>
           </div>
         ) : (
@@ -252,6 +253,8 @@ export default function OperatingPanel() {
           )
         )}
       </div>
+
+      <PendingPublishQueue />
     </div>
   );
 }

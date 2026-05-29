@@ -23,11 +23,12 @@ import {
 import { listTemplateMetas } from './workflow-templates';
 import {
   getActiveProfile, createProfile, updateProfile, getProfile, listProfiles, setProfileStatus,
-  getLatestPlan, listActions,
+  getLatestPlan, listActions, listPending, updatePendingContent,
   type SaveProfileInput, type ProfileStatus,
 } from './operating-db';
 import { generatePlan } from './planner';
 import { activatePlan } from './plan-instantiate';
+import { approvePublish, rejectPending } from './publish-gate';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -98,6 +99,14 @@ export function registerIpcHandlers(
   ipcMain.handle('operating:get-latest-plan', () => getLatestPlan());
   ipcMain.handle('operating:list-actions', (_e, planId: number) => listActions(planId));
   ipcMain.handle('operating:activate-plan', (_e, planId: number) => activatePlan(planId, scheduler));
+  // 自主运营: 发布待审闸门 (M4)
+  ipcMain.handle('operating:list-pending', () => listPending('pending'));
+  ipcMain.handle('operating:approve-publish', (_e, id: number) => approvePublish(id, goProc));
+  ipcMain.handle('operating:reject-pending', (_e, id: number) => rejectPending(id));
+  ipcMain.handle('operating:update-pending', (_e, id: number, patch: { title?: string; content?: string; images?: string[]; tags?: string[] }) => {
+    updatePendingContent(id, patch);
+    return { ok: true };
+  });
 
   // 对话历史 (SQLite)
   ipcMain.handle('conv:list', () => listConversations());
