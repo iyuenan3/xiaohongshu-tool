@@ -159,6 +159,11 @@ export class WorkflowScheduler {
         status: 'missed',
         summary: '⏭️ 错过调度 (软件未启动)',
       });
+      if (sched.type === 'once') {
+        // 一次性: 错过即结束, 停用不补跑不重排
+        updateWorkflow(wf.id, { enabled: 0, last_fire_at: wf.next_fire_at });
+        return;
+      }
       wf.last_fire_at = wf.next_fire_at;
       wf.next_fire_at = this.computeNextFireTime(wf);
       updateWorkflow(wf.id, { last_fire_at: wf.last_fire_at, next_fire_at: wf.next_fire_at });
@@ -252,13 +257,18 @@ export class WorkflowScheduler {
     const refreshed = getWorkflow(workflowId);
     if (refreshed && refreshed.enabled && !refreshed.deleted_at) {
       const sched = this.parseSchedule(refreshed);
-      if (sched.type !== 'manual') {
+      if (sched.type === 'once') {
+        // 一次性: 执行后自动停用, 不重排 (自主运营计划行动跑完即止)
+        updateWorkflow(refreshed.id, { enabled: 0, last_fire_at: startedAt });
+        this.cancelOne(refreshed.id);
+      } else if (sched.type !== 'manual') {
         refreshed.last_fire_at = startedAt;
         refreshed.next_fire_at = this.computeNextFireTime(refreshed);
         updateWorkflow(refreshed.id, { last_fire_at: refreshed.last_fire_at, next_fire_at: refreshed.next_fire_at });
         this.scheduleNext(refreshed);
       }
     }
+
   }
 
   private buildHelpers(runId: number): ExecHelpers {
@@ -437,6 +447,9 @@ function computeBaseFireTime(s: Schedule): number {
       const hours = s.interval_hours ?? 6;
       return now.getTime() + hours * 60 * 60 * 1000;
     }
+    case 'once':
+      // 一次性: 在指定绝对时间执行 (自主运营计划行动). 执行/错过后停用, 不重排.
+      return s.at ?? now.getTime();
     case 'manual':
     default:
       return now.getTime() + 365 * 24 * 60 * 60 * 1000;  // 远期, 不会触发 (scheduleNext 内已 short-circuit)

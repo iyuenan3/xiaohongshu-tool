@@ -48,6 +48,9 @@ export default function OperatingPanel() {
   const [actions, setActions] = useState<ActionRow[]>([]);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [planId, setPlanId] = useState<number | null>(null);
+  const [activating, setActivating] = useState(false);
+  const [activateMsg, setActivateMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void window.api.operating.getActiveProfile().then((p) => {
@@ -69,8 +72,10 @@ export default function OperatingPanel() {
     });
     void window.api.operating.getLatestPlan().then(async (p) => {
       if (!p) return;
+      setPlanId(p.id);
       setPlanRationale(p.rationale);
       setActions(await window.api.operating.listActions(p.id));
+      if (p.status === 'active') setActivateMsg('此计划已激活');
     });
   }, []);
 
@@ -117,11 +122,33 @@ export default function OperatingPanel() {
       }
       const p = await window.api.operating.getLatestPlan();
       if (p) {
+        setPlanId(p.id);
         setPlanRationale(p.rationale);
         setActions(await window.api.operating.listActions(p.id));
+        setActivateMsg(null);
       }
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const activate = async () => {
+    if (!planId) return;
+    setActivating(true);
+    setActivateMsg(null);
+    try {
+      const r = await window.api.operating.activatePlan(planId);
+      if (!r.ok) {
+        setActivateMsg(`激活失败：${r.error ?? '未知'}`);
+        return;
+      }
+      const parts = [`已排 ${r.created} 个互动任务进自动调度`];
+      if (r.pendingPublish > 0) parts.push(`${r.pendingPublish} 个发布待审（M4 开发中）`);
+      if (r.skipped > 0) parts.push(`${r.skipped} 个跳过（浏览类暂未支持）`);
+      setActivateMsg('✓ ' + parts.join('；'));
+      setActions(await window.api.operating.listActions(planId));
+    } finally {
+      setActivating(false);
     }
   };
 
@@ -203,8 +230,18 @@ export default function OperatingPanel() {
                 )}
               </div>
             ))}
-            <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 12 }}>
-              下一步（开发中）：互动类行动会自动排进定时调度执行；发布类会在到点时把笔记拟好放进「待审队列」，你确认后才发。
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+              <button onClick={activate} disabled={activating || !planId} style={btnStyle}>
+                {activating ? '激活中…' : '激活计划（互动自动执行）'}
+              </button>
+              {activateMsg && (
+                <span style={{ fontSize: 12, color: activateMsg.startsWith('✓') || activateMsg.includes('已激活') ? 'var(--green)' : 'var(--accent, #FF2442)' }}>
+                  {activateMsg}
+                </span>
+              )}
+            </div>
+            <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 10 }}>
+              激活后：互动类（💬）按计划时间自动执行；发布类（✍️）将在到点时拟稿进「待审队列」，你确认后才发（M4 开发中）；浏览类（👀）暂未支持。
             </p>
           </div>
         ) : (

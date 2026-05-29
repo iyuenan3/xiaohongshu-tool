@@ -27,6 +27,7 @@ import {
   type SaveProfileInput, type ProfileStatus,
 } from './operating-db';
 import { generatePlan } from './planner';
+import { activatePlan } from './plan-instantiate';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -96,6 +97,7 @@ export function registerIpcHandlers(
   ipcMain.handle('operating:generate-plan', (_e, horizonDays?: number) => generatePlan(horizonDays ?? 7));
   ipcMain.handle('operating:get-latest-plan', () => getLatestPlan());
   ipcMain.handle('operating:list-actions', (_e, planId: number) => listActions(planId));
+  ipcMain.handle('operating:activate-plan', (_e, planId: number) => activatePlan(planId, scheduler));
 
   // 对话历史 (SQLite)
   ipcMain.handle('conv:list', () => listConversations());

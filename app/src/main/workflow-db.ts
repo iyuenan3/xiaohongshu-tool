@@ -16,11 +16,12 @@ export type FailReason =
 export type RunStatus = 'running' | 'success' | 'partial' | 'failed' | 'missed' | 'aborted' | 'disabled_by_failure';
 
 export interface Schedule {
-  type: 'daily' | 'weekly' | 'interval' | 'manual';
+  type: 'daily' | 'weekly' | 'interval' | 'manual' | 'once';
   hour?: number;        // daily / weekly: 0-23
   minute?: number;      // daily / weekly: 0-59
   weekday?: number;     // weekly: 0-6 (Sun=0)
   interval_hours?: number;  // interval: 1-72
+  at?: number;          // once: 执行的绝对时间戳 (ms). 自主运营计划行动用
   jitter_min?: number;  // ±N min 随机抖动, default 10
   tz: string;            // 创建时 Intl.DateTimeFormat().resolvedOptions().timeZone, e.g. 'Asia/Shanghai'
 }

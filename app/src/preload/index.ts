@@ -285,6 +285,8 @@ const api = {
       ipcRenderer.invoke('operating:generate-plan', horizonDays) as Promise<GeneratePlanResultP>,
     getLatestPlan: () => ipcRenderer.invoke('operating:get-latest-plan') as Promise<OperatingPlanP | null>,
     listActions: (planId: number) => ipcRenderer.invoke('operating:list-actions', planId) as Promise<PlanActionP[]>,
+    activatePlan: (planId: number) =>
+      ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; pendingPublish: number; error?: string }>,
   },
 
   // 日志导出 + renderer 透传 (内测期间用)
