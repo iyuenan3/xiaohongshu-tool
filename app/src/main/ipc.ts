@@ -21,6 +21,10 @@ import {
   listRuns, getConfig, setConfig, type CreateWorkflowInput,
 } from './workflow-db';
 import { listTemplateMetas } from './workflow-templates';
+import {
+  getActiveProfile, createProfile, updateProfile, getProfile, listProfiles, setProfileStatus,
+  type SaveProfileInput, type ProfileStatus,
+} from './operating-db';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -70,6 +74,22 @@ export function registerIpcHandlers(
   });
   ipcMain.handle('xhs:isVisible', () => actions.isXhsVisible());
   ipcMain.handle('page:getContext', async () => actions.getXhsContext());
+
+  // 自主运营: 运营画像 (M1)
+  ipcMain.handle('operating:get-active-profile', () => getActiveProfile());
+  ipcMain.handle('operating:list-profiles', () => listProfiles());
+  ipcMain.handle('operating:get-profile', (_e, id: number) => getProfile(id));
+  ipcMain.handle('operating:save-profile', (_e, input: SaveProfileInput & { id?: number }) => {
+    if (input.id) {
+      updateProfile(input.id, input);
+      return getProfile(input.id);
+    }
+    return createProfile(input);
+  });
+  ipcMain.handle('operating:set-profile-status', (_e, id: number, status: ProfileStatus) => {
+    setProfileStatus(id, status);
+    return { ok: true };
+  });
 
   // 对话历史 (SQLite)
   ipcMain.handle('conv:list', () => listConversations());

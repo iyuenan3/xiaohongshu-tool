@@ -4,6 +4,7 @@ import HelpPanel from './components/HelpPanel';
 import AssetLibrary from './components/AssetLibrary';
 import Settings from './components/Settings';
 import ActivationPage from './components/ActivationPage';
+import OperatingPanel from './components/OperatingPanel';
 
 interface GoStatus {
   ok: boolean;
@@ -32,7 +33,7 @@ interface LicenseState {
   suspend_reason?: string | null;
 }
 
-type Tab = 'console' | 'assets' | 'help';
+type Tab = 'console' | 'operating' | 'assets' | 'help';
 
 export default function App() {
   const [licenseState, setLicenseState] = useState<LicenseState | null>(null);
@@ -115,6 +116,12 @@ export default function App() {
           控制台
         </button>
         <button
+          className={`tabbar__tab ${tab === 'operating' ? 'tabbar__tab--active' : ''}`}
+          onClick={() => setTab('operating')}
+        >
+          自主运营
+        </button>
+        <button
           className={`tabbar__tab ${xhsVisible ? 'tabbar__tab--active' : ''}`}
           onClick={async () => {
             await window.api.xhs.toggle();
@@ -156,6 +163,10 @@ export default function App() {
       <div className="tab-body">
         <div className={`tab-pane tab-pane--console ${tab === 'console' ? '' : 'tab-pane--hidden'}`}>
           <ConsolePane goOk={goStatus?.ok === true} onOpenSettings={() => setSettingsOpen(true)} />
+        </div>
+
+        <div className={`tab-pane tab-pane--operating ${tab === 'operating' ? '' : 'tab-pane--hidden'}`}>
+          <OperatingPanel />
         </div>
 
         <div className={`tab-pane tab-pane--assets ${tab === 'assets' ? '' : 'tab-pane--hidden'}`}>

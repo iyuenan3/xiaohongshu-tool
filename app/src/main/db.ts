@@ -105,6 +105,56 @@ export function initDb(): Database.Database {
       raw         TEXT                      -- 完整 my_profile JSON 备份
     );
     CREATE INDEX IF NOT EXISTS idx_data_snapshots_taken_at ON data_snapshots(taken_at DESC);
+
+    -- ===== 自主运营系统 (M1+): 画像 / 计划 / 行动项 / 待审发布 =====
+    CREATE TABLE IF NOT EXISTS operating_profile (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      direction   TEXT NOT NULL,                  -- 赛道/方向
+      persona     TEXT,                           -- 人设调性
+      constraints TEXT NOT NULL,                  -- JSON: {pub_per_week, active_hours, taboo[], tone, free_text}
+      asset_tags  TEXT NOT NULL DEFAULT '[]',     -- JSON string[]: 绑定素材 tag 范围
+      status      TEXT NOT NULL DEFAULT 'draft',  -- draft / active / paused
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS operating_plan (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id   INTEGER NOT NULL,
+      generated_at INTEGER NOT NULL,
+      horizon_days INTEGER NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'draft', -- draft(待审) / active / done / superseded
+      raw          TEXT NOT NULL,                 -- Planner 输出完整 JSON
+      rationale    TEXT                           -- AI 规划理由
+    );
+    CREATE INDEX IF NOT EXISTS idx_operating_plan_profile ON operating_plan(profile_id, generated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS plan_action (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_id      INTEGER NOT NULL,
+      scheduled_at INTEGER NOT NULL,
+      type         TEXT NOT NULL,                 -- browse / interact / publish
+      spec         TEXT NOT NULL,                 -- JSON: 该行动参数
+      workflow_id  INTEGER,                       -- 实例化后绑定的 workflow
+      status       TEXT NOT NULL DEFAULT 'pending', -- pending / scheduled / done / skipped
+      created_at   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_plan_action_plan ON plan_action(plan_id, scheduled_at);
+
+    CREATE TABLE IF NOT EXISTS pending_publish (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      plan_action_id INTEGER,
+      title          TEXT,
+      content        TEXT,
+      images         TEXT,                         -- JSON: 素材 id 列表
+      tags           TEXT,                         -- JSON: 标签
+      ai_reason      TEXT,                         -- AI 为何这样写
+      schedule_at    INTEGER,                      -- 计划发布时间
+      status         TEXT NOT NULL DEFAULT 'pending', -- pending/approved/rejected/expired/published
+      created_at     INTEGER NOT NULL,
+      decided_at     INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_pending_publish_status ON pending_publish(status, created_at DESC);
   `);
 
   // 老 db 升级: 给 media_assets 加 tags/description/analyzed 列 (SQLite 不支持 ALTER IF NOT EXISTS)

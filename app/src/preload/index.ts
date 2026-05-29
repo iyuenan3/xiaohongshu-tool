@@ -95,6 +95,25 @@ interface MediaAsset {
   analyzed: number;      // 0/1
 }
 
+// 自主运营 (M1+)
+export interface ProfileConstraintsP {
+  pub_per_week: number;
+  active_hours: string;
+  taboo: string[];
+  tone: string;
+  free_text?: string;
+}
+export interface OperatingProfileP {
+  id: number;
+  direction: string;
+  persona: string | null;
+  constraints: string;   // JSON of ProfileConstraintsP
+  asset_tags: string;    // JSON string[]
+  status: 'draft' | 'active' | 'paused';
+  created_at: number;
+  updated_at: number;
+}
+
 const api = {
   ping: () => ipcRenderer.invoke('app:ping'),
   getVersion: () => ipcRenderer.invoke('app:version'),
@@ -227,6 +246,19 @@ const api = {
       onPush('workflow:run-finished', cb),
     onAutoDisabled: (cb: (e: { workflowId: number; lastReason: string }) => void) =>
       onPush('workflow:auto-disabled', cb),
+  },
+
+  // 自主运营 (M1: 画像)
+  operating: {
+    getActiveProfile: () => ipcRenderer.invoke('operating:get-active-profile') as Promise<OperatingProfileP | null>,
+    listProfiles: () => ipcRenderer.invoke('operating:list-profiles') as Promise<OperatingProfileP[]>,
+    getProfile: (id: number) => ipcRenderer.invoke('operating:get-profile', id) as Promise<OperatingProfileP | null>,
+    saveProfile: (input: {
+      id?: number; direction: string; persona?: string | null;
+      constraints: ProfileConstraintsP; asset_tags?: string[]; status?: 'draft' | 'active' | 'paused';
+    }) => ipcRenderer.invoke('operating:save-profile', input) as Promise<OperatingProfileP>,
+    setProfileStatus: (id: number, status: 'draft' | 'active' | 'paused') =>
+      ipcRenderer.invoke('operating:set-profile-status', id, status) as Promise<{ ok: boolean }>,
   },
 
   // 日志导出 + renderer 透传 (内测期间用)
