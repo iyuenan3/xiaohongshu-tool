@@ -52,9 +52,10 @@ export default function OperatingPanel() {
   const [planId, setPlanId] = useState<number | null>(null);
   const [activating, setActivating] = useState(false);
   const [activateMsg, setActivateMsg] = useState<string | null>(null);
+  const [planActivated, setPlanActivated] = useState(false);
 
   useEffect(() => {
-    void window.api.operating.getActiveProfile().then((p) => {
+    void window.api.operating.getActiveProfile().then(async (p) => {
       if (!p) return;
       const c = JSON.parse(p.constraints || '{}') as ProfileConstraints;
       const tags = JSON.parse(p.asset_tags || '[]') as string[];
@@ -70,13 +71,17 @@ export default function OperatingPanel() {
         free_text: c.free_text ?? '',
         asset_tags: tags.join(', '),
       });
-    });
-    void window.api.operating.getLatestPlan().then(async (p) => {
-      if (!p) return;
-      setPlanId(p.id);
-      setPlanRationale(p.rationale);
-      setActions(await window.api.operating.listActions(p.id));
-      if (p.status === 'active') setActivateMsg('此计划已激活');
+      // 计划按当前画像过滤, 避免换画像后混搭到旧画像的计划
+      const plan = await window.api.operating.getLatestPlan(p.id);
+      if (plan) {
+        setPlanId(plan.id);
+        setPlanRationale(plan.rationale);
+        setActions(await window.api.operating.listActions(plan.id));
+        if (plan.status === 'active') {
+          setActivateMsg('此计划已激活');
+          setPlanActivated(true);
+        }
+      }
     });
   }, []);
 
@@ -127,6 +132,7 @@ export default function OperatingPanel() {
         setPlanRationale(p.rationale);
         setActions(await window.api.operating.listActions(p.id));
         setActivateMsg(null);
+        setPlanActivated(false);
       }
     } finally {
       setGenerating(false);
@@ -144,9 +150,10 @@ export default function OperatingPanel() {
         return;
       }
       const parts = [`已排 ${r.created} 个互动任务进自动调度`];
-      if (r.pendingPublish > 0) parts.push(`${r.pendingPublish} 个发布待审（M4 开发中）`);
+      if (r.pendingPublish > 0) parts.push(`${r.pendingPublish} 个发布已排程（到点拟稿进待审）`);
       if (r.skipped > 0) parts.push(`${r.skipped} 个跳过（浏览类暂未支持）`);
       setActivateMsg('✓ ' + parts.join('；'));
+      setPlanActivated(true);
       setActions(await window.api.operating.listActions(planId));
     } finally {
       setActivating(false);
@@ -232,8 +239,8 @@ export default function OperatingPanel() {
               </div>
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
-              <button onClick={activate} disabled={activating || !planId} style={btnStyle}>
-                {activating ? '激活中…' : '激活计划（互动自动执行）'}
+              <button onClick={activate} disabled={activating || !planId || planActivated} style={btnStyle}>
+                {activating ? '激活中…' : planActivated ? '已激活' : '激活计划（互动自动执行）'}
               </button>
               {activateMsg && (
                 <span style={{ fontSize: 12, color: activateMsg.startsWith('✓') || activateMsg.includes('已激活') ? 'var(--green)' : 'var(--accent, #FF2442)' }}>
@@ -263,7 +270,11 @@ function actionSummary(type: string, specJson: string): string {
   try {
     const s = JSON.parse(specJson) as Record<string, unknown>;
     if (type === 'browse') return `刷「${s.keyword}」${s.count ?? '?'} 篇`;
-    if (type === 'interact') return `互动「${s.keyword}」点赞 ${s.like ?? 0} · 评论 ${s.comment ?? 0}`;
+    if (type === 'interact') {
+      const like = Math.min(Number(s.like ?? 0) || 0, 5); // 模板硬上限: 点赞 ≤5
+      const comment = Math.min(Number(s.comment ?? 0) || 0, 3); // 评论 ≤3
+      return `互动「${s.keyword}」点赞 ${like} · 评论 ${comment}`;
+    }
     if (type === 'publish') return `发布：${(s.title as string) || (s.theme as string) || '笔记'}`;
     return type;
   } catch {

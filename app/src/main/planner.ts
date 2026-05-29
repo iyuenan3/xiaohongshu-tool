@@ -100,9 +100,14 @@ export async function generatePlan(horizonDays = 7): Promise<GeneratePlanResult>
 }
 
 function buildContext(profile: OperatingProfile, horizonDays: number): string {
-  const c = JSON.parse(profile.constraints || '{}') as ProfileConstraints;
+  let c: ProfileConstraints;
+  try {
+    c = JSON.parse(profile.constraints || '{}') as ProfileConstraints;
+  } catch {
+    c = {} as ProfileConstraints;
+  }
   const snap = getLatestSnapshot();
-  const assets = pickAssets(JSON.parse(profile.asset_tags || '[]') as string[]);
+  const assets = pickAssets(safeJsonArr(profile.asset_tags));
   const now = new Date();
   const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()];
 
@@ -113,7 +118,7 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
   L.push(`每周发布上限: ${c.pub_per_week ?? 3} 条`);
   L.push(`活跃时段: ${c.active_hours || '未指定'}`);
   if (c.tone) L.push(`内容调性关键词: ${c.tone}`);
-  if (c.taboo?.length) L.push(`禁忌(绝不涉及): ${c.taboo.join('、')}`);
+  if (Array.isArray(c.taboo) && c.taboo.length) L.push(`禁忌(绝不涉及): ${c.taboo.join('、')}`);
   if (c.free_text) L.push(`补充说明: ${c.free_text}`);
 
   L.push('\n# 近期账号数据');
@@ -126,7 +131,7 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
   L.push('\n# 可用素材 (发布选图只能用这些，按标签匹配)');
   if (assets.length) {
     for (const a of assets.slice(0, 30)) {
-      const tags = (JSON.parse(a.tags || '[]') as string[]).join(',');
+      const tags = safeJsonArr(a.tags).join(',');
       L.push(`- [${tags || '无标签'}] ${a.description || a.filename}`);
     }
   } else {
@@ -139,24 +144,30 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
   return L.join('\n');
 }
 
+function safeJsonArr(s: string | null | undefined): string[] {
+  try {
+    const a = JSON.parse(s || '[]');
+    return Array.isArray(a) ? (a as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function pickAssets(tags: string[]): MediaAsset[] {
   const all = listAssets();
   if (!tags.length) return all;
-  return all.filter((a) => {
-    const at = JSON.parse(a.tags || '[]') as string[];
-    return at.some((t) => tags.includes(t));
-  });
+  return all.filter((a) => safeJsonArr(a.tags).some((t) => tags.includes(t)));
 }
 
 function parsePlannerOutput(raw: string): PlannerOutput | null {
   let txt = raw.trim();
   const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fence) txt = fence[1].trim();
-  const s = txt.indexOf('{');
-  const e = txt.lastIndexOf('}');
-  if (s >= 0 && e > s) txt = txt.slice(s, e + 1);
+  // 括号配平扫描提取第一个完整 JSON 对象 (容忍 LLM 在 JSON 前后带散文, 比 lastIndexOf('}') 稳)
+  const jsonStr = extractFirstJsonObject(txt);
+  if (!jsonStr) return null;
   try {
-    const obj = JSON.parse(txt) as PlannerOutput;
+    const obj = JSON.parse(jsonStr) as PlannerOutput;
     if (!obj || !Array.isArray(obj.actions)) return null;
     obj.actions = obj.actions.filter(
       (a) =>
@@ -170,12 +181,42 @@ function parsePlannerOutput(raw: string): PlannerOutput | null {
   }
 }
 
+// 从第一个 { 起做括号配平扫描 (跳过字符串内的括号), 返回第一个配平完整的 JSON 对象子串.
+function extractFirstJsonObject(txt: string): string | null {
+  const start = txt.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < txt.length; i++) {
+    const c = txt[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') {
+      inStr = true;
+    } else if (c === '{') {
+      depth++;
+    } else if (c === '}') {
+      depth--;
+      if (depth === 0) return txt.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
 function dayTimeToTs(day: number, time: string): number {
-  const [h, m] = time.split(':').map((x) => parseInt(x, 10));
+  const [rawH, rawM] = String(time).split(':').map((x) => parseInt(x, 10));
+  const h = Math.min(Math.max(isNaN(rawH) ? 20 : rawH, 0), 23);  // 夹 0-23, 防 setHours 越界静默滚动
+  const m = Math.min(Math.max(isNaN(rawM) ? 0 : rawM, 0), 59);
   const d = new Date();
-  d.setDate(d.getDate() + (day - 1));
-  d.setHours(isNaN(h) ? 20 : h, isNaN(m) ? 0 : m, 0, 0);
-  return d.getTime();
+  d.setDate(d.getDate() + Math.max(0, (Number(day) || 1) - 1));
+  d.setHours(h, m, 0, 0);
+  const ts = d.getTime();
+  // 行动落在过去 (如 day1 当天已过的时刻) → 顺延 5 分钟后, 否则会被 scheduleNext 判 missed 静默不执行
+  const now = Date.now();
+  return ts < now ? now + 5 * 60 * 1000 : ts;
 }
 
 async function callPlannerLLM(llm: LlmConfig, system: string, user: string): Promise<string> {

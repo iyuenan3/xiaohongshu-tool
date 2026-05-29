@@ -175,6 +175,10 @@ export function setPlanStatus(id: number, status: PlanStatus): void {
   getDb().prepare(`UPDATE operating_plan SET status = ? WHERE id = ?`).run(status, id);
 }
 
+export function listPlansByStatus(status: PlanStatus): OperatingPlan[] {
+  return getDb().prepare(`SELECT * FROM operating_plan WHERE status = ?`).all(status) as OperatingPlan[];
+}
+
 // ============ 行动项 CRUD (M2/M3) ============
 
 export function insertActions(

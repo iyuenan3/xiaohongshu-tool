@@ -6,8 +6,8 @@
 
 import log from 'electron-log/main';
 import type { WorkflowScheduler } from './workflow-scheduler';
-import { createWorkflow } from './workflow-db';
-import { getPlan, listActions, updateActionStatus, setPlanStatus } from './operating-db';
+import { createWorkflow, softDeleteWorkflow } from './workflow-db';
+import { getPlan, listActions, updateActionStatus, setPlanStatus, listPlansByStatus } from './operating-db';
 
 interface InteractSpec {
   keyword?: string;
@@ -34,6 +34,23 @@ export interface ActivatePlanResult {
 export function activatePlan(planId: number, scheduler: WorkflowScheduler): ActivatePlanResult {
   const plan = getPlan(planId);
   if (!plan) return { ok: false, created: 0, skipped: 0, pendingPublish: 0, error: '计划不存在' };
+  // 幂等: 已激活的计划不重复实例化 (防连点 / 重复 IPC)
+  if (plan.status === 'active') {
+    return { ok: false, created: 0, skipped: 0, pendingPublish: 0, error: '此计划已激活, 如需重排请重新生成计划' };
+  }
+
+  // 清理之前 active 的计划: 取消其调度中的工作流 + 标 superseded, 防新旧两套并行跑
+  for (const old of listPlansByStatus('active')) {
+    if (old.id === planId) continue;
+    for (const oa of listActions(old.id)) {
+      if (oa.status === 'scheduled' && oa.workflow_id) {
+        softDeleteWorkflow(oa.workflow_id);
+        scheduler.cancelOne(oa.workflow_id);
+        updateActionStatus(oa.id, 'skipped');
+      }
+    }
+    setPlanStatus(old.id, 'superseded');
+  }
 
   const actions = listActions(planId);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;

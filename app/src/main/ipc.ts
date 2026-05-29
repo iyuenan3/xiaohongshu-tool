@@ -96,7 +96,7 @@ export function registerIpcHandlers(
   });
   // 自主运营: 计划 (M2)
   ipcMain.handle('operating:generate-plan', (_e, horizonDays?: number) => generatePlan(horizonDays ?? 7));
-  ipcMain.handle('operating:get-latest-plan', () => getLatestPlan());
+  ipcMain.handle('operating:get-latest-plan', (_e, profileId?: number) => getLatestPlan(profileId));
   ipcMain.handle('operating:list-actions', (_e, planId: number) => listActions(planId));
   ipcMain.handle('operating:activate-plan', (_e, planId: number) => activatePlan(planId, scheduler));
   // 自主运营: 发布待审闸门 (M4)

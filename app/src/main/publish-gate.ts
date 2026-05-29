@@ -20,11 +20,14 @@ export async function approvePublish(
   const rate = checkRate('publish');
   if (!rate.allowed) return { ok: false, error: rate.reason ?? '已达发布频率上限' };
 
-  // 素材 id → 本地真实路径
+  // 素材 id → 本地真实路径 (区分: 从未选图 vs 选的图已被删)
   const imageIds = JSON.parse(p.images || '[]') as string[];
+  if (imageIds.length === 0) {
+    return { ok: false, error: '此笔记未配图 (生成时素材库无匹配标签), 请补素材后重新生成计划' };
+  }
   const imagePaths = imageIds.map((id) => getAssetPath(id)).filter((x): x is string => !!x);
   if (imagePaths.length === 0) {
-    return { ok: false, error: '无可用配图, 请先在素材库补图或编辑待审笔记选图' };
+    return { ok: false, error: '配图素材已被删除, 请重新选图或补素材' };
   }
 
   try {

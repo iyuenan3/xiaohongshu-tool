@@ -296,7 +296,7 @@ const api = {
       ipcRenderer.invoke('operating:set-profile-status', id, status) as Promise<{ ok: boolean }>,
     generatePlan: (horizonDays?: number) =>
       ipcRenderer.invoke('operating:generate-plan', horizonDays) as Promise<GeneratePlanResultP>,
-    getLatestPlan: () => ipcRenderer.invoke('operating:get-latest-plan') as Promise<OperatingPlanP | null>,
+    getLatestPlan: (profileId?: number) => ipcRenderer.invoke('operating:get-latest-plan', profileId) as Promise<OperatingPlanP | null>,
     listActions: (planId: number) => ipcRenderer.invoke('operating:list-actions', planId) as Promise<PlanActionP[]>,
     activatePlan: (planId: number) =>
       ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; pendingPublish: number; error?: string }>,

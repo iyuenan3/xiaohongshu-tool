@@ -311,6 +311,8 @@ export class WorkflowScheduler {
   computeNextFireTime(wf: Workflow): number {
     const s = this.parseSchedule(wf);
     const base = computeBaseFireTime(s);
+    // once: 一次性精确时刻, 不加抖动. 抖动会把接近当前的时刻推到过去 → scheduleNext 误判 missed → 行动静默不执行.
+    if (s.type === 'once') return base;
     const jitterMin = s.jitter_min ?? 10;
     const jitterMs = jitterMin * 60 * 1000;
     const jitter = (Math.random() * 2 - 1) * jitterMs;
