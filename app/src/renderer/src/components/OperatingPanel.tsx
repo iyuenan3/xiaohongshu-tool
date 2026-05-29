@@ -8,6 +8,17 @@ interface ProfileConstraints {
   free_text?: string;
 }
 
+interface ActionRow {
+  id: number;
+  plan_id: number;
+  scheduled_at: number;
+  type: 'browse' | 'interact' | 'publish';
+  spec: string;
+  workflow_id: number | null;
+  status: string;
+  created_at: number;
+}
+
 const EMPTY = {
   direction: '',
   persona: '',
@@ -19,12 +30,24 @@ const EMPTY = {
   asset_tags: '',
 };
 
+const TYPE_META: Record<string, { emoji: string; label: string }> = {
+  browse: { emoji: '👀', label: '刷垂类' },
+  interact: { emoji: '💬', label: '互动' },
+  publish: { emoji: '✍️', label: '发布' },
+};
+
 export default function OperatingPanel() {
   const [id, setId] = useState<number | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [status, setStatus] = useState<'draft' | 'active' | 'paused'>('draft');
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // 运营计划 (M2)
+  const [planRationale, setPlanRationale] = useState<string | null>(null);
+  const [actions, setActions] = useState<ActionRow[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   useEffect(() => {
     void window.api.operating.getActiveProfile().then((p) => {
@@ -43,6 +66,11 @@ export default function OperatingPanel() {
         free_text: c.free_text ?? '',
         asset_tags: tags.join(', '),
       });
+    });
+    void window.api.operating.getLatestPlan().then(async (p) => {
+      if (!p) return;
+      setPlanRationale(p.rationale);
+      setActions(await window.api.operating.listActions(p.id));
     });
   }, []);
 
@@ -68,7 +96,6 @@ export default function OperatingPanel() {
           free_text: form.free_text.trim() || undefined,
         },
         asset_tags: splitList(form.asset_tags),
-        // 保存即生效 (M1: 通常只有一个画像)
         status: 'active',
       });
       setId(saved.id);
@@ -79,8 +106,27 @@ export default function OperatingPanel() {
     }
   };
 
+  const generate = async () => {
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const r = await window.api.operating.generatePlan(7);
+      if (!r.ok) {
+        setGenError(r.error);
+        return;
+      }
+      const p = await window.api.operating.getLatestPlan();
+      if (p) {
+        setPlanRationale(p.rationale);
+        setActions(await window.api.operating.listActions(p.id));
+      }
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
-    <div style={{ padding: 24, maxWidth: 720, margin: '0 auto', overflowY: 'auto', height: '100%' }}>
+    <div style={{ padding: 24, maxWidth: 760, margin: '0 auto', overflowY: 'auto', height: '100%' }}>
       <h2 style={{ marginTop: 0 }}>自主运营 · 账号画像</h2>
       <p style={{ color: 'var(--ink-mute)', fontSize: 13, lineHeight: 1.6 }}>
         告诉 xhsPilot 你的账号方向、人设和限定，之后 AI 会据此规划「何时刷垂类、何时发笔记、如何互动」。
@@ -126,11 +172,69 @@ export default function OperatingPanel() {
         {id && <span style={{ color: 'var(--ink-mute)', fontSize: 12 }}>画像 #{id} · {status}</span>}
       </div>
 
-      <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 24, borderTop: '1px solid var(--border, #2a2a2a)', paddingTop: 16 }}>
-        下一步（开发中）：保存画像后，这里会出现「生成本周运营计划」按钮，AI 据画像 + 你的账号数据 + 素材库规划一周行动。
-      </p>
+      {/* 运营计划 (M2) */}
+      <div style={{ marginTop: 28, borderTop: '1px solid var(--border, #2a2a2a)', paddingTop: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h3 style={{ margin: 0 }}>本周运营计划</h3>
+          <button onClick={generate} disabled={generating || !id} style={btnStyle} title={!id ? '请先保存画像' : ''}>
+            {generating ? 'AI 规划中…（约 10-30s）' : actions.length ? '重新生成计划' : '生成本周计划'}
+          </button>
+        </div>
+
+        {genError && (
+          <p style={{ color: 'var(--accent, #FF2442)', fontSize: 13, marginTop: 12 }}>{genError}</p>
+        )}
+
+        {planRationale && (
+          <p style={{ color: 'var(--ink-mute)', fontSize: 13, lineHeight: 1.6, marginTop: 12, padding: '10px 12px', background: 'var(--bg-input, #1a1a1a)', borderRadius: 6 }}>
+            💡 {planRationale}
+          </p>
+        )}
+
+        {actions.length > 0 ? (
+          <div style={{ marginTop: 12 }}>
+            {actions.map((a) => (
+              <div key={a.id} style={rowStyle}>
+                <span style={{ fontSize: 12, color: 'var(--ink-mute)', minWidth: 92 }}>{fmtTime(a.scheduled_at)}</span>
+                <span style={{ fontSize: 14 }}>{TYPE_META[a.type]?.emoji ?? '•'}</span>
+                <span style={{ flex: 1, fontSize: 13 }}>{actionSummary(a.type, a.spec)}</span>
+                {a.type === 'publish' && (
+                  <span style={{ fontSize: 11, color: 'var(--accent, #FF2442)' }}>发布待确认</span>
+                )}
+              </div>
+            ))}
+            <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 12 }}>
+              下一步（开发中）：互动类行动会自动排进定时调度执行；发布类会在到点时把笔记拟好放进「待审队列」，你确认后才发。
+            </p>
+          </div>
+        ) : (
+          !planRationale && (
+            <p style={{ color: 'var(--ink-mute)', fontSize: 13, marginTop: 12 }}>
+              {id ? '点「生成本周计划」，AI 会据画像 + 账号数据 + 素材库排一周行动。' : '请先保存账号画像。'}
+            </p>
+          )
+        )}
+      </div>
     </div>
   );
+}
+
+function actionSummary(type: string, specJson: string): string {
+  try {
+    const s = JSON.parse(specJson) as Record<string, unknown>;
+    if (type === 'browse') return `刷「${s.keyword}」${s.count ?? '?'} 篇`;
+    if (type === 'interact') return `互动「${s.keyword}」点赞 ${s.like ?? 0} · 评论 ${s.comment ?? 0}`;
+    if (type === 'publish') return `发布：${(s.title as string) || (s.theme as string) || '笔记'}`;
+    return type;
+  } catch {
+    return type;
+  }
+}
+
+function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -151,4 +255,8 @@ const inputStyle: CSSProperties = {
 const btnStyle: CSSProperties = {
   padding: '8px 20px', fontSize: 14, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
   border: 'none', background: 'var(--accent, #FF2442)', color: '#fff',
+};
+const rowStyle: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+  borderBottom: '1px solid var(--border, #222)',
 };

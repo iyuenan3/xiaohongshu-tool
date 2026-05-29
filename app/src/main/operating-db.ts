@@ -140,3 +140,83 @@ export function listProfiles(): OperatingProfile[] {
 export function setProfileStatus(id: number, status: ProfileStatus): void {
   getDb().prepare(`UPDATE operating_profile SET status = ?, updated_at = ? WHERE id = ?`).run(status, Date.now(), id);
 }
+
+// ============ 计划 CRUD (M2) ============
+
+export interface CreatePlanInput {
+  profile_id: number;
+  horizon_days: number;
+  raw: string;          // Planner 输出完整 JSON
+  rationale?: string;
+}
+
+export function createPlan(input: CreatePlanInput): OperatingPlan {
+  const now = Date.now();
+  const result = getDb()
+    .prepare(`INSERT INTO operating_plan (profile_id, generated_at, horizon_days, status, raw, rationale)
+              VALUES (?, ?, ?, 'draft', ?, ?)`)
+    .run(input.profile_id, now, input.horizon_days, input.raw, input.rationale ?? null);
+  return getPlan(Number(result.lastInsertRowid))!;
+}
+
+export function getPlan(id: number): OperatingPlan | null {
+  const row = getDb().prepare(`SELECT * FROM operating_plan WHERE id = ?`).get(id) as OperatingPlan | undefined;
+  return row ?? null;
+}
+
+export function getLatestPlan(profileId?: number): OperatingPlan | null {
+  const row = profileId
+    ? getDb().prepare(`SELECT * FROM operating_plan WHERE profile_id = ? ORDER BY generated_at DESC LIMIT 1`).get(profileId)
+    : getDb().prepare(`SELECT * FROM operating_plan ORDER BY generated_at DESC LIMIT 1`).get();
+  return (row as OperatingPlan | undefined) ?? null;
+}
+
+export function setPlanStatus(id: number, status: PlanStatus): void {
+  getDb().prepare(`UPDATE operating_plan SET status = ? WHERE id = ?`).run(status, id);
+}
+
+// ============ 行动项 CRUD (M2/M3) ============
+
+export function insertActions(
+  planId: number,
+  actions: Array<{ scheduled_at: number; type: PlanActionType; spec: unknown }>,
+): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(
+    `INSERT INTO plan_action (plan_id, scheduled_at, type, spec, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)`,
+  );
+  const tx = getDb().transaction((rows: Array<{ scheduled_at: number; type: PlanActionType; spec: unknown }>) => {
+    for (const a of rows) stmt.run(planId, a.scheduled_at, a.type, JSON.stringify(a.spec), now);
+  });
+  tx(actions);
+}
+
+export function listActions(planId: number): PlanAction[] {
+  return getDb().prepare(`SELECT * FROM plan_action WHERE plan_id = ? ORDER BY scheduled_at`).all(planId) as PlanAction[];
+}
+
+export function updateActionStatus(id: number, status: PlanActionStatus, workflowId?: number): void {
+  if (workflowId !== undefined) {
+    getDb().prepare(`UPDATE plan_action SET status = ?, workflow_id = ? WHERE id = ?`).run(status, workflowId, id);
+  } else {
+    getDb().prepare(`UPDATE plan_action SET status = ? WHERE id = ?`).run(status, id);
+  }
+}
+
+// ============ 数据快照读取 (M2 Planner 输入) ============
+
+export interface AccountSnapshot {
+  taken_at: number;
+  nickname: string | null;
+  fans: number | null;
+  follows: number | null;
+  notes_count: number | null;
+  likes_total: number | null;
+}
+
+export function getLatestSnapshot(): AccountSnapshot | null {
+  const row = getDb()
+    .prepare(`SELECT taken_at, nickname, fans, follows, notes_count, likes_total FROM data_snapshots ORDER BY taken_at DESC LIMIT 1`)
+    .get() as AccountSnapshot | undefined;
+  return row ?? null;
+}

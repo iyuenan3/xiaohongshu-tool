@@ -113,6 +113,28 @@ export interface OperatingProfileP {
   created_at: number;
   updated_at: number;
 }
+export interface OperatingPlanP {
+  id: number;
+  profile_id: number;
+  generated_at: number;
+  horizon_days: number;
+  status: 'draft' | 'active' | 'done' | 'superseded';
+  raw: string;
+  rationale: string | null;
+}
+export interface PlanActionP {
+  id: number;
+  plan_id: number;
+  scheduled_at: number;
+  type: 'browse' | 'interact' | 'publish';
+  spec: string;          // JSON
+  workflow_id: number | null;
+  status: 'pending' | 'scheduled' | 'done' | 'skipped';
+  created_at: number;
+}
+export type GeneratePlanResultP =
+  | { ok: true; planId: number; actionsCount: number; rationale: string }
+  | { ok: false; error: string };
 
 const api = {
   ping: () => ipcRenderer.invoke('app:ping'),
@@ -259,6 +281,10 @@ const api = {
     }) => ipcRenderer.invoke('operating:save-profile', input) as Promise<OperatingProfileP>,
     setProfileStatus: (id: number, status: 'draft' | 'active' | 'paused') =>
       ipcRenderer.invoke('operating:set-profile-status', id, status) as Promise<{ ok: boolean }>,
+    generatePlan: (horizonDays?: number) =>
+      ipcRenderer.invoke('operating:generate-plan', horizonDays) as Promise<GeneratePlanResultP>,
+    getLatestPlan: () => ipcRenderer.invoke('operating:get-latest-plan') as Promise<OperatingPlanP | null>,
+    listActions: (planId: number) => ipcRenderer.invoke('operating:list-actions', planId) as Promise<PlanActionP[]>,
   },
 
   // 日志导出 + renderer 透传 (内测期间用)

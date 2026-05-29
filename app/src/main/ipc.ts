@@ -23,8 +23,10 @@ import {
 import { listTemplateMetas } from './workflow-templates';
 import {
   getActiveProfile, createProfile, updateProfile, getProfile, listProfiles, setProfileStatus,
+  getLatestPlan, listActions,
   type SaveProfileInput, type ProfileStatus,
 } from './operating-db';
+import { generatePlan } from './planner';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -90,6 +92,10 @@ export function registerIpcHandlers(
     setProfileStatus(id, status);
     return { ok: true };
   });
+  // 自主运营: 计划 (M2)
+  ipcMain.handle('operating:generate-plan', (_e, horizonDays?: number) => generatePlan(horizonDays ?? 7));
+  ipcMain.handle('operating:get-latest-plan', () => getLatestPlan());
+  ipcMain.handle('operating:list-actions', (_e, planId: number) => listActions(planId));
 
   // 对话历史 (SQLite)
   ipcMain.handle('conv:list', () => listConversations());
