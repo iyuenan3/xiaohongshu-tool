@@ -3,7 +3,7 @@ import log from 'electron-log/main';
 
 // 中间路线: 不 auto-update, 启动 8s 后调 Worker /version, 有新版弹 dialog 让用户联系客服获取最新包
 // 跟 license.ts 共用同一个 Worker base
-const WORKER_URL = process.env.XHS_WORKER_URL ?? '';
+const WORKER_URL = process.env.XHS_WORKER_URL ?? 'https://39.96.12.136:8888/xhs-lic';
 const CHECK_DELAY_MS = 8 * 1000;
 const FETCH_TIMEOUT_MS = 8 * 1000;
 
