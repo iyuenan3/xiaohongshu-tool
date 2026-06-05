@@ -299,7 +299,7 @@ const api = {
     getLatestPlan: (profileId?: number) => ipcRenderer.invoke('operating:get-latest-plan', profileId) as Promise<OperatingPlanP | null>,
     listActions: (planId: number) => ipcRenderer.invoke('operating:list-actions', planId) as Promise<PlanActionP[]>,
     activatePlan: (planId: number) =>
-      ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; pendingPublish: number; error?: string }>,
+      ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; staleSkipped: number; pendingPublish: number; error?: string }>,
     listPending: () => ipcRenderer.invoke('operating:list-pending') as Promise<PendingPublishP[]>,
     approvePublish: (id: number) => ipcRenderer.invoke('operating:approve-publish', id) as Promise<{ ok: boolean; error?: string }>,
     rejectPending: (id: number) => ipcRenderer.invoke('operating:reject-pending', id) as Promise<{ ok: boolean }>,

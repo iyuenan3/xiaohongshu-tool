@@ -5,6 +5,7 @@ import AssetLibrary from './components/AssetLibrary';
 import Settings from './components/Settings';
 import ActivationPage from './components/ActivationPage';
 import OperatingPanel from './components/OperatingPanel';
+import RunStatusBar from './components/RunStatusBar';
 
 interface GoStatus {
   ok: boolean;
@@ -177,6 +178,8 @@ export default function App() {
           <HelpPanel devMode={licenseState.dev_mode === true} />
         </div>
       </div>
+
+      <RunStatusBar />
 
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>

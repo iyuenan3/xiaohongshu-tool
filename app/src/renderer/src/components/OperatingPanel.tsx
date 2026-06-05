@@ -86,7 +86,7 @@ export default function OperatingPanel() {
   }, []);
 
   const upd = (k: keyof typeof form, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
-  const splitList = (s: string) => s.split(/[,，]/).map((x) => x.trim()).filter(Boolean);
+  const splitList = (s: string) => s.split(/[,，、]/).map((x) => x.trim()).filter(Boolean);
 
   const save = async () => {
     if (!form.direction.trim()) {
@@ -149,9 +149,10 @@ export default function OperatingPanel() {
         setActivateMsg(`激活失败：${r.error ?? '未知'}`);
         return;
       }
-      const parts = [`已排 ${r.created} 个互动任务进自动调度`];
+      const parts = [`已排 ${r.created} 个互动/浏览任务进自动调度`];
       if (r.pendingPublish > 0) parts.push(`${r.pendingPublish} 个发布已排程（到点拟稿进待审）`);
-      if (r.skipped > 0) parts.push(`${r.skipped} 个跳过（浏览类暂未支持）`);
+      if (r.skipped > 0) parts.push(`${r.skipped} 个跳过（关键词为空）`);
+      if (r.staleSkipped > 0) parts.push(`${r.staleSkipped} 个时刻已过被跳过（建议重新生成计划）`);
       setActivateMsg('✓ ' + parts.join('；'));
       setPlanActivated(true);
       setActions(await window.api.operating.listActions(planId));
@@ -172,7 +173,7 @@ export default function OperatingPanel() {
         <input value={form.direction} onChange={(e) => upd('direction', e.target.value)} placeholder="一句话描述这个账号做什么" style={inputStyle} />
       </Field>
 
-      <Field label="人设 / 调性" hint="如「真实、治愈、慢生活」">
+      <Field label="人设 / 调性" hint="如「真实，治愈，慢生活」">
         <input value={form.persona} onChange={(e) => upd('persona', e.target.value)} placeholder="账号的人格与风格" style={inputStyle} />
       </Field>
 
@@ -208,7 +209,7 @@ export default function OperatingPanel() {
       </div>
 
       {/* 运营计划 (M2) */}
-      <div style={{ marginTop: 28, borderTop: '1px solid var(--border, #2a2a2a)', paddingTop: 20 }}>
+      <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={{ margin: 0 }}>本周运营计划</h3>
           <button onClick={generate} disabled={generating || !id} style={btnStyle} title={!id ? '请先保存画像' : ''}>
@@ -217,11 +218,11 @@ export default function OperatingPanel() {
         </div>
 
         {genError && (
-          <p style={{ color: 'var(--accent, #FF2442)', fontSize: 13, marginTop: 12 }}>{genError}</p>
+          <p style={{ color: 'var(--accent)', fontSize: 13, marginTop: 12 }}>{genError}</p>
         )}
 
         {planRationale && (
-          <p style={{ color: 'var(--ink-mute)', fontSize: 13, lineHeight: 1.6, marginTop: 12, padding: '10px 12px', background: 'var(--bg-input, #1a1a1a)', borderRadius: 6 }}>
+          <p style={{ color: 'var(--ink-mute)', fontSize: 13, lineHeight: 1.6, marginTop: 12, padding: '10px 12px', background: 'var(--paper-2)', borderRadius: 6 }}>
             💡 {planRationale}
           </p>
         )}
@@ -234,7 +235,7 @@ export default function OperatingPanel() {
                 <span style={{ fontSize: 14 }}>{TYPE_META[a.type]?.emoji ?? '•'}</span>
                 <span style={{ flex: 1, fontSize: 13 }}>{actionSummary(a.type, a.spec)}</span>
                 {a.type === 'publish' && (
-                  <span style={{ fontSize: 11, color: 'var(--accent, #FF2442)' }}>发布待确认</span>
+                  <span style={{ fontSize: 11, color: 'var(--accent)' }}>发布待确认</span>
                 )}
               </div>
             ))}
@@ -243,13 +244,13 @@ export default function OperatingPanel() {
                 {activating ? '激活中…' : planActivated ? '已激活' : '激活计划（互动自动执行）'}
               </button>
               {activateMsg && (
-                <span style={{ fontSize: 12, color: activateMsg.startsWith('✓') || activateMsg.includes('已激活') ? 'var(--green)' : 'var(--accent, #FF2442)' }}>
+                <span style={{ fontSize: 12, color: activateMsg.startsWith('✓') || activateMsg.includes('已激活') ? 'var(--green)' : 'var(--accent)' }}>
                   {activateMsg}
                 </span>
               )}
             </div>
             <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 10 }}>
-              激活后：互动类（💬）按计划时间自动执行；发布类（✍️）到点拟稿进下方「待审发布」，你确认后才发；浏览类（👀）暂未支持。
+              激活后：互动类（💬）与浏览类（👀）按计划时间自动执行（浏览=刷垂类养号，纯看不互动）；发布类（✍️）到点拟稿进下方「待审发布」，你确认后才发。
             </p>
           </div>
         ) : (
@@ -269,7 +270,11 @@ export default function OperatingPanel() {
 function actionSummary(type: string, specJson: string): string {
   try {
     const s = JSON.parse(specJson) as Record<string, unknown>;
-    if (type === 'browse') return `刷「${s.keyword}」${s.count ?? '?'} 篇`;
+    if (type === 'browse') {
+      const kw = (typeof s.keyword === 'string' ? s.keyword : '').trim();
+      const cnt = Math.min(Math.max(Number(s.count ?? 8) || 8, 1), 20); // 模板硬上限 [1,20], 与执行端一致
+      return kw ? `刷「${kw}」${cnt} 篇` : `刷首页养号 ${cnt} 篇`;
+    }
     if (type === 'interact') {
       const like = Math.min(Number(s.like ?? 0) || 0, 5); // 模板硬上限: 点赞 ≤5
       const comment = Math.min(Number(s.comment ?? 0) || 0, 3); // 评论 ≤3
@@ -300,14 +305,14 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 const inputStyle: CSSProperties = {
   width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 6,
-  border: '1px solid var(--border, #333)', background: 'var(--bg-input, #1a1a1a)', color: 'var(--ink, #eee)',
+  border: '1px solid var(--rule)', background: 'var(--surface)', color: 'var(--ink)',
   boxSizing: 'border-box',
 };
 const btnStyle: CSSProperties = {
   padding: '8px 20px', fontSize: 14, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
-  border: 'none', background: 'var(--accent, #FF2442)', color: '#fff',
+  border: 'none', background: 'var(--accent)', color: '#fff',
 };
 const rowStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
-  borderBottom: '1px solid var(--border, #222)',
+  borderBottom: '1px solid var(--rule-soft)',
 };

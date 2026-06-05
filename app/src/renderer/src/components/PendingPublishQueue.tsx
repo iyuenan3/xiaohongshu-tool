@@ -60,13 +60,13 @@ export default function PendingPublishQueue() {
   if (list.length === 0) return null; // 无待审则不渲染
 
   return (
-    <div style={{ marginTop: 28, borderTop: '1px solid var(--border, #2a2a2a)', paddingTop: 20 }}>
+    <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
       <h3 style={{ margin: 0 }}>待审发布 ({list.length})</h3>
       <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 6 }}>
         AI 按运营计划拟好的笔记。你可以改标题 / 正文，确认后才会真正发布到小红书（发布需人工确认）。
       </p>
       {msg && (
-        <p style={{ fontSize: 13, color: msg.startsWith('✓') ? 'var(--green)' : 'var(--accent, #FF2442)' }}>{msg}</p>
+        <p style={{ fontSize: 13, color: msg.startsWith('✓') ? 'var(--green)' : 'var(--accent)' }}>{msg}</p>
       )}
       {list.map((p) => {
         const imgCount = jsonArr(p.images).length;
@@ -89,7 +89,7 @@ export default function PendingPublishQueue() {
             <div style={{ fontSize: 12, color: 'var(--ink-mute)', margin: '8px 0' }}>
               🖼 {imgCount} 图 · 🏷 {tags.length ? tags.join(' ') : '无标签'}
               {p.ai_reason ? ` · 💡 ${p.ai_reason}` : ''}
-              {imgCount === 0 && <span style={{ color: 'var(--accent, #FF2442)' }}> · ⚠️ 无配图，需先在素材库补图</span>}
+              {imgCount === 0 && <span style={{ color: 'var(--accent)' }}> · ⚠️ 无配图，需先在素材库补图</span>}
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => approve(p.id)} disabled={busy === p.id} style={approveBtn}>
@@ -107,24 +107,24 @@ export default function PendingPublishQueue() {
 }
 
 const cardStyle: CSSProperties = {
-  border: '1px solid var(--border, #2a2a2a)', borderRadius: 8, padding: 14, marginTop: 12,
-  background: 'var(--bg-card, #161616)',
+  border: '1px solid var(--rule)', borderRadius: 8, padding: 14, marginTop: 12,
+  background: 'var(--paper)',
 };
 const titleStyle: CSSProperties = {
   width: '100%', padding: '6px 8px', fontSize: 14, fontWeight: 600, borderRadius: 6,
-  border: '1px solid var(--border, #333)', background: 'var(--bg-input, #1a1a1a)', color: 'var(--ink, #eee)',
+  border: '1px solid var(--rule)', background: 'var(--surface)', color: 'var(--ink)',
   boxSizing: 'border-box', marginBottom: 8,
 };
 const contentStyle: CSSProperties = {
   width: '100%', padding: '6px 8px', fontSize: 13, lineHeight: 1.5, borderRadius: 6, resize: 'vertical',
-  border: '1px solid var(--border, #333)', background: 'var(--bg-input, #1a1a1a)', color: 'var(--ink, #eee)',
+  border: '1px solid var(--rule)', background: 'var(--surface)', color: 'var(--ink)',
   boxSizing: 'border-box',
 };
 const approveBtn: CSSProperties = {
   padding: '7px 18px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
-  border: 'none', background: 'var(--accent, #FF2442)', color: '#fff',
+  border: 'none', background: 'var(--accent)', color: '#fff',
 };
 const rejectBtn: CSSProperties = {
   padding: '7px 18px', fontSize: 13, borderRadius: 6, cursor: 'pointer',
-  border: '1px solid var(--border, #444)', background: 'transparent', color: 'var(--ink-mute, #999)',
+  border: '1px solid var(--rule)', background: 'transparent', color: 'var(--ink-mute)',
 };

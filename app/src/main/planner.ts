@@ -17,7 +17,7 @@ const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内�
 任务：根据【账号画像】【近期数据】【可用素材】，规划未来 N 天的运营行动，输出一份可执行的运营计划。
 
 ## 行动类型（只用这三种）
-- browse：刷垂直内容（养号 + 找灵感 + 喂算法）。spec: { "keyword": 关键词, "count": 刷几篇(建议 20-40) }
+- browse：刷垂直内容（养号 + 找灵感 + 喂算法）。spec: { "keyword": 关键词, "count": 刷几篇(建议 8-20) }
 - interact：给垂类内容点赞评论（涨权重 + 露出）。spec: { "keyword": 关键词, "like": 点赞数(≤10), "comment": 评论数(≤3) }
 - publish：发布笔记。spec: { "theme": 主题, "asset_tags": 用哪类素材标签(从可用素材里选), "title": 标题(18-22字,情绪词+关键词,口语), "content": 正文(300-500字), "note_tags": 笔记话题标签数组(3-6个) }
 
@@ -38,7 +38,7 @@ const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内�
 {
   "rationale": "一句话说明本期运营重点和节奏安排的理由",
   "actions": [
-    { "day": 1, "time": "20:00", "type": "browse", "spec": { "keyword": "云南旅居", "count": 30 } },
+    { "day": 1, "time": "20:00", "type": "browse", "spec": { "keyword": "云南旅居", "count": 15 } },
     { "day": 2, "time": "21:00", "type": "publish", "spec": { "theme": "果园樱花", "asset_tags": ["樱花"], "title": "...", "content": "...", "note_tags": ["云南","慢生活"] } }
   ]
 }

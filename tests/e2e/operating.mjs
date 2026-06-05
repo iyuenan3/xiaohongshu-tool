@@ -186,18 +186,20 @@ try {
       console.log(`  · plan1 行动分布: interact=${nInteract} browse=${nBrowse} publish=${nPublish}`);
       console.log(`  · activatePlan 返回: created=${act1.r.created} skipped=${act1.r.skipped} pendingPublish=${act1.r.pendingPublish}`);
 
-      // interact 有 keyword 才实例化; created<=nInteract (无 keyword 的被 skip). browse 必 skip。
-      r.ok(act1.r.created <= nInteract && act1.r.created >= 0, 'OP-03b created <= interact 行动数', { created: act1.r.created, nInteract });
+      // interact 有 keyword 才实例化 (无 keyword 被 skip); browse 全部实例化 (daily_browse, 空 keyword 走首页). created = 有keyword interact + 全部 browse。
+      r.ok(act1.r.created <= nInteract + nBrowse && act1.r.created >= 0, 'OP-03b created <= interact+browse 行动数', { created: act1.r.created, nInteract, nBrowse });
       r.ok(act1.r.pendingPublish === nPublish, 'OP-03c pendingPublish == publish 行动数', { pendingPublish: act1.r.pendingPublish, nPublish });
-      r.ok(act1.r.created + act1.r.skipped + act1.r.pendingPublish === actions.length, 'OP-03d created+skipped+pendingPublish == 总行动数', {
-        sum: act1.r.created + act1.r.skipped + act1.r.pendingPublish, total: actions.length,
+      const staleSkipped = act1.r.staleSkipped || 0;
+      r.ok(act1.r.created + act1.r.skipped + staleSkipped + act1.r.pendingPublish === actions.length, 'OP-03d created+skipped+staleSkipped+pendingPublish == 总行动数', {
+        sum: act1.r.created + act1.r.skipped + staleSkipped + act1.r.pendingPublish, total: actions.length,
       });
 
-      // interact/publish 被实例化的 action.status='scheduled' (有 keyword 的 interact + 所有 publish)
-      const instantiated = actions.filter((a) => (a.type === 'interact' || a.type === 'publish') && a.workflow_id);
+      // 被实例化的 action.status='scheduled' (有 keyword 的 interact + 所有 browse + 所有 publish)
+      const instantiated = actions.filter((a) => (a.type === 'interact' || a.type === 'browse' || a.type === 'publish') && a.workflow_id);
       const allScheduled = instantiated.length === 0 || instantiated.every((a) => a.status === 'scheduled');
-      r.ok(allScheduled, 'OP-03e 实例化的 interact/publish action.status=scheduled', instantiated.map((a) => ({ type: a.type, status: a.status, wf: a.workflow_id })));
-      r.ok(actions.filter((a) => a.type === 'browse').every((a) => a.status === 'skipped'), 'OP-03f 所有 browse action.status=skipped');
+      r.ok(allScheduled, 'OP-03e 实例化的 interact/browse/publish action.status=scheduled', instantiated.map((a) => ({ type: a.type, status: a.status, wf: a.workflow_id })));
+      // browse 全部已处理: 正常排程 scheduled, 若激活时刻已过则 skipped (取决于过期策略), 不应留 pending
+      r.ok(actions.filter((a) => a.type === 'browse').every((a) => a.status === 'scheduled' || a.status === 'skipped'), 'OP-03f 所有 browse action 已处理 (scheduled/skipped, 不留 pending)');
 
       // plan 状态变 active
       const planNow = await callApi(`window.api.operating.getLatestPlan(${createdProfileId})`);
@@ -224,7 +226,7 @@ try {
         r.ok(allOnceFuture, 'OP-03i 所有 [运营] workflow schedule.type=once 且 at 在未来', schedDetail);
         r.ok(opWfs.every((w) => w.enabled === 1), 'OP-03j 所有 [运营] workflow enabled=1', schedDetail);
       } else {
-        r.skip('OP-03i/j [运营] workflow schedule 校验', '本次 LLM 未产出可实例化的 interact/publish (全 browse 或 interact 无 keyword)');
+        r.skip('OP-03i/j [运营] workflow schedule 校验', '本次 LLM 未产出可实例化行动 (无 browse/publish 且 interact 全无 keyword)');
       }
     }
   } else {

@@ -2,6 +2,7 @@
 
 import { dailyLike } from './daily-like';
 import { dailyComment } from './daily-comment';
+import { dailyBrowse } from './daily-browse';
 import { scheduledPublish } from './scheduled-publish';
 import { dailyDataSnapshot } from './daily-data-snapshot';
 import { keywordLikeComment } from './keyword-like-comment';
@@ -37,6 +38,7 @@ export interface ExecResult {
 export const TEMPLATES: Record<string, Template> = {
   [dailyLike.id]: dailyLike,
   [dailyComment.id]: dailyComment,
+  [dailyBrowse.id]: dailyBrowse,
   [keywordLikeComment.id]: keywordLikeComment,
   [scheduledPublish.id]: scheduledPublish,
   [dailyDataSnapshot.id]: dailyDataSnapshot,

@@ -59,11 +59,14 @@ export default function AssetLibrary({ active }: Props) {
   const [busy, setBusy] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const refresh = async () => {
     try {
       const list = await window.api.assets.list() as unknown as MediaAsset[];
       setAssets(list);
+      // 清理已不存在的选中项 (删除后), 避免幽灵选中
+      setSelected((prev) => new Set([...prev].filter((id) => list.some((a) => a.id === id))));
     } catch (e) {
       console.error('[assets] list failed:', e);
     }
@@ -100,6 +103,7 @@ export default function AssetLibrary({ active }: Props) {
   };
 
   const handleDelete = async (id: string, filename: string) => {
+    if (busy) return;
     if (!confirm(`删除「${filename}」?(本地文件也会被删除)`)) return;
     try {
       await window.api.assets.delete(id);
@@ -107,6 +111,38 @@ export default function AssetLibrary({ active }: Props) {
     } catch (e) {
       setErr(`删除失败: ${String(e)}`);
     }
+  };
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const allSelected = assets.length > 0 && selected.size === assets.length;
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(assets.map((a) => a.id)));
+
+  const handleDeleteSelected = async () => {
+    const ids = [...selected];
+    if (ids.length === 0 || busy) return;
+    if (!confirm(`删除选中的 ${ids.length} 张素材?(本地文件也会被删除)`)) return;
+    setBusy(true); setErr(null);
+    let fails = 0;
+    for (const id of ids) {
+      try {
+        await window.api.assets.delete(id);
+      } catch (e) {
+        fails++;
+        console.error('[assets] batch delete failed:', id, e);
+      }
+    }
+    setSelected(new Set());
+    await refresh();
+    setBusy(false);
+    if (fails > 0) setErr(`批量删除: ${ids.length - fails} 成功, ${fails} 失败`);
   };
 
   const handleAnalyze = async () => {
@@ -196,6 +232,23 @@ export default function AssetLibrary({ active }: Props) {
         )}
       </section>
 
+      {assets.length > 0 && (
+        <div className="asset-library__select">
+          <label className="asset-library__selall">
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={busy} />
+            全选
+          </label>
+          {selected.size > 0 && <span className="asset-library__selcount">已选 {selected.size} 张</span>}
+          <button
+            className="asset-library__delsel"
+            onClick={handleDeleteSelected}
+            disabled={busy || selected.size === 0}
+          >
+            🗑 删除选中{selected.size ? ` (${selected.size})` : ''}
+          </button>
+        </div>
+      )}
+
       {err && <div className="asset-library__error">{err}</div>}
 
       {assets.length === 0 ? (
@@ -207,12 +260,21 @@ export default function AssetLibrary({ active }: Props) {
           {assets.map((a) => {
             const tags = parseTags(a.tags);
             return (
-              <div key={a.id} className="asset-card">
+              <div key={a.id} className={`asset-card${selected.has(a.id) ? ' asset-card--selected' : ''}`}>
                 <div className="asset-card__thumb">
                   <img src={`xhs-asset://${a.id}`} alt={a.filename} />
+                  <input
+                    type="checkbox"
+                    className="asset-card__check"
+                    checked={selected.has(a.id)}
+                    onChange={() => toggleSelect(a.id)}
+                    disabled={busy}
+                    title="选择 (批量删除)"
+                  />
                   <button
                     className="asset-card__del"
                     onClick={() => handleDelete(a.id, a.filename)}
+                    disabled={busy}
                     title="删除"
                   >✕</button>
                   {a.analyzed !== 1 && <span className="asset-card__badge" title="尚未分析 / 没有 tag">○</span>}

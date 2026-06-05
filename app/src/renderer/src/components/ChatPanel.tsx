@@ -134,7 +134,11 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   }, [convId]);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (!el) return;
+    // rAF 等本次内容布局完成后再钉到底; 用 auto 即时跳 (smooth 在流式高速更新下会追不上 → 最后一行露不全)
+    const raf = requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+    return () => cancelAnimationFrame(raf);
   }, [display, phase, currentTool]);
 
   const callTool = async (name: string, args: unknown): Promise<unknown> => {
