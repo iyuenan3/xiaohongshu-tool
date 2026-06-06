@@ -5,6 +5,7 @@
 
 import { listAssets } from '../assets';
 import { insertPending } from '../operating-db';
+import { findTaboo, activeTaboo } from '../content-guard';
 import type { Template, ExecHelpers, ExecResult } from './index';
 
 function parseTags(v: unknown): string[] {
@@ -46,18 +47,22 @@ export const plannedPublish: Template = {
     if (!title) return { status: 'partial', summary: '⚠️ 标题为空, 跳过待审' };
 
     const images = pickAssetIds(assetTags, 6);
+    // E3 内容护栏: 拟稿即标记禁忌词命中 (用户审核可见; 批准时 publish-gate 会硬拦)
+    const tabooHits = findTaboo(`${title}\n${content}`, activeTaboo());
+    const reason = String(params.theme ?? '');
     insertPending({
       plan_action_id: planActionId,
       title,
       content,
       images,
       tags: noteTags,
-      ai_reason: String(params.theme ?? ''),
+      ai_reason: tabooHits.length ? `⚠️ 触禁忌词[${tabooHits.join('、')}]，请修改 ｜ ${reason}` : reason,
     });
-    helpers.log({ step: 'pending_publish', result: { title, imageCount: images.length } });
+    helpers.log({ step: 'pending_publish', result: { title, imageCount: images.length, tabooHits } });
+    const warn = tabooHits.length ? ` ⚠️含禁忌词[${tabooHits.join('、')}]` : '';
     return {
       status: 'partial',
-      summary: `✍️ 已拟稿待审: ${title}${images.length ? ` (${images.length} 图)` : ' (无匹配素材, 待补图)'} — 去「自主运营」确认发布`,
+      summary: `✍️ 已拟稿待审: ${title}${images.length ? ` (${images.length} 图)` : ' (无匹配素材, 待补图)'}${warn} — 去「自主运营」确认发布`,
     };
   },
 };

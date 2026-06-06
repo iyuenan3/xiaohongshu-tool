@@ -83,6 +83,7 @@ body {
 .run-status--success .run-status__dot { background: var(--green); }
 .run-status--partial .run-status__dot { background: var(--gold); }
 .run-status--failed .run-status__dot { background: var(--accent); }
+.run-status--aborted .run-status__dot { background: var(--ink-mute); }
 @keyframes run-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 .run-status__label { flex: 0 0 auto; font-weight: 600; color: var(--ink); }
 .run-status__name {
@@ -90,6 +91,15 @@ body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .run-status__step { flex: 0 1 auto; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-status__stop {
+  flex: 0 0 auto; margin-left: auto;
+  font: inherit; font-size: 11.5px; line-height: 1;
+  padding: 3px 10px; border-radius: 11px; cursor: pointer;
+  border: 1px solid var(--rule); background: var(--surface); color: var(--ink-soft);
+  transition: all .12s;
+}
+.run-status__stop:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.run-status__stop:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .tab-body { position: relative; overflow: hidden; min-height: 0; }
 .tab-pane {

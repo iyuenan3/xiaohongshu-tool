@@ -5,7 +5,7 @@ import { net } from 'electron';
 import log from 'electron-log/main';
 import { licenseManager, type LlmConfig } from './license';
 import {
-  getActiveProfile, getLatestSnapshot, createPlan, insertActions,
+  getActiveProfile, getLatestSnapshot, getLatestNotePerformance, getSnapshotTrend, createPlan, insertActions,
   type OperatingProfile, type ProfileConstraints, type PlanActionType,
 } from './operating-db';
 import { listAssets, type MediaAsset } from './assets';
@@ -107,6 +107,7 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
     c = {} as ProfileConstraints;
   }
   const snap = getLatestSnapshot();
+  const notePerf = getLatestNotePerformance(8);
   const assets = pickAssets(safeJsonArr(profile.asset_tags));
   const now = new Date();
   const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()];
@@ -126,6 +127,15 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
     L.push(`粉丝 ${snap.fans ?? '?'} / 笔记 ${snap.notes_count ?? '?'} / 总获赞 ${snap.likes_total ?? '?'}`);
   } else {
     L.push('(暂无数据快照，按新号/养号策略规划)');
+  }
+
+  // P2 反馈闭环: 近期自己笔记的真实表现 → 让 Planner 据此调内容方向/配比/选题
+  if (notePerf.length) {
+    L.push('\n# 近期笔记表现 (按点赞排序，据此复盘：哪类内容数据好就多做、差的少做)');
+    for (const n of notePerf) {
+      L.push(`- 「${n.title || '无标题'}」赞 ${n.liked ?? '?'} · 藏 ${n.collected ?? '?'} · 评 ${n.comments ?? '?'}`);
+    }
+    L.push('请在 rationale 里点明本期据哪些表现做了什么调整 (如「上轮治愈系数据好，本周加配比」)。');
   }
 
   L.push('\n# 可用素材 (发布选图只能用这些，按标签匹配)');
@@ -247,5 +257,40 @@ async function callPlannerLLM(llm: LlmConfig, system: string, user: string): Pro
     return content;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// 运营报告 AI 解读 (D): 据趋势 + 笔记表现给一段可执行洞察.
+const INSIGHT_SYSTEM =
+  '你是小红书运营分析师。据账号粉丝/获赞趋势 + 每条笔记表现，用 3-5 句中文给出：1) 增长态势 2) 哪类内容数据好/差 3) 下一步建议（内容配比/选题/发布时段）。直白可执行，不说套话，不用 markdown 标题。';
+
+export async function generateReportInsight(): Promise<{ ok: boolean; insight?: string; error?: string }> {
+  const profile = getActiveProfile();
+  const trend = getSnapshotTrend(14);
+  const notePerf = getLatestNotePerformance(10);
+  if (!trend.length && !notePerf.length) {
+    return { ok: false, error: '暂无数据：先让「数据快照 / 笔记数据采集」跑过几次再来解读' };
+  }
+  const llm = await licenseManager.getActiveLlm();
+  if (!llm) return { ok: false, error: 'LLM 未配置（激活码状态异常或 BYOK 为空）' };
+
+  const L: string[] = [];
+  if (profile) L.push(`账号方向: ${profile.direction}`);
+  if (trend.length) {
+    const first = trend[0];
+    const last = trend[trend.length - 1];
+    L.push(`粉丝 ${first.fans ?? '?'}→${last.fans ?? '?'}，总获赞 ${first.likes_total ?? '?'}→${last.likes_total ?? '?'}（近 ${trend.length} 次快照）`);
+  }
+  if (notePerf.length) {
+    L.push('近期笔记表现:');
+    for (const n of notePerf) L.push(`- 「${n.title || '无标题'}」赞 ${n.liked ?? '?'} 藏 ${n.collected ?? '?'} 评 ${n.comments ?? '?'}`);
+  }
+  try {
+    const insight = await callPlannerLLM(llm, INSIGHT_SYSTEM, L.join('\n'));
+    return { ok: true, insight };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('429')) return { ok: false, error: '本月 AI 额度可能已用尽' };
+    return { ok: false, error: `解读失败：${msg.slice(0, 80)}` };
   }
 }

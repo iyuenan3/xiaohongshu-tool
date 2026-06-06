@@ -104,6 +104,13 @@ export default function WorkflowList() {
     setTimeout(() => { void refresh(); }, 200);
   };
 
+  const handleStop = async (id: number) => {
+    // 运行中→主进程 abort, 等 run-finished(aborted) 清 runningIds; 排队中→即时移除本地标记
+    setQueuedIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    await window.api.workflow.stop(id);
+    setTimeout(() => { void refresh(); }, 200);
+  };
+
   const handleDelete = async (id: number) => {
     if (!confirm('删除该工作流? 运行历史会保留。')) return;
     await window.api.workflow.delete(id);
@@ -144,11 +151,19 @@ export default function WorkflowList() {
                   </div>
                 </div>
                 <div className="workflow-row__actions">
-                  <button
-                    className="workflow-icon-btn"
-                    title="立即执行 (跳过调度)"
-                    onClick={(e) => { e.stopPropagation(); void handleRunNow(wf.id); }}
-                  >▶</button>
+                  {isRunning || isQueued ? (
+                    <button
+                      className="workflow-icon-btn"
+                      title="停止"
+                      onClick={(e) => { e.stopPropagation(); void handleStop(wf.id); }}
+                    >⏹</button>
+                  ) : (
+                    <button
+                      className="workflow-icon-btn"
+                      title="立即执行 (跳过调度)"
+                      onClick={(e) => { e.stopPropagation(); void handleRunNow(wf.id); }}
+                    >▶</button>
+                  )}
                   <button
                     className="workflow-icon-btn"
                     title="更多"

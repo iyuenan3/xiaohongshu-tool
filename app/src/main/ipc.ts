@@ -24,9 +24,10 @@ import { listTemplateMetas } from './workflow-templates';
 import {
   getActiveProfile, createProfile, updateProfile, getProfile, listProfiles, setProfileStatus,
   getLatestPlan, listActions, listPending, updatePendingContent,
+  getSnapshotTrend, getLatestNotePerformance,
   type SaveProfileInput, type ProfileStatus,
 } from './operating-db';
-import { generatePlan } from './planner';
+import { generatePlan, generateReportInsight } from './planner';
 import { activatePlan } from './plan-instantiate';
 import { approvePublish, rejectPending } from './publish-gate';
 
@@ -99,6 +100,44 @@ export function registerIpcHandlers(
   ipcMain.handle('operating:get-latest-plan', (_e, profileId?: number) => getLatestPlan(profileId));
   ipcMain.handle('operating:list-actions', (_e, planId: number) => listActions(planId));
   ipcMain.handle('operating:activate-plan', (_e, planId: number) => activatePlan(planId, scheduler));
+  // 自主运营: 每周自动生成计划开关 (P2/E1) — 用一个 weekly auto_plan_gen 工作流承载
+  ipcMain.handle('operating:get-auto-plan', () => {
+    const w = listWorkflows().find((x) => x.template_id === 'auto_plan_gen');
+    return { enabled: !!(w && w.enabled) };
+  });
+  ipcMain.handle('operating:set-auto-plan', (_e, on: boolean) => {
+    const existing = listWorkflows().find((x) => x.template_id === 'auto_plan_gen');
+    if (on) {
+      if (existing) {
+        if (!existing.enabled) {
+          updateWorkflow(existing.id, { enabled: 1, fail_count: 0 });
+          scheduler.rescheduleOne(existing.id);
+        }
+        return { ok: true };
+      }
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const wf = createWorkflow({
+        template_id: 'auto_plan_gen',
+        name: '🗓 每周自动生成计划',
+        params: { horizon_days: 7 },
+        schedule: { type: 'weekly', weekday: 1, hour: 9, minute: 0, jitter_min: 30, tz }, // 每周一 09:00±30min
+        enabled: true,
+      });
+      scheduler.rescheduleOne(wf.id);
+      return { ok: true };
+    }
+    if (existing) {
+      softDeleteWorkflow(existing.id);
+      scheduler.cancelOne(existing.id);
+    }
+    return { ok: true };
+  });
+  // 自主运营: 运营报告 (P2/D)
+  ipcMain.handle('operating:report', () => ({
+    trend: getSnapshotTrend(30),
+    notePerf: getLatestNotePerformance(10),
+  }));
+  ipcMain.handle('operating:report-insight', () => generateReportInsight());
   // 自主运营: 发布待审闸门 (M4)
   ipcMain.handle('operating:list-pending', () => listPending('pending'));
   ipcMain.handle('operating:approve-publish', (_e, id: number) => approvePublish(id, goProc));
@@ -202,6 +241,7 @@ export function registerIpcHandlers(
   ipcMain.handle('workflow:run-now', async (_, id: number) => {
     return scheduler.runNow(id);
   });
+  ipcMain.handle('workflow:stop', (_, id: number) => scheduler.abortRun(id));
   ipcMain.handle('workflow:runs', (_, id: number, limit?: number) => listRuns(id, limit ?? 50));
   ipcMain.handle('workflow:get-templates', () => listTemplateMetas());
   ipcMain.handle('workflow:dev-fire-soon', (_, id: number) => {

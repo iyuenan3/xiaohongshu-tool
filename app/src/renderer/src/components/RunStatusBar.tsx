@@ -2,13 +2,15 @@
 // 自主运营的互动/浏览/发布拟稿任务都走 WorkflowScheduler, 因此都会在这里实时显示进度.
 import { useEffect, useRef, useState } from 'react';
 
-// 底栏只展示「实时执行」过程, status 仅取 onRunFinished 实际会推的三种:
-// success / partial / failed (missed 发生在调度阶段无 run-started, auto-disabled 走独立 channel, 均归 run history 展示)。
+// 底栏展示「实时执行」过程, status 取 onRunFinished 会推的: success / partial / failed / aborted(手动停止)。
+// (missed 发生在调度阶段无 run-started, auto-disabled 走独立 channel, 均归 run history 展示)。
 interface RunState {
   runId: number;
+  workflowId: number;
   name: string;
   step: string;
-  status: 'running' | 'success' | 'partial' | 'failed';
+  status: 'running' | 'success' | 'partial' | 'failed' | 'aborted';
+  stopping?: boolean;
 }
 
 // 模板内 helpers.log({ step }) 用的 step key → 友好中文
@@ -29,6 +31,7 @@ const STATUS_TEXT: Record<string, string> = {
   success: '✓ 完成',
   partial: '⚠ 部分完成',
   failed: '✕ 失败',
+  aborted: '⏹ 已停止',
 };
 
 export default function RunStatusBar() {
@@ -45,7 +48,7 @@ export default function RunStatusBar() {
 
     const offStart = window.api.workflow.onRunStarted((e) => {
       clearHide();
-      setRun({ runId: e.runId, name: `工作流 #${e.workflowId}`, step: '准备中', status: 'running' });
+      setRun({ runId: e.runId, workflowId: e.workflowId, name: `工作流 #${e.workflowId}`, step: '准备中', status: 'running' });
       // 异步补真实名字 (期间若已被新 run 取代则不覆盖)
       void window.api.workflow.get(e.workflowId).then((wf) => {
         setRun((cur) => (cur && cur.runId === e.runId ? { ...cur, name: wf?.name ?? cur.name } : cur));
@@ -81,6 +84,12 @@ export default function RunStatusBar() {
     };
   }, []);
 
+  const handleStop = () => {
+    if (!run || run.status !== 'running') return;
+    setRun((cur) => (cur ? { ...cur, stopping: true, step: '停止中…' } : cur));
+    void window.api.workflow.stop(run.workflowId);
+  };
+
   if (!run) return null;
 
   const tail =
@@ -96,6 +105,11 @@ export default function RunStatusBar() {
       <span className="run-status__label">{run.status === 'running' ? '正在执行' : '工作流'}</span>
       <span className="run-status__name">{run.name}</span>
       <span className="run-status__step">{tail}</span>
+      {run.status === 'running' && (
+        <button className="run-status__stop" onClick={handleStop} disabled={run.stopping} title="停止此工作流">
+          {run.stopping ? '停止中…' : '⏹ 停止'}
+        </button>
+      )}
     </div>
   );
 }

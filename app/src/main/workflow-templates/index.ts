@@ -5,8 +5,10 @@ import { dailyComment } from './daily-comment';
 import { dailyBrowse } from './daily-browse';
 import { scheduledPublish } from './scheduled-publish';
 import { dailyDataSnapshot } from './daily-data-snapshot';
+import { noteMetricsSnapshot } from './note-metrics-snapshot';
 import { keywordLikeComment } from './keyword-like-comment';
 import { plannedPublish } from './planned-publish';
+import { autoPlanGen } from './auto-plan-gen';
 
 export interface Template {
   id: string;
@@ -42,11 +44,13 @@ export const TEMPLATES: Record<string, Template> = {
   [keywordLikeComment.id]: keywordLikeComment,
   [scheduledPublish.id]: scheduledPublish,
   [dailyDataSnapshot.id]: dailyDataSnapshot,
+  [noteMetricsSnapshot.id]: noteMetricsSnapshot,
   [plannedPublish.id]: plannedPublish,
+  [autoPlanGen.id]: autoPlanGen,
 };
 
-// 自主运营内部模板, 不在「手动建工作流」列表出现 (仅供 scheduler 执行 + plan-instantiate 用)
-const INTERNAL_TEMPLATE_IDS = new Set(['planned_publish']);
+// 自主运营内部模板, 不在「手动建工作流」列表出现 (仅供 scheduler 执行 + plan-instantiate / 开关管理)
+const INTERNAL_TEMPLATE_IDS = new Set(['planned_publish', 'auto_plan_gen']);
 
 export interface TemplateMeta {
   id: string;

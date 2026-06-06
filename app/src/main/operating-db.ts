@@ -72,6 +72,7 @@ export interface PendingPublish {
   status: PendingStatus;
   created_at: number;
   decided_at: number | null;
+  published_feed_id: string | null; // P2/A1: 真发后回写的笔记 id
 }
 
 // ============ 画像 CRUD (M1) ============
@@ -225,6 +226,37 @@ export function getLatestSnapshot(): AccountSnapshot | null {
   return row ?? null;
 }
 
+// 运营报告 (D): 近 N 条账号快照, 升序 (旧→新) 便于画趋势.
+export function getSnapshotTrend(limit = 30): AccountSnapshot[] {
+  const rows = getDb()
+    .prepare(`SELECT taken_at, nickname, fans, follows, notes_count, likes_total FROM data_snapshots ORDER BY taken_at DESC LIMIT ?`)
+    .all(limit) as AccountSnapshot[];
+  return rows.reverse();
+}
+
+// ============ 笔记级表现读取 (P2 反馈闭环 → 回灌 Planner) ============
+
+export interface NotePerf {
+  feed_id: string;
+  title: string | null;
+  liked: number | null;
+  collected: number | null;
+  comments: number | null;
+  taken_at: number;
+}
+
+// 最近一次采集批次里, 按点赞降序的前 N 条笔记 (note_metrics_snapshot 同批 taken_at 相同).
+export function getLatestNotePerformance(limit = 8): NotePerf[] {
+  const latest = getDb().prepare(`SELECT MAX(taken_at) AS m FROM note_snapshots`).get() as { m: number | null };
+  if (!latest?.m) return [];
+  return getDb()
+    .prepare(
+      `SELECT feed_id, title, liked, collected, comments, taken_at FROM note_snapshots
+       WHERE taken_at = ? ORDER BY (liked IS NULL), liked DESC LIMIT ?`,
+    )
+    .all(latest.m, limit) as NotePerf[];
+}
+
 // ============ 待审发布 CRUD (M4) ============
 
 export interface InsertPendingInput {
@@ -263,6 +295,11 @@ export function listPending(status: PendingStatus = 'pending'): PendingPublish[]
 
 export function updatePendingStatus(id: number, status: PendingStatus): void {
   getDb().prepare(`UPDATE pending_publish SET status = ?, decided_at = ? WHERE id = ?`).run(status, Date.now(), id);
+}
+
+// P2/A1: 真发后回写笔记 id (best-effort, 用于关联该 AI 拟稿笔记的后续表现)
+export function setPublishedFeedId(id: number, feedId: string): void {
+  getDb().prepare(`UPDATE pending_publish SET published_feed_id = ? WHERE id = ?`).run(feedId, id);
 }
 
 export function updatePendingContent(

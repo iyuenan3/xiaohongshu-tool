@@ -1,21 +1,20 @@
-// daily_data_snapshot 模板: 每日数据快照 (M7 P2).
-// 调 my_profile (/api/v1/user/me) 拿主页数据写 data_snapshots 表, 用于增长趋势追踪.
+// daily_data_snapshot 模板 (M7 P2): 每日账号级数据快照 → data_snapshots 表, 用于增长趋势 + 反馈闭环.
+// 数据源: my_profile (/user/me → GetMyProfileViaSidebar) 返回 UserProfileResponse:
+//   { userBasicInfo: {nickname, redId}, interactions: [{type:'fans'|'follows'|'interaction', count}], feeds: [...] }
+// 经 myProfileHandler respondSuccess(c, {data: result}) 双层包装 → 实际在 body.data.data。
 
 import { getDb } from '../db';
+import { parseCount } from '../xhs-count';
 import type { Template, ExecHelpers, ExecResult } from './index';
 
-interface MyProfileResp {
-  // xiaohongshu-mcp service.go UserProfileResponse 字段 (推断, 实际 API 看真实返回 schema)
-  user_id?: string;
-  red_id?: string;
-  nickname?: string;
-  interactions?: {
-    fans?: number;        // 粉丝
-    follows?: number;     // 关注
-    interaction?: number; // 获赞与收藏
-  };
-  notes_total?: number;   // 笔记总数
-  [k: string]: unknown;
+interface UserInteraction {
+  type?: string; // follows / fans / interaction(获赞与收藏)
+  count?: string;
+}
+interface MyProfile {
+  userBasicInfo?: { nickname?: string; redId?: string };
+  interactions?: UserInteraction[];
+  feeds?: unknown[];
 }
 
 export const dailyDataSnapshot: Template = {
@@ -28,21 +27,25 @@ export const dailyDataSnapshot: Template = {
   },
   async execute(_params: Record<string, unknown>, helpers: ExecHelpers): Promise<ExecResult> {
     helpers.log({ step: 'start' });
-    let me: MyProfileResp;
+    let prof: MyProfile;
     try {
-      const resp = await helpers.callTool('my_profile', {});
-      // HTTP handler 返 {success, data: {...}} 或 直接对象, 兼容两种
-      me = ((resp as { data?: MyProfileResp }).data ?? resp) as MyProfileResp;
-      helpers.log({ step: 'my_profile', result: { fans: me.interactions?.fans, nickname: me.nickname } });
+      const body = (await helpers.callTool('my_profile', {})) as Record<string, unknown>;
+      // 双层包装: body.data.data = UserProfileResponse (兼容单层/裸对象兜底)
+      const d = body as { data?: { data?: unknown } };
+      prof = (d.data?.data ?? d.data ?? body) as MyProfile;
+      helpers.log({ step: 'my_profile', result: { nickname: prof.userBasicInfo?.nickname } });
     } catch (e) {
       helpers.log({ step: 'my_profile', error: (e as Error).message });
       throw e;
     }
 
-    const fans = me.interactions?.fans ?? null;
-    const follows = me.interactions?.follows ?? null;
-    const likesTotal = me.interactions?.interaction ?? null;
-    const notesCount = me.notes_total ?? null;
+    const byType = (t: string) => parseCount(prof.interactions?.find((i) => i.type === t)?.count);
+    const fans = byType('fans');
+    const follows = byType('follows');
+    const likesTotal = byType('interaction'); // 获赞与收藏
+    const notesCount = Array.isArray(prof.feeds) ? prof.feeds.length : null; // 主页可见笔记数 (近似, 分页可能不全)
+    const nickname = prof.userBasicInfo?.nickname ?? null;
+    const redId = prof.userBasicInfo?.redId ?? null;
 
     try {
       getDb()
@@ -52,13 +55,13 @@ export const dailyDataSnapshot: Template = {
         )
         .run(
           Date.now(),
-          me.red_id ?? null,
-          me.nickname ?? null,
+          redId,
+          nickname,
           fans,
           follows,
           notesCount,
           likesTotal,
-          JSON.stringify(me).slice(0, 4000),
+          JSON.stringify(prof).slice(0, 4000),
         );
       helpers.log({ step: 'snapshot_saved', result: { fans, follows, notesCount, likesTotal } });
     } catch (e) {
@@ -66,7 +69,7 @@ export const dailyDataSnapshot: Template = {
       throw e;
     }
 
-    const summary = `📊 ${me.nickname ?? '主页'}: 粉丝 ${fans ?? '?'} · 关注 ${follows ?? '?'} · 笔记 ${notesCount ?? '?'} · 获赞 ${likesTotal ?? '?'}`;
+    const summary = `📊 ${nickname ?? '主页'}: 粉丝 ${fans ?? '?'} · 关注 ${follows ?? '?'} · 笔记 ${notesCount ?? '?'} · 获赞 ${likesTotal ?? '?'}`;
     return { status: 'success', summary };
   },
 };

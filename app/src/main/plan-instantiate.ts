@@ -6,8 +6,9 @@
 
 import log from 'electron-log/main';
 import type { WorkflowScheduler } from './workflow-scheduler';
-import { createWorkflow, softDeleteWorkflow } from './workflow-db';
+import { createWorkflow, softDeleteWorkflow, listWorkflows } from './workflow-db';
 import { getPlan, listActions, updateActionStatus, setPlanStatus, listPlansByStatus } from './operating-db';
+import { listAssets } from './assets';
 
 // 过期宽限: 生成计划与激活是两个独立动作、可相隔任意时长。激活时 scheduled_at 可能已过
 // (最常见: day-1 最早那槽生成时被 floor 到 now+5min, 用户几分钟后才激活)。若原样下发, scheduler
@@ -20,6 +21,30 @@ function resolveFireAt(scheduledAt: number, now: number): number | null {
   if (scheduledAt >= now) return scheduledAt; // 未来: 原样
   if (now - scheduledAt <= STALE_GRACE_MS) return now + CATCHUP_DELAY_MS; // 刚过: 顺延补跑
   return null; // 过期太久: 跳过
+}
+
+// P2 反馈闭环: 激活运营 = 开始收集反馈数据。确保账号级 + 笔记级两个采集器在每日跑 (幂等)。
+// 没有定期采集就没有时序数据 → Planner buildContext 的「近期账号数据 / 笔记表现」为空 → 闭环不自转。
+function ensureFeedbackCollectors(scheduler: WorkflowScheduler, tz: string): number {
+  const COLLECTORS = [
+    { template_id: 'daily_data_snapshot', name: '📊 数据快照(自动)' },
+    { template_id: 'note_metrics_snapshot', name: '📈 笔记数据采集(自动)' },
+  ];
+  const existing = listWorkflows(); // 非删除; 已有(不论启停)则不重复建, 防累积
+  let created = 0;
+  for (const c of COLLECTORS) {
+    if (existing.some((w) => w.template_id === c.template_id)) continue;
+    const wf = createWorkflow({
+      template_id: c.template_id,
+      name: c.name,
+      params: {},
+      schedule: { type: 'daily', hour: 23, minute: 30, jitter_min: 20, tz }, // 每日 23:30±20min 收尾采集当天数据
+      enabled: true,
+    });
+    scheduler.rescheduleOne(wf.id);
+    created++;
+  }
+  return created;
 }
 
 interface InteractSpec {
@@ -47,6 +72,7 @@ export interface ActivatePlanResult {
   skipped: number;   // 跳过的行动数 (空关键词的 interact / 未知类型)
   staleSkipped: number; // 因时刻已过 (>30min) 跳过的行动数
   pendingPublish: number; // 留待审核的发布数
+  assetWarning?: string; // E3 素材枯竭: 发布数 > 素材数时的提醒
   error?: string;
 }
 
@@ -74,6 +100,10 @@ export function activatePlan(planId: number, scheduler: WorkflowScheduler): Acti
   const actions = listActions(planId);
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = Date.now();
+
+  // P2: 激活即开启反馈闭环数据采集 (幂等)
+  const collectorsCreated = ensureFeedbackCollectors(scheduler, tz);
+  if (collectorsCreated) log.info(`[plan-instantiate] ensured ${collectorsCreated} feedback collector(s)`);
   let created = 0;
   let skipped = 0;
   let staleSkipped = 0;
@@ -177,6 +207,15 @@ export function activatePlan(planId: number, scheduler: WorkflowScheduler): Acti
   }
 
   setPlanStatus(planId, 'active');
+  // E3 素材枯竭检测: 发布数多于素材数 → 提醒补素材 (绝不自动生图, 红线)
+  let assetWarning: string | undefined;
+  if (pendingPublish > 0) {
+    const assetCount = listAssets().length;
+    if (assetCount < pendingPublish) {
+      assetWarning = `素材不足: ${pendingPublish} 条发布仅 ${assetCount} 张素材，建议先补素材库再逐条审核发布`;
+      log.info(`[plan-instantiate] asset shortage: ${pendingPublish} publishes vs ${assetCount} assets`);
+    }
+  }
   log.info(`[plan-instantiate] plan ${planId} activated: ${created} interact+browse workflows, ${skipped} skipped, ${staleSkipped} stale-skipped, ${pendingPublish} publish pending`);
-  return { ok: true, created, skipped, staleSkipped, pendingPublish };
+  return { ok: true, created, skipped, staleSkipped, pendingPublish, assetWarning };
 }

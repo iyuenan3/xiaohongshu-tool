@@ -269,6 +269,7 @@ const api = {
     enable: (id: number, on: boolean) => ipcRenderer.invoke('workflow:enable', id, on) as Promise<{ ok: boolean }>,
     delete: (id: number) => ipcRenderer.invoke('workflow:delete', id) as Promise<{ ok: boolean }>,
     runNow: (id: number) => ipcRenderer.invoke('workflow:run-now', id) as Promise<{ runId: number | null }>,
+    stop: (id: number) => ipcRenderer.invoke('workflow:stop', id) as Promise<{ ok: boolean; state: 'running' | 'queued' | 'none' }>,
     runs: (id: number, limit?: number) => ipcRenderer.invoke('workflow:runs', id, limit) as Promise<WorkflowRunP[]>,
     getTemplates: () => ipcRenderer.invoke('workflow:get-templates') as Promise<TemplateMetaP[]>,
     devFireSoon: (id: number) => ipcRenderer.invoke('workflow:dev-fire-soon', id) as Promise<{ ok: boolean }>,
@@ -296,10 +297,19 @@ const api = {
       ipcRenderer.invoke('operating:set-profile-status', id, status) as Promise<{ ok: boolean }>,
     generatePlan: (horizonDays?: number) =>
       ipcRenderer.invoke('operating:generate-plan', horizonDays) as Promise<GeneratePlanResultP>,
+    getAutoPlan: () => ipcRenderer.invoke('operating:get-auto-plan') as Promise<{ enabled: boolean }>,
+    setAutoPlan: (on: boolean) => ipcRenderer.invoke('operating:set-auto-plan', on) as Promise<{ ok: boolean }>,
+    report: () =>
+      ipcRenderer.invoke('operating:report') as Promise<{
+        trend: Array<{ taken_at: number; fans: number | null; follows: number | null; notes_count: number | null; likes_total: number | null }>;
+        notePerf: Array<{ feed_id: string; title: string | null; liked: number | null; collected: number | null; comments: number | null }>;
+      }>,
+    reportInsight: () =>
+      ipcRenderer.invoke('operating:report-insight') as Promise<{ ok: boolean; insight?: string; error?: string }>,
     getLatestPlan: (profileId?: number) => ipcRenderer.invoke('operating:get-latest-plan', profileId) as Promise<OperatingPlanP | null>,
     listActions: (planId: number) => ipcRenderer.invoke('operating:list-actions', planId) as Promise<PlanActionP[]>,
     activatePlan: (planId: number) =>
-      ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; staleSkipped: number; pendingPublish: number; error?: string }>,
+      ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; staleSkipped: number; pendingPublish: number; assetWarning?: string; error?: string }>,
     listPending: () => ipcRenderer.invoke('operating:list-pending') as Promise<PendingPublishP[]>,
     approvePublish: (id: number) => ipcRenderer.invoke('operating:approve-publish', id) as Promise<{ ok: boolean; error?: string }>,
     rejectPending: (id: number) => ipcRenderer.invoke('operating:reject-pending', id) as Promise<{ ok: boolean }>,

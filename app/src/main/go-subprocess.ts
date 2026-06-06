@@ -157,7 +157,7 @@ export class GoSubprocess {
     log.info(`[go] CDP attach OK`);
   }
 
-  async callApi<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  async callApi<T = unknown>(method: string, path: string, body?: unknown, externalSignal?: AbortSignal): Promise<T> {
     // GET/HEAD 不允许 body. body 为空对象 / null / undefined 时也不发 body.
     const hasBody =
       method !== 'GET' &&
@@ -166,8 +166,14 @@ export class GoSubprocess {
       !(typeof body === 'object' && Object.keys(body as object).length === 0);
     // 兜底超时: 发布/互动正常 <100s, 最坏(多图慢网)~200s。240s 后 abort,
     // 避免 Go 端卡死时 renderer 靠 undici 默认行为干等 ~5 分钟后才 fetch failed。
+    // externalSignal: 工作流"手动停止"时由 scheduler 传入, 掐断在途请求。
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), 240_000);
+    const onExt = () => ac.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) ac.abort();
+      else externalSignal.addEventListener('abort', onExt, { once: true });
+    }
     let r: Response;
     try {
       r = await fetch(`${this.baseUrl()}${path}`, {
@@ -177,12 +183,16 @@ export class GoSubprocess {
         signal: ac.signal,
       });
     } catch (e) {
+      if (externalSignal?.aborted) {
+        throw new Error('已手动停止');
+      }
       if (ac.signal.aborted) {
         throw new Error(`API ${method} ${path} 超时(240s)，操作可能未完成，请稍后重试`);
       }
       throw e;
     } finally {
       clearTimeout(timer);
+      externalSignal?.removeEventListener('abort', onExt);
     }
     const json = (await r.json()) as T;
     if (!r.ok) {

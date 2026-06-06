@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import PendingPublishQueue from './PendingPublishQueue';
+import OperatingReport from './OperatingReport';
 
 interface ProfileConstraints {
   pub_per_week: number;
@@ -48,6 +49,8 @@ export default function OperatingPanel() {
   const [planRationale, setPlanRationale] = useState<string | null>(null);
   const [actions, setActions] = useState<ActionRow[]>([]);
   const [generating, setGenerating] = useState(false);
+  const [horizon, setHorizon] = useState(7); // 计划周期 (E2: 3/7/14 天可配)
+  const [autoPlan, setAutoPlan] = useState(false); // E1: 每周自动生成计划开关
   const [genError, setGenError] = useState<string | null>(null);
   const [planId, setPlanId] = useState<number | null>(null);
   const [activating, setActivating] = useState(false);
@@ -85,6 +88,15 @@ export default function OperatingPanel() {
     });
   }, []);
 
+  useEffect(() => {
+    void window.api.operating.getAutoPlan().then((r) => setAutoPlan(r.enabled));
+  }, []);
+
+  const toggleAutoPlan = async (on: boolean) => {
+    setAutoPlan(on);
+    await window.api.operating.setAutoPlan(on);
+  };
+
   const upd = (k: keyof typeof form, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
   const splitList = (s: string) => s.split(/[,，、]/).map((x) => x.trim()).filter(Boolean);
 
@@ -121,7 +133,7 @@ export default function OperatingPanel() {
     setGenerating(true);
     setGenError(null);
     try {
-      const r = await window.api.operating.generatePlan(7);
+      const r = await window.api.operating.generatePlan(horizon);
       if (!r.ok) {
         setGenError(r.error);
         return;
@@ -153,6 +165,7 @@ export default function OperatingPanel() {
       if (r.pendingPublish > 0) parts.push(`${r.pendingPublish} 个发布已排程（到点拟稿进待审）`);
       if (r.skipped > 0) parts.push(`${r.skipped} 个跳过（关键词为空）`);
       if (r.staleSkipped > 0) parts.push(`${r.staleSkipped} 个时刻已过被跳过（建议重新生成计划）`);
+      if (r.assetWarning) parts.push(`⚠️ ${r.assetWarning}`);
       setActivateMsg('✓ ' + parts.join('；'));
       setPlanActivated(true);
       setActions(await window.api.operating.listActions(planId));
@@ -211,11 +224,29 @@ export default function OperatingPanel() {
       {/* 运营计划 (M2) */}
       <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={{ margin: 0 }}>本周运营计划</h3>
-          <button onClick={generate} disabled={generating || !id} style={btnStyle} title={!id ? '请先保存画像' : ''}>
-            {generating ? 'AI 规划中…（约 10-30s）' : actions.length ? '重新生成计划' : '生成本周计划'}
-          </button>
+          <h3 style={{ margin: 0 }}>运营计划</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <select
+              value={horizon}
+              onChange={(e) => setHorizon(Number(e.target.value))}
+              disabled={generating}
+              style={{ ...inputStyle, width: 'auto', padding: '6px 8px' }}
+              title="计划周期"
+            >
+              <option value={3}>3 天</option>
+              <option value={7}>7 天</option>
+              <option value={14}>14 天</option>
+            </select>
+            <button onClick={generate} disabled={generating || !id} style={btnStyle} title={!id ? '请先保存画像' : ''}>
+              {generating ? 'AI 规划中…（约 10-30s）' : actions.length ? '重新生成计划' : '生成计划'}
+            </button>
+          </div>
         </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12.5, color: 'var(--ink-soft)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={autoPlan} onChange={(e) => toggleAutoPlan(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
+          每周一自动生成下一期计划进待审（不自动激活，仍需你审核）
+        </label>
 
         {genError && (
           <p style={{ color: 'var(--accent)', fontSize: 13, marginTop: 12 }}>{genError}</p>
@@ -256,13 +287,14 @@ export default function OperatingPanel() {
         ) : (
           !planRationale && (
             <p style={{ color: 'var(--ink-mute)', fontSize: 13, marginTop: 12 }}>
-              {id ? '点「生成本周计划」，AI 会据画像 + 账号数据 + 素材库排一周行动。' : '请先保存账号画像。'}
+              {id ? '点「生成计划」，AI 会据画像 + 账号数据 + 素材库排所选周期的行动。' : '请先保存账号画像。'}
             </p>
           )
         )}
       </div>
 
       <PendingPublishQueue />
+      <OperatingReport />
     </div>
   );
 }

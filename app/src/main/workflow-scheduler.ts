@@ -1,7 +1,7 @@
 // 工作流调度引擎 (M7). 主进程持有, 启动时 init + 注册 setTimeout, 到点触发 execute.
 // 参考 SPEC §13.3 + §13.6 + §13.9.
 
-import { BrowserWindow, powerMonitor, net } from 'electron';
+import { BrowserWindow, powerMonitor, net, Notification } from 'electron';
 import log from 'electron-log/main';
 import type { GoSubprocess } from './go-subprocess';
 import { licenseManager, type LlmConfig } from './license';
@@ -59,6 +59,7 @@ export class WorkflowScheduler {
   private timers = new Map<number, NodeJS.Timeout>();
   private running = new Set<number>();
   private queue: number[] = [];
+  private runAborts = new Map<number, AbortController>(); // workflowId → 运行中 run 的 AbortController (手动停止用)
   private fireMutex = false;
   private goProc: GoSubprocess;
   private mainWindow: BrowserWindow | null = null;
@@ -218,40 +219,55 @@ export class WorkflowScheduler {
       return;
     }
 
-    const helpers = this.buildHelpers(runId);
+    const ac = new AbortController();
+    this.runAborts.set(workflowId, ac);
+    const helpers = this.buildHelpers(runId, ac.signal);
     try {
       const params = JSON.parse(wf.params);
       const result: ExecResult = await template.execute(params, helpers);
-      updateRun(runId, {
-        status: result.status,
-        fail_reason: result.fail_reason ?? null,
-        summary: result.summary,
-        finished_at: Date.now(),
-      });
-      if (result.status === 'success') {
-        // 重置失败计数
-        updateWorkflow(wf.id, { fail_count: 0 });
+      if (ac.signal.aborted) {
+        // 模板把 abort 当 skip 吞了仍正常返回 → 强制改判已停止
+        this.markAborted(runId, workflowId);
+      } else {
+        updateRun(runId, {
+          status: result.status,
+          fail_reason: result.fail_reason ?? null,
+          summary: result.summary,
+          finished_at: Date.now(),
+        });
+        if (result.status === 'success') {
+          updateWorkflow(wf.id, { fail_count: 0 }); // 重置失败计数
+        }
+        this.push('workflow:run-finished', { runId, workflowId, status: result.status });
       }
-      this.push('workflow:run-finished', { runId, workflowId, status: result.status });
     } catch (e) {
-      const reason = classifyError(e);
-      const errMsg = e instanceof Error ? e.message : String(e);
-      log.error(`[workflow] run ${runId} failed: ${errMsg}`);
-      updateRun(runId, {
-        status: 'failed', fail_reason: reason,
-        summary: SUMMARY_BY_REASON[reason],
-        error: errMsg, finished_at: Date.now(),
-      });
-      const newFail = wf.fail_count + 1;
-      const patch: Partial<Workflow> = { fail_count: newFail };
-      if (newFail >= 3) {
-        patch.enabled = 0;
-        log.warn(`[workflow] auto-disable workflow ${workflowId} after 3 consecutive failures`);
-        this.cancelOne(workflowId);
-        this.push('workflow:auto-disabled', { workflowId, lastReason: reason });
+      if (ac.signal.aborted) {
+        // 手动停止 (sleep/callTool 抛 abort 冒泡到这): 不算失败、不计 fail_count、不自动停用
+        this.markAborted(runId, workflowId);
+      } else {
+        const reason = classifyError(e);
+        const errMsg = e instanceof Error ? e.message : String(e);
+        log.error(`[workflow] run ${runId} failed: ${errMsg}`);
+        updateRun(runId, {
+          status: 'failed', fail_reason: reason,
+          summary: SUMMARY_BY_REASON[reason],
+          error: errMsg, finished_at: Date.now(),
+        });
+        const newFail = wf.fail_count + 1;
+        const patch: Partial<Workflow> = { fail_count: newFail };
+        this.notify('xhsPilot · 工作流失败', `「${wf.name}」${SUMMARY_BY_REASON[reason]}`);
+        if (newFail >= 3) {
+          patch.enabled = 0;
+          log.warn(`[workflow] auto-disable workflow ${workflowId} after 3 consecutive failures`);
+          this.cancelOne(workflowId);
+          this.notify('xhsPilot · 工作流已停用', `「${wf.name}」连续失败 3 次, 已自动停用`);
+          this.push('workflow:auto-disabled', { workflowId, lastReason: reason });
+        }
+        updateWorkflow(wf.id, patch);
+        this.push('workflow:run-finished', { runId, workflowId, status: 'failed', failReason: reason });
       }
-      updateWorkflow(wf.id, patch);
-      this.push('workflow:run-finished', { runId, workflowId, status: 'failed', failReason: reason });
+    } finally {
+      this.runAborts.delete(workflowId);
     }
     // 重新计算 next + 重新 schedule
     const refreshed = getWorkflow(workflowId);
@@ -271,9 +287,44 @@ export class WorkflowScheduler {
 
   }
 
-  private buildHelpers(runId: number): ExecHelpers {
+  private markAborted(runId: number, workflowId: number): void {
+    log.info(`[workflow] run ${runId} (workflow ${workflowId}) aborted by user`);
+    updateRun(runId, {
+      status: 'aborted', fail_reason: 'user_abort',
+      summary: SUMMARY_BY_REASON.user_abort, finished_at: Date.now(),
+    });
+    this.push('workflow:run-finished', { runId, workflowId, status: 'aborted' });
+  }
+
+  /** 手动停止: 运行中→abort 在途请求+sleep; 排队中→移出队列. 返回命中状态. */
+  abortRun(workflowId: number): { ok: boolean; state: 'running' | 'queued' | 'none' } {
+    const ac = this.runAborts.get(workflowId);
+    if (ac) {
+      ac.abort();
+      log.info(`[workflow] abort requested for running workflow ${workflowId}`);
+      return { ok: true, state: 'running' };
+    }
+    const qi = this.queue.indexOf(workflowId);
+    if (qi >= 0) {
+      this.queue.splice(qi, 1);
+      log.info(`[workflow] removed queued workflow ${workflowId}`);
+      return { ok: true, state: 'queued' };
+    }
+    return { ok: false, state: 'none' };
+  }
+
+  private notify(title: string, body: string): void {
+    try {
+      if (Notification.isSupported()) new Notification({ title, body }).show();
+    } catch (e) {
+      log.warn(`[workflow] notify failed: ${String(e)}`);
+    }
+  }
+
+  private buildHelpers(runId: number, signal: AbortSignal): ExecHelpers {
     return {
       callTool: async (tool, args) => {
+        if (signal.aborted) throw new Error('已手动停止');
         // RateLimiter check (publish/comment/like/favorite)
         const rateAction = this.toolToRateAction(tool);
         if (rateAction) {
@@ -284,16 +335,24 @@ export class WorkflowScheduler {
         const method = this.toolToMethod(tool);
         const body = method === 'GET' || method === 'HEAD' ? undefined : args;
         const query = method === 'GET' && args ? '?' + new URLSearchParams(args as Record<string, string>).toString() : '';
-        const result = await this.goProc.callApi(method, `${path}${query}`, body);
+        const result = await this.goProc.callApi(method, `${path}${query}`, body, signal);
         if (rateAction) logRate(rateAction);
         return result;
       },
       callLLM: async ({ system, user, max_tokens = 80 }) => {
+        if (signal.aborted) throw new Error('已手动停止');
         const llm = await licenseManager.getActiveLlm();
         if (!llm) throw new Error('LLM not configured (license inactive or BYOK empty)');
-        return await callLLMWithRetry(llm, system, user, max_tokens);
+        return await callLLMWithRetry(llm, system, user, max_tokens, signal); // signal: 停止时掐断 LLM, 避免评论生成时停止要等 ~60s
       },
-      sleep,
+      // 可中断 sleep: 手动停止时立即 reject。模板循环里 callTool/callLLM 调用前已检查 signal 抛错、
+      // execute 会在模板返回后复查 ac.signal.aborted 改判 aborted; sleep reject 主要让"停留等待中"的取消即时生效。
+      sleep: (ms: number) =>
+        new Promise<void>((resolve, reject) => {
+          if (signal.aborted) return reject(new Error('已手动停止'));
+          const t = setTimeout(resolve, ms);
+          signal.addEventListener('abort', () => { clearTimeout(t); reject(new Error('已手动停止')); }, { once: true });
+        }),
       rand,
       log: (entry) => {
         const step: StepLogEntry = {
@@ -368,15 +427,17 @@ export class WorkflowScheduler {
 
 // ============ LLM 单次 completion (timeout + retry) ============
 
-async function callLLMWithRetry(llm: LlmConfig, system: string, user: string, maxTokens: number): Promise<string> {
+async function callLLMWithRetry(llm: LlmConfig, system: string, user: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
   const MAX_RETRY = 1;
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+    if (signal?.aborted) throw new Error('已手动停止');
     try {
-      return await callLLMOnce(llm, system, user, maxTokens);
+      return await callLLMOnce(llm, system, user, maxTokens, signal);
     } catch (e) {
       lastErr = e as Error;
       const msg = lastErr.message.toLowerCase();
+      if (signal?.aborted) throw lastErr; // 手动停止: 不 retry
       // 429 / 401 / 403 不 retry, 直接抛
       if (msg.includes('429')) throw new InsufficientQuotaError();
       if (msg.includes('401') || msg.includes('403')) throw lastErr;
@@ -390,9 +451,14 @@ async function callLLMWithRetry(llm: LlmConfig, system: string, user: string, ma
   throw lastErr!;
 }
 
-async function callLLMOnce(llm: LlmConfig, system: string, user: string, maxTokens: number): Promise<string> {
+async function callLLMOnce(llm: LlmConfig, system: string, user: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30 * 1000);
+  const onExt = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onExt, { once: true });
+  }
   try {
     const resp = await net.fetch(`${llm.base_url}/chat/completions`, {
       method: 'POST',
@@ -417,10 +483,12 @@ async function callLLMOnce(llm: LlmConfig, system: string, user: string, maxToke
     if (!content) throw new Error('LLM returned empty content');
     return content;
   } catch (e) {
+    if (signal?.aborted) throw new Error('已手动停止');
     if (e instanceof Error && e.name === 'AbortError') throw new LlmTimeoutError();
     throw e;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', onExt);
   }
 }
 

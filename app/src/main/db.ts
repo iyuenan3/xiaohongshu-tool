@@ -106,6 +106,21 @@ export function initDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_data_snapshots_taken_at ON data_snapshots(taken_at DESC);
 
+    -- 笔记级数据快照 (P2 反馈闭环): 每次采集自己每条笔记的互动数, 用于"哪类内容数据好"分析 + 回灌 Planner
+    CREATE TABLE IF NOT EXISTS note_snapshots (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      taken_at    INTEGER NOT NULL,         -- unix ms
+      feed_id     TEXT NOT NULL,            -- 笔记 id
+      title       TEXT,                     -- 笔记标题 (快照时)
+      liked       INTEGER,                  -- 点赞
+      collected   INTEGER,                  -- 收藏
+      comments    INTEGER,                  -- 评论
+      shared      INTEGER,                  -- 分享
+      raw         TEXT                      -- 该 feed 原始 JSON (截断)
+    );
+    CREATE INDEX IF NOT EXISTS idx_note_snapshots_feed ON note_snapshots(feed_id, taken_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_note_snapshots_taken_at ON note_snapshots(taken_at DESC);
+
     -- ===== 自主运营系统 (M1+): 画像 / 计划 / 行动项 / 待审发布 =====
     CREATE TABLE IF NOT EXISTS operating_profile (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,7 +167,8 @@ export function initDb(): Database.Database {
       schedule_at    INTEGER,                      -- 计划发布时间
       status         TEXT NOT NULL DEFAULT 'pending', -- pending/approved/rejected/expired/published
       created_at     INTEGER NOT NULL,
-      decided_at     INTEGER
+      decided_at     INTEGER,
+      published_feed_id TEXT             -- P2/A1: 真发后回写的小红书笔记 id (用于关联表现)
     );
     CREATE INDEX IF NOT EXISTS idx_pending_publish_status ON pending_publish(status, created_at DESC);
   `);
@@ -163,6 +179,11 @@ export function initDb(): Database.Database {
   if (!names.has('tags')) inst.exec(`ALTER TABLE media_assets ADD COLUMN tags TEXT DEFAULT '[]'`);
   if (!names.has('description')) inst.exec(`ALTER TABLE media_assets ADD COLUMN description TEXT`);
   if (!names.has('analyzed')) inst.exec(`ALTER TABLE media_assets ADD COLUMN analyzed INTEGER DEFAULT 0`);
+  // 老 db 升级: pending_publish 加 published_feed_id (P2/A1)
+  const ppCols = inst.prepare('PRAGMA table_info(pending_publish)').all() as Array<{ name: string }>;
+  if (!new Set(ppCols.map((c) => c.name)).has('published_feed_id')) {
+    inst.exec(`ALTER TABLE pending_publish ADD COLUMN published_feed_id TEXT`);
+  }
   db = inst;
   return inst;
 }
