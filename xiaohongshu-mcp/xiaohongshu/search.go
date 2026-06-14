@@ -217,28 +217,34 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 			}
 		}
 
-		// 筛选 DOM 链单独用较短超时: 面板不出现时 ~20s 快速失败 (recover 转可读 error), 不拖到 searchOpTimeout
-		fpage := page.Timeout(searchFilterTimeout)
+		// 只有真有筛选项才碰筛选面板 DOM。handler 对无 filters 的请求也会传一个零值 FilterOption
+		// (故 len(filters) 恒 >0), 但零值转出的 allInternalFilters 为空; 这里跳过, 避免每次搜索
+		// 都白跑筛选面板交互 (hover div.filter + 等 filter-panel) 并白白暴露在 searchFilterTimeout
+		// 失败路径 (B-B 卡死根因)。无筛选时导航后默认综合结果已加载, 直接读 __INITIAL_STATE__ 即可。
+		if len(allInternalFilters) > 0 {
+			// 筛选 DOM 链单独用较短超时: 面板不出现时 ~20s 快速失败 (recover 转可读 error), 不拖到 searchOpTimeout
+			fpage := page.Timeout(searchFilterTimeout)
 
-		// 悬停在筛选按钮上
-		filterButton := fpage.MustElement(`div.filter`)
-		filterButton.MustHover()
+			// 悬停在筛选按钮上
+			filterButton := fpage.MustElement(`div.filter`)
+			filterButton.MustHover()
 
-		// 等待筛选面板出现
-		fpage.MustWait(`() => document.querySelector('div.filter-panel') !== null`)
+			// 等待筛选面板出现
+			fpage.MustWait(`() => document.querySelector('div.filter-panel') !== null`)
 
-		// 应用所有筛选条件
-		for _, filter := range allInternalFilters {
-			selector := fmt.Sprintf(`div.filter-panel div.filters:nth-child(%d) div.tags:nth-child(%d)`,
-				filter.FiltersIndex, filter.TagsIndex)
-			option := fpage.MustElement(selector)
-			option.MustClick()
+			// 应用所有筛选条件
+			for _, filter := range allInternalFilters {
+				selector := fmt.Sprintf(`div.filter-panel div.filters:nth-child(%d) div.tags:nth-child(%d)`,
+					filter.FiltersIndex, filter.TagsIndex)
+				option := fpage.MustElement(selector)
+				option.MustClick()
+			}
+
+			// 等待页面更新
+			fpage.MustWaitStable()
+			// 重新等待 __INITIAL_STATE__ 更新
+			fpage.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
 		}
-
-		// 等待页面更新
-		fpage.MustWaitStable()
-		// 重新等待 __INITIAL_STATE__ 更新
-		fpage.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
 	}
 
 	result := page.MustEval(`() => {
