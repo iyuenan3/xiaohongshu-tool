@@ -15,14 +15,12 @@ export const scheduledPublish: Template = {
     content: { type: 'string', default: '', label: '正文 (支持多行)' },
     image_ids: { type: 'image_list', default: [], label: '图素材 (从素材库选, 最多 9 张)' },
     video_path: { type: 'string', default: '', label: '视频路径 (留空则发图文)' },
-    cover_path: { type: 'string', default: '', label: '视频封面路径 (可选)' },
   },
   async execute(params: Record<string, unknown>, helpers: ExecHelpers): Promise<ExecResult> {
     const title = String(params.title ?? '').trim();
     const content = String(params.content ?? '').trim();
     const imageIds = Array.isArray(params.image_ids) ? (params.image_ids as string[]) : [];
     const videoPath = String(params.video_path ?? '').trim();
-    const coverPath = String(params.cover_path ?? '').trim();
 
     if (!title) return { status: 'partial', summary: '⚠️ 标题为空, 跳过' };
 
@@ -31,11 +29,11 @@ export const scheduledPublish: Template = {
     // 分支: 视频 vs 图文
     if (videoPath) {
       try {
+        // Go HTTP PublishVideoRequest 字段是 video (required), 无 cover; 之前发 video_path/cover → video 空 → 必 400 失败
         await helpers.callTool('publish_with_video', {
           title,
           content,
-          video_path: videoPath,
-          cover: coverPath || undefined,
+          video: videoPath,
         });
         helpers.log({ step: 'publish_with_video', result: { title } });
         return { status: 'success', summary: `✅ 视频笔记已发布: ${title}` };

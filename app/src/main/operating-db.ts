@@ -210,6 +210,26 @@ export function updateActionStatus(id: number, status: PlanActionStatus, workflo
   }
 }
 
+export function getAction(id: number): PlanAction | null {
+  return (getDb().prepare(`SELECT * FROM plan_action WHERE id = ?`).get(id) as PlanAction | undefined) ?? null;
+}
+
+// 行动到终态回写 (成功跑完='done'; missed/failed/aborted='skipped'), 并在该计划所有行动都已离开
+// pending/scheduled (done/skipped) 时把计划标 'done'。不回写的后果: 计划永远 active →
+// auto_plan_gen 的 "无 active 才自动激活" 闸门永不放行 → P3 每周计划死锁。
+export function completeActionAndMaybePlan(planActionId: number, status: 'done' | 'skipped' = 'done'): void {
+  const a = getAction(planActionId);
+  if (!a) return;
+  if (a.status === 'done' || a.status === 'skipped') return; // 已终态, 幂等
+  updateActionStatus(planActionId, status);
+  const siblings = listActions(a.plan_id);
+  const allTerminal = siblings.every((s) => s.id === planActionId || s.status === 'done' || s.status === 'skipped');
+  if (allTerminal) {
+    const plan = getPlan(a.plan_id);
+    if (plan && plan.status === 'active') setPlanStatus(a.plan_id, 'done');
+  }
+}
+
 // ============ 数据快照读取 (M2 Planner 输入) ============
 
 export interface AccountSnapshot {
@@ -354,6 +374,13 @@ export function getPending(id: number): PendingPublish | null {
 
 export function listPending(status: PendingStatus = 'pending'): PendingPublish[] {
   return getDb().prepare(`SELECT * FROM pending_publish WHERE status = ? ORDER BY created_at DESC`).all(status) as PendingPublish[];
+}
+
+// 某行动关联的、仍待审 (pending) 的发布稿 — supersede 旧计划时用来作废其稿子。
+export function listPendingByAction(planActionId: number): PendingPublish[] {
+  return getDb()
+    .prepare(`SELECT * FROM pending_publish WHERE plan_action_id = ? AND status = 'pending'`)
+    .all(planActionId) as PendingPublish[];
 }
 
 export function updatePendingStatus(id: number, status: PendingStatus): void {

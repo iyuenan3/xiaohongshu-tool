@@ -9,6 +9,7 @@ import { checkRate, logRate } from './rate';
 import {
   getPending, updatePendingStatus, setPublishedFeedId,
   claimPendingForPublish, revertPublishingToPending, rejectPendingIfPending,
+  completeActionAndMaybePlan,
 } from './operating-db';
 import { findTaboo, activeTaboo } from './content-guard';
 
@@ -93,6 +94,7 @@ export async function approvePublish(
 
   logRate('publish');
   updatePendingStatus(pendingId, 'published');
+  if (p.plan_action_id) completeActionAndMaybePlan(p.plan_action_id); // 计划: 发布行动完结 + 计划完结判定
   log.info(`[publish-gate] pending ${pendingId} published`);
   await backfillPublishedFeedId(pendingId, p.title, goProc); // P2/A1: best-effort 回写 feed_id
   return { ok: true };
@@ -100,11 +102,13 @@ export async function approvePublish(
 
 export function rejectPending(pendingId: number): { ok: boolean; reason?: 'publishing' } {
   // 条件否决: 在途发布 (publishing) 不可撤 → 返回 reason 提示, 不覆盖结果
+  const p = getPending(pendingId);
   const done = rejectPendingIfPending(pendingId);
   if (!done) {
     log.info(`[publish-gate] pending ${pendingId} reject skipped (not pending, likely publishing/decided)`);
     return { ok: false, reason: 'publishing' };
   }
+  if (p?.plan_action_id) completeActionAndMaybePlan(p.plan_action_id); // 拒绝 = 该发布行动终态, 标完结防计划永久 active
   log.info(`[publish-gate] pending ${pendingId} rejected`);
   return { ok: true };
 }

@@ -14,6 +14,7 @@ export function formatSchedule(scheduleStr: string): string {
       case 'daily': return `每天 ${hh}:${mm}`;
       case 'weekly': return `每周${WEEKDAYS[s.weekday ?? 1]} ${hh}:${mm}`;
       case 'interval': return `每 ${s.interval_hours ?? 6} 小时`;
+      case 'once': { const at = (s as { at?: number }).at; return at ? `单次 ${formatNextFire(at)}` : '单次'; }
       case 'manual': return '手动触发';
       default: return scheduleStr;
     }

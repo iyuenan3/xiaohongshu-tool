@@ -28,7 +28,7 @@ const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内�
 
 ## 行动类型（只用这三种）
 - browse：刷垂直内容（养号 + 找灵感 + 喂算法）。spec: { "keyword": 关键词, "count": 刷几篇(建议 8-20) }
-- interact：给垂类内容点赞评论（涨权重 + 露出）。spec: { "keyword": 关键词, "like": 点赞数(≤10), "comment": 评论数(≤3) }
+- interact：给垂类内容点赞评论（涨权重 + 露出）。spec: { "keyword": 关键词, "like": 点赞数(≤5), "comment": 评论数(≤3,可为0只点赞) }
 - publish：发布笔记。spec: { "theme": 主题, "asset_tags": 用哪类素材标签(从可用素材里选), "title": 标题(18-22字,情绪词+关键词,口语), "content": 正文(300-500字), "note_tags": 笔记话题标签数组(3-6个) }
 
 ## 运营方法论（务必遵守）
@@ -41,7 +41,7 @@ const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内�
 
 ## 频率红线（绝不超过）
 - 发布：不超过画像的每周上限
-- 单次互动：点赞 ≤10、评论 ≤3
+- 单次互动：点赞 ≤5、评论 ≤3
 - 别把同一天排得过密（browse+interact+publish 全堆像机器人）
 
 ## 输出格式（严格 JSON，不要任何额外文字，不要 markdown 代码块）

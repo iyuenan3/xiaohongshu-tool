@@ -6,8 +6,8 @@
 
 import log from 'electron-log/main';
 import type { WorkflowScheduler } from './workflow-scheduler';
-import { createWorkflow, softDeleteWorkflow, listWorkflows } from './workflow-db';
-import { getPlan, listActions, updateActionStatus, setPlanStatus, listPlansByStatus } from './operating-db';
+import { createWorkflow, softDeleteWorkflow, listWorkflows, updateWorkflow } from './workflow-db';
+import { getPlan, listActions, updateActionStatus, setPlanStatus, listPlansByStatus, listPendingByAction, rejectPendingIfPending, clearAutoPublishAt } from './operating-db';
 import { listAssets } from './assets';
 
 // 过期宽限: 生成计划与激活是两个独立动作、可相隔任意时长。激活时 scheduled_at 可能已过
@@ -30,10 +30,19 @@ function ensureFeedbackCollectors(scheduler: WorkflowScheduler, tz: string): num
     { template_id: 'daily_data_snapshot', name: '📊 数据快照(自动)' },
     { template_id: 'note_metrics_snapshot', name: '📈 笔记数据采集(自动)' },
   ];
-  const existing = listWorkflows(); // 非删除; 已有(不论启停)则不重复建, 防累积
+  const existing = listWorkflows(); // 非删除
   let created = 0;
   for (const c of COLLECTORS) {
-    if (existing.some((w) => w.template_id === c.template_id)) continue;
+    const ex = existing.find((w) => w.template_id === c.template_id);
+    if (ex) {
+      // 已有但曾连续失败被自动停用 → 重激活计划时复活 (否则反馈闭环永久静默断裂, 重激活也不恢复)
+      if (!ex.enabled) {
+        updateWorkflow(ex.id, { enabled: 1, fail_count: 0 });
+        scheduler.rescheduleOne(ex.id);
+        created++;
+      }
+      continue;
+    }
     const wf = createWorkflow({
       template_id: c.template_id,
       name: c.name,
@@ -93,6 +102,11 @@ export function activatePlan(planId: number, scheduler: WorkflowScheduler): Acti
         scheduler.cancelOne(oa.workflow_id);
         updateActionStatus(oa.id, 'skipped');
       }
+      // 作废旧计划已拟好、仍待审的发布稿: 否则全自动会把作废方向的旧稿到点自动发出 (账号安全)
+      for (const p of listPendingByAction(oa.id)) {
+        clearAutoPublishAt(p.id);     // 先去武装 (即便否决竞态也不再自动发)
+        rejectPendingIfPending(p.id); // 再否决移出待审 (条件仅 pending, 不误伤在途 publishing)
+      }
     }
     setPlanStatus(old.id, 'superseded');
   }
@@ -131,12 +145,14 @@ export function activatePlan(planId: number, scheduler: WorkflowScheduler): Acti
         staleSkipped++;
         continue;
       }
-      // top_n 取 like/comment 的较大值, 落在 [1,5] (模板硬上限 5 防风控)
-      const topN = Math.min(Math.max(spec.like ?? 0, spec.comment ?? 0, 1), 5);
+      // 点赞数与评论数分别下发 (模板分别尊重; comment=0 → 只点赞不评论, 尊重 Planner 意图)
+      const likeN = Math.min(Math.max(spec.like ?? 0, 0), 5);   // 模板硬上限点赞 5 防风控
+      const commentN = Math.min(Math.max(spec.comment ?? 0, 0), 3); // 评论硬上限 3
+      const topN = Math.max(likeN, 1); // 至少点 1 篇 (评论篇是点赞篇子集, 需有载体)
       const wf = createWorkflow({
         template_id: 'keyword_like_comment',
         name: `[运营] 互动「${keyword}」`,
-        params: { keyword, sort: 'general', top_n: topN, comment_style: 'praise' },
+        params: { keyword, sort: 'general', top_n: topN, comment_n: commentN, comment_style: 'praise', plan_action_id: a.id },
         schedule: { type: 'once', at: fireAt, jitter_min: 5, tz },
         enabled: true,
       });
@@ -163,7 +179,7 @@ export function activatePlan(planId: number, scheduler: WorkflowScheduler): Acti
       const wf = createWorkflow({
         template_id: 'daily_browse',
         name: keyword ? `[运营] 浏览「${keyword}」` : '[运营] 刷首页养号',
-        params: { keyword, sort: 'general', top_n: topN },
+        params: { keyword, sort: 'general', top_n: topN, plan_action_id: a.id },
         schedule: { type: 'once', at: fireAt, jitter_min: 5, tz },
         enabled: true,
       });

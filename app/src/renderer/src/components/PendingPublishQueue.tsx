@@ -64,8 +64,11 @@ export default function PendingPublishQueue() {
 
   const reject = async (id: number) => {
     setBusy(id);
+    setMsg(null);
     try {
-      await window.api.operating.rejectPending(id);
+      const r = await window.api.operating.rejectPending(id);
+      // 在途发布 (publishing) 不可撤: 给明确反馈, 否则用户以为已否决但其实已发出
+      if (!r.ok && r.reason === 'publishing') setMsg('该笔记正在发布中，已无法撤销');
       refresh();
     } finally {
       setBusy(null);

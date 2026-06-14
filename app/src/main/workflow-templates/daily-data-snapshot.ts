@@ -36,7 +36,8 @@ export const dailyDataSnapshot: Template = {
       helpers.log({ step: 'my_profile', result: { nickname: prof.userBasicInfo?.nickname } });
     } catch (e) {
       helpers.log({ step: 'my_profile', error: (e as Error).message });
-      throw e;
+      // 瞬时失败 (登录过期/页面波动) 返 partial 不 throw: 否则累计 fail_count, 连续 3 次会被自动停用 → 反馈闭环静默断裂
+      return { status: 'partial', summary: '📊 本次未取到主页数据 (登录过期/页面波动?), 跳过本次采集' };
     }
 
     const byType = (t: string) => parseCount(prof.interactions?.find((i) => i.type === t)?.count);

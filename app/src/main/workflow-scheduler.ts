@@ -13,7 +13,7 @@ import {
 } from './workflow-db';
 import { TEMPLATES, type Template, type ExecHelpers, type ExecResult } from './workflow-templates';
 import { isAutoPilotEnabled } from './auto-pilot';
-import { listDueAutoPublish, clearAutoPublishAt, bumpAutoPublishAttempts, recoverStuckPublishing } from './operating-db';
+import { listDueAutoPublish, clearAutoPublishAt, bumpAutoPublishAttempts, recoverStuckPublishing, completeActionAndMaybePlan } from './operating-db';
 import { approvePublish, type ApproveResult } from './publish-gate';
 
 // P3 全自动: 每隔此间隔扫一次到点该自动发的待审 (window 默认 6h, 5min 粒度足够; 重启后首扫即补发过期窗口的)
@@ -190,6 +190,9 @@ export class WorkflowScheduler {
     this.timers.clear();
     const enabled = listEnabledWorkflows();
     for (const wf of enabled) {
+      // 跳过正在执行的工作流: 其生命周期 (next 重算/重排) 由 execute 末尾独占管理。
+      // 否则 resume 落在某 once 执行中会把它误判 missed + 提前 enabled=0 (假 missed 记录); 对 daily/interval 则留下孤儿 timer 致重复跑。
+      if (this.running.has(wf.id)) continue;
       wf.next_fire_at = this.computeNextFireTime(wf);
       updateWorkflow(wf.id, { next_fire_at: wf.next_fire_at });
       this.scheduleNext(wf);
@@ -237,6 +240,9 @@ export class WorkflowScheduler {
 
   private scheduleNext(wf: Workflow): void {
     const now = Date.now();
+    // 防孤儿 timer: 注册前清掉该 wf 已有的 timer (recomputeAll 与 execute-finally 双路径可能各注册一个)
+    const stale = this.timers.get(wf.id);
+    if (stale) { clearTimeout(stale); this.timers.delete(wf.id); }
     if (!wf.next_fire_at) {
       wf.next_fire_at = this.computeNextFireTime(wf);
       updateWorkflow(wf.id, { next_fire_at: wf.next_fire_at });
@@ -258,6 +264,7 @@ export class WorkflowScheduler {
       if (sched.type === 'once') {
         // 一次性: 错过即结束, 停用不补跑不重排
         updateWorkflow(wf.id, { enabled: 0, last_fire_at: wf.next_fire_at });
+        this.markPlanActionSkipped(wf); // 错过的计划行动标 skipped, 防计划永久 active 顶死 P3 自动激活
         return;
       }
       wf.last_fire_at = wf.next_fire_at;
@@ -277,6 +284,11 @@ export class WorkflowScheduler {
     while (this.fireMutex) await sleep(10);
     this.fireMutex = true;
     try {
+      // 已在执行的同一工作流不再排队/重入 (防孤儿 timer / runNow 在执行中再触发 → 同 once 行动重复跑)
+      if (this.running.has(workflowId)) {
+        log.info(`[workflow] skip workflow ${workflowId}: already running`);
+        return;
+      }
       if (this.running.size > 0) {
         if (!this.queue.includes(workflowId)) this.queue.push(workflowId);
         log.info(`[workflow] queue workflow ${workflowId} (running=${[...this.running].join(',')})`);
@@ -334,11 +346,17 @@ export class WorkflowScheduler {
           updateWorkflow(wf.id, { fail_count: 0 }); // 重置失败计数
         }
         this.push('workflow:run-finished', { runId, workflowId, status: result.status });
+        // 计划/行动 done 回写: 互动/浏览类 once 行动跑完 (success/partial 都算已执行) → 标 plan_action='done' + 计划完结判定。
+        // 发布类 (planned_publish) 例外: 它只是拟稿, 行动 done 由 approve/reject 回写 (见 publish-gate)。
+        if (wf.template_id !== 'planned_publish' && typeof params.plan_action_id === 'number' && params.plan_action_id > 0) {
+          try { completeActionAndMaybePlan(params.plan_action_id); } catch (err) { log.warn(`[workflow] completeAction failed: ${String(err)}`); }
+        }
       }
     } catch (e) {
       if (ac.signal.aborted) {
         // 手动停止 (sleep/callTool 抛 abort 冒泡到这): 不算失败、不计 fail_count、不自动停用
         this.markAborted(runId, workflowId);
+        this.markPlanActionSkipped(wf); // once 行动被手动停 = 终态, 标 skipped 防计划永久 active
       } else {
         const reason = classifyError(e);
         const errMsg = e instanceof Error ? e.message : String(e);
@@ -360,6 +378,7 @@ export class WorkflowScheduler {
         }
         updateWorkflow(wf.id, patch);
         this.push('workflow:run-finished', { runId, workflowId, status: 'failed', failReason: reason });
+        this.markPlanActionSkipped(wf); // once 行动执行失败 = 终态 (once 不重试), 标 skipped 防计划永久 active
       }
     } finally {
       this.runAborts.delete(workflowId);
@@ -389,6 +408,20 @@ export class WorkflowScheduler {
       summary: SUMMARY_BY_REASON.user_abort, finished_at: Date.now(),
     });
     this.push('workflow:run-finished', { runId, workflowId, status: 'aborted' });
+  }
+
+  // 计划行动的 once 工作流走到非成功终态 (missed/failed/aborted) → 标 plan_action='skipped' + 计划完结判定。
+  // 漏了它会让 action 永久卡 'scheduled' → plan 永久 active → P3 每周自动激活闸门被陈旧 active 顶死。
+  // 含 planned_publish: 它若 missed/failed/aborted 则没产出待审稿, 该发布行动也不会再 approve/reject, 应标终态。
+  private markPlanActionSkipped(wf: Workflow): void {
+    try {
+      const p = JSON.parse(wf.params) as { plan_action_id?: number };
+      if (typeof p.plan_action_id === 'number' && p.plan_action_id > 0) {
+        completeActionAndMaybePlan(p.plan_action_id, 'skipped');
+      }
+    } catch (err) {
+      log.warn(`[workflow] markPlanActionSkipped failed: ${String(err)}`);
+    }
   }
 
   /** 手动停止: 运行中→abort 在途请求+sleep; 排队中→移出队列. 返回命中状态. */
@@ -470,7 +503,10 @@ export class WorkflowScheduler {
     const jitterMin = s.jitter_min ?? 10;
     const jitterMs = jitterMin * 60 * 1000;
     const jitter = (Math.random() * 2 - 1) * jitterMs;
-    return base + jitter;
+    const jittered = base + jitter;
+    // 负向抖动可能把临近的 base (如激活当晚 23:30 的采集器, 此刻已 23:2x) 推到过去 → scheduleNext 误判 missed 跳一次。
+    // 抖到过去则回退到不抖的 base (base 由 computeBaseFireTime 保证未来), 保证首次也能正常排。
+    return jittered > Date.now() ? jittered : base;
   }
 
   private parseSchedule(wf: Workflow): Schedule {

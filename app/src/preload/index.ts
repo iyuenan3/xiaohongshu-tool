@@ -29,12 +29,13 @@ interface LicenseStateP {
 
 // v0.7 M7 工作流
 export interface ScheduleP {
-  type: 'daily' | 'weekly' | 'interval' | 'manual';
+  type: 'daily' | 'weekly' | 'interval' | 'manual' | 'once';
   hour?: number;
   minute?: number;
   weekday?: number;
   interval_hours?: number;
   jitter_min?: number;
+  at?: number; // once: 触发时刻
   tz: string;
 }
 
@@ -318,7 +319,7 @@ const api = {
       ipcRenderer.invoke('operating:activate-plan', planId) as Promise<{ ok: boolean; created: number; skipped: number; staleSkipped: number; pendingPublish: number; assetWarning?: string; error?: string }>,
     listPending: () => ipcRenderer.invoke('operating:list-pending') as Promise<PendingPublishP[]>,
     approvePublish: (id: number) => ipcRenderer.invoke('operating:approve-publish', id) as Promise<{ ok: boolean; error?: string }>,
-    rejectPending: (id: number) => ipcRenderer.invoke('operating:reject-pending', id) as Promise<{ ok: boolean }>,
+    rejectPending: (id: number) => ipcRenderer.invoke('operating:reject-pending', id) as Promise<{ ok: boolean; reason?: 'publishing' }>,
     updatePending: (id: number, patch: { title?: string; content?: string; images?: string[]; tags?: string[] }) =>
       ipcRenderer.invoke('operating:update-pending', id, patch) as Promise<{ ok: boolean }>,
     // P3: 待审队列被后台改动 (自动发/转人工) 时推送, 供 UI 刷新

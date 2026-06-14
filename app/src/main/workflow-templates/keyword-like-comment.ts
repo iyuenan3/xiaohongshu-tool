@@ -26,7 +26,8 @@ export const keywordLikeComment: Template = {
   paramsSchema: {
     keyword: { type: 'string', default: '', label: '关键词 (搜笔记)' },
     sort: { type: 'enum', options: ['general', 'time_descending', 'popularity_descending'], default: 'general', label: '排序 (综合 / 最新 / 最热)' },
-    top_n: { type: 'int', min: 1, max: 5, default: 3, label: '操作笔记数 (硬上限 5 防风控)' },
+    top_n: { type: 'int', min: 1, max: 5, default: 3, label: '点赞数 (硬上限 5 防风控)' },
+    comment_n: { type: 'int', min: 0, max: 3, default: 3, label: '评论数 (硬上限 3, 0=只点赞不评论)' },
     comment_style: {
       type: 'enum',
       options: ['short', 'question', 'praise'],
@@ -37,14 +38,15 @@ export const keywordLikeComment: Template = {
   async execute(params: Record<string, unknown>, helpers: ExecHelpers): Promise<ExecResult> {
     const keyword = String(params.keyword ?? '').trim();
     const sort = (typeof params.sort === 'string' ? params.sort : 'general');
-    const top_n = Math.min(Number(params.top_n ?? 3), 5);
+    const top_n = Math.min(Math.max(Number(params.top_n ?? 3), 1), 5);
+    // 评论数独立于点赞数: comment_n=0 表示"只点赞不评论" (Planner 的 comment:0 必须被尊重, 否则给唯一账号发了用户没要的评论)
+    const comment_n = Math.min(Math.max(Number(params.comment_n ?? 3), 0), 3);
     const comment_style = (typeof params.comment_style === 'string' ? params.comment_style : 'praise') as keyof typeof COMMENT_PROMPTS;
-    const COMMENT_HARD_LIMIT = 3;
 
     if (!keyword) {
       return { status: 'partial', summary: '⚠️ 关键词为空, 跳过本次执行 (请编辑工作流填关键词)' };
     }
-    helpers.log({ step: 'start', result: { keyword, sort, top_n, comment_style } });
+    helpers.log({ step: 'start', result: { keyword, sort, top_n, comment_n, comment_style } });
 
     // 1. search_feeds
     let feeds: FeedItem[];
@@ -78,7 +80,7 @@ export const keywordLikeComment: Template = {
       }
       await helpers.sleep(helpers.rand(30000, 90000));
 
-      if (commented >= COMMENT_HARD_LIMIT) continue;
+      if (commented >= comment_n) continue;
       const title = feed.noteCard?.displayTitle || feed.title || '';
       const desc = feed.noteCard?.desc || feed.desc || '';
       let comment: string;
@@ -112,7 +114,7 @@ export const keywordLikeComment: Template = {
       await helpers.sleep(helpers.rand(30000, 90000));
     }
 
-    const targetComment = Math.min(top_n, COMMENT_HARD_LIMIT);
+    const targetComment = Math.min(top_n, comment_n);
     const isPartial = skips.length > 0 || liked < top_n || commented < targetComment;
     const summary = isPartial
       ? `⚠️ 关键词「${keyword}」: 点赞 ${liked} 条 + 评论 ${commented} 条${skips.length ? ` (跳过: ${skips.slice(0, 2).join('; ')}${skips.length > 2 ? '...' : ''})` : ''}`
