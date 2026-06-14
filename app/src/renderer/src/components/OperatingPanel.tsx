@@ -51,6 +51,8 @@ export default function OperatingPanel({ onShowHelp }: { onShowHelp?: () => void
   const [generating, setGenerating] = useState(false);
   const [horizon, setHorizon] = useState(7); // 计划周期 (E2: 3/7/14 天可配)
   const [autoPlan, setAutoPlan] = useState(false); // E1: 每周自动生成计划开关
+  const [autoPilot, setAutoPilot] = useState(false); // P3: 全自动模式总开关 (默认关)
+  const [autoWindow, setAutoWindow] = useState(6); // P3: 审核窗口小时数
   const [genError, setGenError] = useState<string | null>(null);
   const [planId, setPlanId] = useState<number | null>(null);
   const [activating, setActivating] = useState(false);
@@ -90,11 +92,34 @@ export default function OperatingPanel({ onShowHelp }: { onShowHelp?: () => void
 
   useEffect(() => {
     void window.api.operating.getAutoPlan().then((r) => setAutoPlan(r.enabled));
+    void window.api.operating.getAutoPilot().then((r) => { setAutoPilot(r.enabled); setAutoWindow(r.windowHours); });
   }, []);
 
   const toggleAutoPlan = async (on: boolean) => {
     setAutoPlan(on);
     await window.api.operating.setAutoPlan(on);
+  };
+
+  // P3 全自动: 开启弹强警告 (会自动发到唯一账号、不可逆)
+  const toggleAutoPilot = async (on: boolean) => {
+    if (on) {
+      const ok = window.confirm(
+        '⚠️ 开启「全自动模式」后：\n\n' +
+        '• AI 生成的运营计划会自动激活（互动 / 浏览自动执行）\n' +
+        `• AI 拟好的笔记进待审后，若你在 ${autoWindow} 小时内未否决，将自动发布到你的小红书账号\n` +
+        '• 发布前仍过禁忌词 / 配图 / 频率护栏，但不再逐条人工确认\n\n' +
+        '发布到账号不可逆，风险自负。确定开启？',
+      );
+      if (!ok) return;
+    }
+    setAutoPilot(on);
+    await window.api.operating.setAutoPilot({ enabled: on });
+  };
+
+  const changeAutoWindow = async (h: number) => {
+    const v = Math.min(Math.max(Math.round(h) || 6, 1), 72);
+    setAutoWindow(v);
+    await window.api.operating.setAutoPilot({ windowHours: v });
   };
 
   const upd = (k: keyof typeof form, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
@@ -297,6 +322,31 @@ export default function OperatingPanel({ onShowHelp }: { onShowHelp?: () => void
             </p>
           )
         )}
+      </div>
+
+      {/* P3 全自动模式 (ADR-017 审核窗口自动发) */}
+      <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
+        <h3 style={{ margin: 0 }}>
+          全自动模式
+          {autoPilot && <span style={{ fontSize: 12, color: 'var(--accent)', marginLeft: 8 }}>· 已开启</span>}
+        </h3>
+        <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>
+          开启后 AI 计划自动激活，拟好的笔记在审核窗口内你<b>未否决</b>则自动发布（仍过禁忌词 / 配图 / 频率护栏）。
+          默认关闭，发布到唯一账号不可逆，风险自负；随时关闭即停。
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" checked={autoPilot} onChange={(e) => toggleAutoPilot(e.target.checked)} style={{ accentColor: 'var(--accent)' }} />
+          开启全自动（自动激活计划 + 审核窗口到点自动发）
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+          审核窗口
+          <input
+            type="number" min={1} max={72} value={autoWindow} disabled={!autoPilot}
+            onChange={(e) => changeAutoWindow(Number(e.target.value))}
+            style={{ ...inputStyle, width: 72, padding: '4px 8px' }}
+          />
+          小时（拟稿后等这么久，你没否决就自动发）
+        </label>
       </div>
 
       <PendingPublishQueue />

@@ -5,6 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import log from 'electron-log/main';
 import { registerIpcHandlers } from './ipc';
 import { WorkflowScheduler } from './workflow-scheduler';
+import { setScheduler } from './scheduler-ref';
 import { GoSubprocess, resolveGoBinaryPath } from './go-subprocess';
 import { pickFreePort, getElectronCdpWsUrl } from './cdp';
 import { initDb, closeDb } from './db';
@@ -136,6 +137,7 @@ async function bootstrap(): Promise<void> {
   });
 
   const workflowScheduler = new WorkflowScheduler(goProc);
+  setScheduler(workflowScheduler); // P3: 供内部模板 (auto_plan_gen) 自动激活时取用
   registerIpcHandlers(goProc, workflowScheduler, {
     openXhsWindow: () => {
       void createXhsWindow();

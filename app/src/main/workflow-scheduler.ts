@@ -12,6 +12,14 @@ import {
   insertRun, updateRun, appendRunStep,
 } from './workflow-db';
 import { TEMPLATES, type Template, type ExecHelpers, type ExecResult } from './workflow-templates';
+import { isAutoPilotEnabled } from './auto-pilot';
+import { listDueAutoPublish, clearAutoPublishAt, bumpAutoPublishAttempts, recoverStuckPublishing } from './operating-db';
+import { approvePublish, type ApproveResult } from './publish-gate';
+
+// P3 全自动: 每隔此间隔扫一次到点该自动发的待审 (window 默认 6h, 5min 粒度足够; 重启后首扫即补发过期窗口的)
+const AUTO_PUBLISH_SWEEP_MS = 5 * 60 * 1000;
+// 自动发真发 API 连续失败上限, 达到转人工 (防登录态长期失效时每 5min 永久死磕)
+const MAX_AUTO_PUBLISH_ATTEMPTS = 3;
 
 // ============ helpers (注入到模板 execute) ============
 
@@ -63,6 +71,8 @@ export class WorkflowScheduler {
   private fireMutex = false;
   private goProc: GoSubprocess;
   private mainWindow: BrowserWindow | null = null;
+  private autoPublishTimer: NodeJS.Timeout | null = null; // P3 全自动发布扫描定时器
+  private autoPublishSweeping = false; // 防扫描重入
 
   constructor(goProc: GoSubprocess) {
     this.goProc = goProc;
@@ -74,6 +84,9 @@ export class WorkflowScheduler {
 
   async init(): Promise<void> {
     log.info('[workflow] scheduler init');
+    // P3: 恢复上次崩溃留下的卡死 publishing 行 (转人工, 结果未知不自动重发)
+    const recovered = recoverStuckPublishing();
+    if (recovered) log.warn(`[workflow] recovered ${recovered} stuck 'publishing' pending → manual`);
     const enabled = listEnabledWorkflows();
     log.info(`[workflow] loading ${enabled.length} enabled workflow(s)`);
     for (const wf of enabled) {
@@ -83,11 +96,93 @@ export class WorkflowScheduler {
       log.info('[workflow] powerMonitor resume → recompute all');
       this.recomputeAll();
     });
+    this.startAutoPublishSweep();
   }
 
   shutdown(): void {
     for (const h of this.timers.values()) clearTimeout(h);
     this.timers.clear();
+    if (this.autoPublishTimer) { clearInterval(this.autoPublishTimer); this.autoPublishTimer = null; }
+  }
+
+  // P3 全自动「审核窗口自动发」: 周期扫到点待审, 过 approvePublish 全护栏 (禁忌/频率/素材) 才真发。
+  // 总开关关时整扫 no-op (= 一键停)。基于 DB 状态扫描而非定时器, 故重启/休眠后首扫即补发过期窗口的。
+  private startAutoPublishSweep(): void {
+    if (this.autoPublishTimer) return;
+    this.autoPublishTimer = setInterval(() => { void this.runAutoPublishDue(); }, AUTO_PUBLISH_SWEEP_MS);
+    // 启动后稍等 Go/登录态就绪再首扫 (approvePublish 需 Go + 登录)
+    setTimeout(() => { void this.runAutoPublishDue(); }, 30 * 1000);
+  }
+
+  private async runAutoPublishDue(): Promise<void> {
+    if (this.autoPublishSweeping) return;
+    if (!isAutoPilotEnabled()) return; // 一键停: 开关关即 no-op
+    const due = listDueAutoPublish(Date.now());
+    if (!due.length) return;
+    // Go 未就绪 (重启/未起) → 整扫跳过, 下次再试, 不动 auto_publish_at (避免把待发的误转人工)
+    let healthy = false;
+    try { healthy = await this.goProc.health(); } catch { healthy = false; }
+    if (!healthy) { log.info('[workflow] auto-publish sweep skipped: Go not ready'); return; }
+
+    this.autoPublishSweeping = true;
+    try {
+      for (const p of due) {
+        if (!isAutoPilotEnabled()) break; // 扫描途中被关 → 立即停
+        const title = p.title ?? '(无标题)';
+        let r: ApproveResult;
+        try {
+          r = await approvePublish(p.id, this.goProc);
+        } catch (e) {
+          // approvePublish 内部已 catch 真发错误; 走到这是意外异常, 按可重试失败处理 (有界)
+          r = { ok: false, error: `发布失败: ${String(e)}`, reason: 'publish_failed' };
+        }
+        if (r.ok) {
+          log.info(`[workflow] auto-published pending ${p.id} 「${title}」`);
+          this.notify('xhsPilot · 已自动发布', `「${title}」已按全自动模式发布到小红书`);
+          this.push('operating:pending-changed', {});
+          continue;
+        }
+        switch (r.reason) {
+          case 'rate':
+            // 频率/间隔未到点 → 顺延, 下次扫描重试 (不计失败、不通知、不转人工)
+            log.info(`[workflow] auto-publish ${p.id} deferred (rate): ${r.error}`);
+            break;
+          case 'claimed':
+          case 'gone':
+            // 已被并发的手动确认/拒绝/扫描处理掉 → 跳过, 不动
+            log.info(`[workflow] auto-publish ${p.id} skipped (${r.reason})`);
+            break;
+          case 'timeout':
+            // 结果未知 (可能已发出) → 绝不自动重试 (防重复发到唯一账号), 转人工 + 提醒核对
+            clearAutoPublishAt(p.id);
+            log.warn(`[workflow] auto-publish ${p.id} timeout, → manual (result unknown)`);
+            this.notify('xhsPilot · 自动发布结果未知', `「${title}」发布超时, 可能已发出。已转人工, 请去小红书核对避免重复发布`);
+            this.push('operating:pending-changed', {});
+            break;
+          case 'publish_failed': {
+            // 明确失败 (HTTP 错/Go 拒/网络) → 有界重试; 连续达上限转人工 (防永久死磕 + 告知根因)
+            const attempts = bumpAutoPublishAttempts(p.id);
+            if (attempts >= MAX_AUTO_PUBLISH_ATTEMPTS) {
+              clearAutoPublishAt(p.id);
+              log.warn(`[workflow] auto-publish ${p.id} failed ${attempts}x → manual: ${r.error}`);
+              this.notify('xhsPilot · 自动发布多次失败', `「${title}」连续 ${attempts} 次发布失败 (多为登录态失效/网络), 已转人工待审, 请检查后手动确认`);
+              this.push('operating:pending-changed', {});
+            } else {
+              log.warn(`[workflow] auto-publish ${p.id} fail ${attempts}/${MAX_AUTO_PUBLISH_ATTEMPTS}, retry next: ${r.error}`);
+            }
+            break;
+          }
+          default:
+            // guardrail (禁忌词/无配图/标题空) → 转人工, 需用户编辑, 不再自动重试
+            clearAutoPublishAt(p.id);
+            log.warn(`[workflow] auto-publish ${p.id} blocked → manual: ${r.error}`);
+            this.notify('xhsPilot · 自动发布未通过', `「${title}」${r.error ?? '未通过护栏'}，已转人工待审`);
+            this.push('operating:pending-changed', {});
+        }
+      }
+    } finally {
+      this.autoPublishSweeping = false;
+    }
   }
 
   recomputeAll(): void {

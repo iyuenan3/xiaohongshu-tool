@@ -58,7 +58,7 @@ export interface PlanAction {
 
 // ============ 待审发布 (pending_publish) — M4 用 ============
 
-export type PendingStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'published';
+export type PendingStatus = 'pending' | 'publishing' | 'approved' | 'rejected' | 'expired' | 'published';
 
 export interface PendingPublish {
   id: number;
@@ -73,6 +73,8 @@ export interface PendingPublish {
   created_at: number;
   decided_at: number | null;
   published_feed_id: string | null; // P2/A1: 真发后回写的笔记 id
+  auto_publish_at: number | null;   // P3: 全自动「审核窗口自动发」到点时刻 (null=仅人工; 非 null=窗口内未否决则自动发)
+  auto_publish_attempts: number;    // P3: 自动发真发 API 连续失败次数 (达上限转人工, 防永久重试)
 }
 
 // ============ 画像 CRUD (M1) ============
@@ -267,21 +269,82 @@ export interface InsertPendingInput {
   tags: string[];
   ai_reason?: string;
   schedule_at?: number | null;
+  auto_publish_at?: number | null; // P3: 非 null = 全自动审核窗口到点时刻
 }
 
 export function insertPending(input: InsertPendingInput): PendingPublish {
   const now = Date.now();
   const result = getDb()
     .prepare(
-      `INSERT INTO pending_publish (plan_action_id, title, content, images, tags, ai_reason, schedule_at, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      `INSERT INTO pending_publish (plan_action_id, title, content, images, tags, ai_reason, schedule_at, auto_publish_at, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     )
     .run(
       input.plan_action_id ?? null, input.title, input.content,
       JSON.stringify(input.images), JSON.stringify(input.tags),
-      input.ai_reason ?? null, input.schedule_at ?? null, now,
+      input.ai_reason ?? null, input.schedule_at ?? null, input.auto_publish_at ?? null, now,
     );
   return getPending(Number(result.lastInsertRowid))!;
+}
+
+// P3: 列出到点该自动发的待审 (status=pending 且 auto_publish_at 已到), 供 scheduler 周期扫描。
+export function listDueAutoPublish(now: number): PendingPublish[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM pending_publish WHERE status = 'pending' AND auto_publish_at IS NOT NULL AND auto_publish_at <= ? ORDER BY auto_publish_at ASC`,
+    )
+    .all(now) as PendingPublish[];
+}
+
+// P3: 清掉 auto_publish_at → 该条退回"仅人工"(自动发失败/被否决时用, 防无限重试自动发)。
+export function clearAutoPublishAt(id: number): void {
+  getDb().prepare(`UPDATE pending_publish SET auto_publish_at = NULL WHERE id = ?`).run(id);
+}
+
+// P3: 一键停语义 = 关全自动时把所有待审的 auto_publish_at 清掉, 退回纯人工。
+// 否则再次开启会把当初排队、窗口早已过的陈旧稿立刻自动发 (review: 再开=重新武装陈旧稿)。
+export function clearAllAutoPublishAt(): void {
+  getDb().prepare(`UPDATE pending_publish SET auto_publish_at = NULL WHERE status = 'pending' AND auto_publish_at IS NOT NULL`).run();
+}
+
+// P3: 原子抢占待发 (防重复发布竞态)。pending→publishing, 仅当当前确为 pending 才成功。
+// 返回 true = 本调用抢到 (可继续真发); false = 已被并发的扫描/手动确认/拒绝抢走 (不可再发)。
+export function claimPendingForPublish(id: number): boolean {
+  const r = getDb()
+    .prepare(`UPDATE pending_publish SET status = 'publishing' WHERE id = ? AND status = 'pending'`)
+    .run(id);
+  return r.changes === 1;
+}
+
+// P3: 真发失败 → 把 publishing 退回 pending (供重试/人工); 仅当确为 publishing 才退 (防覆盖已变状态)。
+export function revertPublishingToPending(id: number): void {
+  getDb().prepare(`UPDATE pending_publish SET status = 'pending' WHERE id = ? AND status = 'publishing'`).run(id);
+}
+
+// P3: 条件拒绝 (否决) — 仅当仍为 pending 才置 rejected。若已 publishing (真发在途) 则 changes=0,
+// 不覆盖发布结果 (在途发布物理不可撤; 之后会落 published)。返回是否真否决到。
+export function rejectPendingIfPending(id: number): boolean {
+  const r = getDb()
+    .prepare(`UPDATE pending_publish SET status = 'rejected', decided_at = ? WHERE id = ? AND status = 'pending'`)
+    .run(Date.now(), id);
+  return r.changes === 1;
+}
+
+// P3: 启动恢复 — 进程在 claim 后、发布结果落库前崩溃会留下卡死的 'publishing' 行
+// (listPending/listDue 都不选 → UI 看不到 + 永不再发)。启动时退回 pending + 清 auto_publish_at:
+// 结果未知 (可能已发出), 故转纯人工让用户核对, 绝不自动重发 (防重复)。返回恢复条数。
+export function recoverStuckPublishing(): number {
+  const r = getDb()
+    .prepare(`UPDATE pending_publish SET status = 'pending', auto_publish_at = NULL WHERE status = 'publishing'`)
+    .run();
+  return r.changes;
+}
+
+// P3: 自动发真发失败计数 +1, 返回新值 (达上限转人工)。
+export function bumpAutoPublishAttempts(id: number): number {
+  getDb().prepare(`UPDATE pending_publish SET auto_publish_attempts = auto_publish_attempts + 1 WHERE id = ?`).run(id);
+  const row = getDb().prepare(`SELECT auto_publish_attempts AS n FROM pending_publish WHERE id = ?`).get(id) as { n?: number } | undefined;
+  return row?.n ?? 0;
 }
 
 export function getPending(id: number): PendingPublish | null {

@@ -23,13 +23,14 @@ import {
 import { listTemplateMetas } from './workflow-templates';
 import {
   getActiveProfile, createProfile, updateProfile, getProfile, listProfiles, setProfileStatus,
-  getLatestPlan, listActions, listPending, updatePendingContent,
+  getLatestPlan, listActions, listPending, updatePendingContent, clearAllAutoPublishAt,
   getSnapshotTrend, getLatestNotePerformance,
   type SaveProfileInput, type ProfileStatus,
 } from './operating-db';
 import { generatePlan, generateReportInsight } from './planner';
 import { activatePlan } from './plan-instantiate';
 import { approvePublish, rejectPending } from './publish-gate';
+import { isAutoPilotEnabled, setAutoPilotEnabled, autoPublishWindowHours, setAutoPublishWindowHours } from './auto-pilot';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -131,6 +132,20 @@ export function registerIpcHandlers(
       scheduler.cancelOne(existing.id);
     }
     return { ok: true };
+  });
+  // 自主运营: P3 全自动模式总开关 (ADR-017 审核窗口自动发)
+  ipcMain.handle('operating:get-auto-pilot', () => ({
+    enabled: isAutoPilotEnabled(),
+    windowHours: autoPublishWindowHours(),
+  }));
+  ipcMain.handle('operating:set-auto-pilot', (_e, input: { enabled?: boolean; windowHours?: number }) => {
+    if (typeof input?.windowHours === 'number') setAutoPublishWindowHours(input.windowHours);
+    if (typeof input?.enabled === 'boolean') {
+      setAutoPilotEnabled(input.enabled);
+      // 一键停: 关闭时清掉所有待审的 auto_publish_at, 退回纯人工 (否则再开会把窗口早过的陈旧稿立刻自动发)
+      if (!input.enabled) clearAllAutoPublishAt();
+    }
+    return { ok: true, enabled: isAutoPilotEnabled(), windowHours: autoPublishWindowHours() };
   });
   // 自主运营: 运营报告 (P2/D)
   ipcMain.handle('operating:report', () => ({

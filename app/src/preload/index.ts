@@ -147,6 +147,8 @@ export interface PendingPublishP {
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'published';
   created_at: number;
   decided_at: number | null;
+  published_feed_id?: string | null;
+  auto_publish_at?: number | null; // P3: 非 null = 全自动审核窗口到点时刻
 }
 
 const api = {
@@ -299,6 +301,10 @@ const api = {
       ipcRenderer.invoke('operating:generate-plan', horizonDays) as Promise<GeneratePlanResultP>,
     getAutoPlan: () => ipcRenderer.invoke('operating:get-auto-plan') as Promise<{ enabled: boolean }>,
     setAutoPlan: (on: boolean) => ipcRenderer.invoke('operating:set-auto-plan', on) as Promise<{ ok: boolean }>,
+    // P3 全自动模式 (审核窗口自动发)
+    getAutoPilot: () => ipcRenderer.invoke('operating:get-auto-pilot') as Promise<{ enabled: boolean; windowHours: number }>,
+    setAutoPilot: (input: { enabled?: boolean; windowHours?: number }) =>
+      ipcRenderer.invoke('operating:set-auto-pilot', input) as Promise<{ ok: boolean; enabled: boolean; windowHours: number }>,
     report: () =>
       ipcRenderer.invoke('operating:report') as Promise<{
         trend: Array<{ taken_at: number; fans: number | null; follows: number | null; notes_count: number | null; likes_total: number | null }>;
@@ -315,6 +321,8 @@ const api = {
     rejectPending: (id: number) => ipcRenderer.invoke('operating:reject-pending', id) as Promise<{ ok: boolean }>,
     updatePending: (id: number, patch: { title?: string; content?: string; images?: string[]; tags?: string[] }) =>
       ipcRenderer.invoke('operating:update-pending', id, patch) as Promise<{ ok: boolean }>,
+    // P3: 待审队列被后台改动 (自动发/转人工) 时推送, 供 UI 刷新
+    onPendingChanged: (cb: () => void) => onPush('operating:pending-changed', cb),
   },
 
   // 日志导出 + renderer 透传 (内测期间用)

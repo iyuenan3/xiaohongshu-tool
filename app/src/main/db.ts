@@ -168,7 +168,9 @@ export function initDb(): Database.Database {
       status         TEXT NOT NULL DEFAULT 'pending', -- pending/approved/rejected/expired/published
       created_at     INTEGER NOT NULL,
       decided_at     INTEGER,
-      published_feed_id TEXT             -- P2/A1: 真发后回写的小红书笔记 id (用于关联表现)
+      published_feed_id TEXT,            -- P2/A1: 真发后回写的小红书笔记 id (用于关联表现)
+      auto_publish_at INTEGER,           -- P3: 全自动审核窗口到点时刻 (null=仅人工)
+      auto_publish_attempts INTEGER NOT NULL DEFAULT 0  -- P3: 自动发真发连续失败次数 (达上限转人工)
     );
     CREATE INDEX IF NOT EXISTS idx_pending_publish_status ON pending_publish(status, created_at DESC);
   `);
@@ -179,10 +181,17 @@ export function initDb(): Database.Database {
   if (!names.has('tags')) inst.exec(`ALTER TABLE media_assets ADD COLUMN tags TEXT DEFAULT '[]'`);
   if (!names.has('description')) inst.exec(`ALTER TABLE media_assets ADD COLUMN description TEXT`);
   if (!names.has('analyzed')) inst.exec(`ALTER TABLE media_assets ADD COLUMN analyzed INTEGER DEFAULT 0`);
-  // 老 db 升级: pending_publish 加 published_feed_id (P2/A1)
+  // 老 db 升级: pending_publish 加 published_feed_id (P2/A1) + auto_publish_at (P3)
   const ppCols = inst.prepare('PRAGMA table_info(pending_publish)').all() as Array<{ name: string }>;
-  if (!new Set(ppCols.map((c) => c.name)).has('published_feed_id')) {
+  const ppNames = new Set(ppCols.map((c) => c.name));
+  if (!ppNames.has('published_feed_id')) {
     inst.exec(`ALTER TABLE pending_publish ADD COLUMN published_feed_id TEXT`);
+  }
+  if (!ppNames.has('auto_publish_at')) {
+    inst.exec(`ALTER TABLE pending_publish ADD COLUMN auto_publish_at INTEGER`);
+  }
+  if (!ppNames.has('auto_publish_attempts')) {
+    inst.exec(`ALTER TABLE pending_publish ADD COLUMN auto_publish_attempts INTEGER NOT NULL DEFAULT 0`);
   }
   db = inst;
   return inst;

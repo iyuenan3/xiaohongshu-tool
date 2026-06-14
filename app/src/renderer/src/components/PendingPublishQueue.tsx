@@ -9,6 +9,7 @@ interface Pending {
   ai_reason: string | null;
   status: string;
   created_at: number;
+  auto_publish_at?: number | null; // P3: 非 null = 全自动审核窗口到点时刻
 }
 
 function jsonArr(s: string | null): string[] {
@@ -17,6 +18,14 @@ function jsonArr(s: string | null): string[] {
   } catch {
     return [];
   }
+}
+
+// P3: 格式化自动发布时刻; 已过窗口则提示即将发
+function fmtAuto(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const when = `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return ts <= Date.now() ? `${when}（窗口已到，即将自动发布）` : when;
 }
 
 export default function PendingPublishQueue() {
@@ -36,7 +45,9 @@ export default function PendingPublishQueue() {
         refresh();
       }
     });
-    return () => { off?.(); };
+    // P3: 全自动发/转人工后台改动待审 → 刷新
+    const offPending = window.api.operating.onPendingChanged(() => { setMsg(null); refresh(); });
+    return () => { off?.(); offPending?.(); };
   }, []);
 
   const approve = async (id: number) => {
@@ -105,12 +116,17 @@ export default function PendingPublishQueue() {
               {p.ai_reason ? ` · 💡 ${p.ai_reason}` : ''}
               {imgCount === 0 && <span style={{ color: 'var(--accent)' }}> · ⚠️ 无配图，需先在素材库补图</span>}
             </div>
+            {p.auto_publish_at && (
+              <div style={{ fontSize: 12, color: 'var(--accent)', margin: '0 0 8px' }}>
+                ⏱ 全自动：将于 {fmtAuto(p.auto_publish_at)} 自动发布（在此之前点「拒绝」即可否决）
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => approve(p.id)} disabled={busy === p.id} style={approveBtn}>
                 {busy === p.id ? '处理中…' : '确认发布'}
               </button>
               <button onClick={() => reject(p.id)} disabled={busy === p.id} style={rejectBtn}>
-                拒绝
+                {p.auto_publish_at ? '拒绝（否决自动发）' : '拒绝'}
               </button>
             </div>
           </div>

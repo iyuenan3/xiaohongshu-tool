@@ -6,6 +6,7 @@
 import { listAssets } from '../assets';
 import { insertPending } from '../operating-db';
 import { findTaboo, activeTaboo } from '../content-guard';
+import { isAutoPilotEnabled, autoPublishWindowMs, autoPublishWindowHours } from '../auto-pilot';
 import type { Template, ExecHelpers, ExecResult } from './index';
 
 function parseTags(v: unknown): string[] {
@@ -50,6 +51,9 @@ export const plannedPublish: Template = {
     // E3 内容护栏: 拟稿即标记禁忌词命中 (用户审核可见; 批准时 publish-gate 会硬拦)
     const tabooHits = findTaboo(`${title}\n${content}`, activeTaboo());
     const reason = String(params.theme ?? '');
+    // P3 全自动「审核窗口自动发」: 开关开时给拟稿标 auto_publish_at=now+窗口, 窗口内未否决则 scheduler 扫描过护栏自动发。
+    const autoPilot = isAutoPilotEnabled();
+    const autoPublishAt = autoPilot ? Date.now() + autoPublishWindowMs() : null;
     insertPending({
       plan_action_id: planActionId,
       title,
@@ -57,12 +61,16 @@ export const plannedPublish: Template = {
       images,
       tags: noteTags,
       ai_reason: tabooHits.length ? `⚠️ 触禁忌词[${tabooHits.join('、')}]，请修改 ｜ ${reason}` : reason,
+      auto_publish_at: autoPublishAt,
     });
-    helpers.log({ step: 'pending_publish', result: { title, imageCount: images.length, tabooHits } });
+    helpers.log({ step: 'pending_publish', result: { title, imageCount: images.length, tabooHits, autoPilot } });
     const warn = tabooHits.length ? ` ⚠️含禁忌词[${tabooHits.join('、')}]` : '';
+    const tail = autoPilot
+      ? ` — 全自动: ${autoPublishWindowHours()}h 内未否决将自动发布`
+      : ' — 去「自主运营」确认发布';
     return {
       status: 'partial',
-      summary: `✍️ 已拟稿待审: ${title}${images.length ? ` (${images.length} 图)` : ' (无匹配素材, 待补图)'}${warn} — 去「自主运营」确认发布`,
+      summary: `✍️ 已拟稿待审: ${title}${images.length ? ` (${images.length} 图)` : ' (无匹配素材, 待补图)'}${warn}${tail}`,
     };
   },
 };
