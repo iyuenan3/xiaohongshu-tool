@@ -111,6 +111,8 @@ body {
 }
 .tab-pane--console { display: block; overflow: hidden; }
 .tab-pane--help { display: block; overflow-y: auto; background: var(--paper); }
+/* 运营 pane 由 PANE 自身滚动 (对齐 assets/help 成熟模式), 避免落到 grid 基类 + 内层双滚动导致报告末段拉不到底 */
+.tab-pane--operating { display: block; overflow-y: auto; background: var(--paper); }
 
 /* ========== Console (左侧 40% 命令+会话 / 右侧 60% 聊天) ========== */
 .console-grid {

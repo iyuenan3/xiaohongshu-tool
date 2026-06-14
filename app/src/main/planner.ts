@@ -10,8 +10,18 @@ import {
 } from './operating-db';
 import { listAssets, type MediaAsset } from './assets';
 
-const PLANNER_MAX_TOKENS = 3000;
-const PLANNER_TIMEOUT_MS = 90 * 1000;
+// 超时/输出量按计划周期 (horizon) 缩放: 14 天计划行动条目翻倍、输出 token 大幅上升,
+// 固定 90s + 3000 token 对 14 天几乎必撞超时 (见反馈日志 14d 6 次全卡 90.1s abort)。
+const PLANNER_TIMEOUT_MIN_MS = 90 * 1000;
+const PLANNER_TIMEOUT_BASE_MS = 60 * 1000;
+const PLANNER_TIMEOUT_PER_DAY_MS = 12 * 1000;
+function plannerTimeoutFor(horizonDays: number): number {
+  return Math.max(PLANNER_TIMEOUT_MIN_MS, PLANNER_TIMEOUT_BASE_MS + horizonDays * PLANNER_TIMEOUT_PER_DAY_MS);
+}
+function plannerMaxTokensFor(horizonDays: number): number {
+  // 下界 3000 = 原固定值, 保证短周期 (3 天) 不回退致正文截断; 上界 6000; 极端入参也不会出 <3000 的值
+  return Math.min(6000, Math.max(3000, 1500 + horizonDays * 220));
+}
 
 const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内容种草、账号养成与平台算法。
 任务：根据【账号画像】【近期数据】【可用素材】，规划未来 N 天的运营行动，输出一份可执行的运营计划。
@@ -66,16 +76,20 @@ export async function generatePlan(horizonDays = 7): Promise<GeneratePlanResult>
   if (!llm) return { ok: false, error: 'LLM 未配置（激活码状态异常或 BYOK 为空）' };
 
   const userPrompt = buildContext(profile, horizonDays);
-  log.info(`[planner] generating ${horizonDays}d plan for profile ${profile.id}`);
+  const timeoutMs = plannerTimeoutFor(horizonDays);
+  log.info(`[planner] generating ${horizonDays}d plan for profile ${profile.id} (timeout ${Math.round(timeoutMs / 1000)}s)`);
 
   let raw: string;
   try {
-    raw = await callPlannerLLM(llm, PLANNER_SYSTEM, userPrompt);
+    raw = await callPlannerLLM(llm, PLANNER_SYSTEM, userPrompt, { timeoutMs, maxTokens: plannerMaxTokensFor(horizonDays) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     log.warn(`[planner] LLM call failed: ${msg}`);
     if (msg.includes('429')) return { ok: false, error: '本月 AI 额度可能已用尽，请联系客服' };
-    if (e instanceof Error && e.name === 'AbortError') return { ok: false, error: 'AI 规划超时（90s），请重试' };
+    if (e instanceof Error && e.name === 'AbortError') {
+      const tip = horizonDays >= 14 ? '；14 天计划生成较慢，可改用 7 天周期' : '';
+      return { ok: false, error: `AI 规划超时（${Math.round(timeoutMs / 1000)}s），请重试${tip}` };
+    }
     return { ok: false, error: `AI 规划失败：${msg.slice(0, 80)}` };
   }
 
@@ -229,9 +243,16 @@ function dayTimeToTs(day: number, time: string): number {
   return ts < now ? now + 5 * 60 * 1000 : ts;
 }
 
-async function callPlannerLLM(llm: LlmConfig, system: string, user: string): Promise<string> {
+async function callPlannerLLM(
+  llm: LlmConfig,
+  system: string,
+  user: string,
+  opts: { timeoutMs?: number; maxTokens?: number } = {},
+): Promise<string> {
+  const timeoutMs = opts.timeoutMs ?? PLANNER_TIMEOUT_MIN_MS;
+  const maxTokens = opts.maxTokens ?? 3000;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PLANNER_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const resp = await net.fetch(`${llm.base_url}/chat/completions`, {
       method: 'POST',
@@ -242,7 +263,7 @@ async function callPlannerLLM(llm: LlmConfig, system: string, user: string): Pro
           { role: 'system', content: system },
           { role: 'user', content: user },
         ],
-        max_tokens: PLANNER_MAX_TOKENS,
+        max_tokens: maxTokens,
         stream: false,
       }),
       signal: controller.signal,

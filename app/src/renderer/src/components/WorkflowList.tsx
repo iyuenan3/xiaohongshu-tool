@@ -6,7 +6,7 @@ import RiskWarningDialog from './RiskWarningDialog';
 
 const RISK_KEY = 'workflow_risk_accepted';
 
-export default function WorkflowList() {
+export default function WorkflowList({ onShowHelp }: { onShowHelp?: () => void }) {
   const [list, setList] = useState<WorkflowP[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -122,7 +122,12 @@ export default function WorkflowList() {
     <section className="workflow-pane">
       <header className="pane-heading-row">
         <h3 className="pane-heading">🎛 工作流</h3>
-        <button className="pane-action-btn" onClick={handleNew} title="新建工作流">+ 新建</button>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {onShowHelp && (
+            <button className="pane-action-btn" onClick={onShowHelp} title="工作流怎么用? 看帮助">?</button>
+          )}
+          <button className="pane-action-btn" onClick={handleNew} title="新建工作流">+ 新建</button>
+        </div>
       </header>
       <div className="workflow-list">
         {list.length === 0 ? (

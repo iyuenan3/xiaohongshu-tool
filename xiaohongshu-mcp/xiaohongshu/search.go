@@ -14,7 +14,13 @@ import (
 
 // searchOpTimeout 单次 search 操作链总超时.
 // 防 page.Context(ctx) 把 60s 默认 timeout 清掉, 出现 14h47m41s 卡死现象.
-const searchOpTimeout = 120 * time.Second
+// 120s 对桌面交互偏长 (失败要等 2 分钟), 降到 60s; 带筛选的 DOM 链再单独用更短的 searchFilterTimeout.
+const searchOpTimeout = 60 * time.Second
+
+// searchFilterTimeout 筛选面板 DOM 操作 (hover/等面板/点选项) 单独的较短超时.
+// 筛选面板偶发不出现时, 这段会一路 MustXxx 死等到 searchOpTimeout 才 panic (反馈日志见 120s 卡死);
+// 单独 cap 20s 让带筛选的搜索快速失败, 而不是拖垮整次交互.
+const searchFilterTimeout = 20 * time.Second
 
 type SearchResult struct {
 	Search struct {
@@ -211,25 +217,28 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 			}
 		}
 
+		// 筛选 DOM 链单独用较短超时: 面板不出现时 ~20s 快速失败 (recover 转可读 error), 不拖到 searchOpTimeout
+		fpage := page.Timeout(searchFilterTimeout)
+
 		// 悬停在筛选按钮上
-		filterButton := page.MustElement(`div.filter`)
+		filterButton := fpage.MustElement(`div.filter`)
 		filterButton.MustHover()
 
 		// 等待筛选面板出现
-		page.MustWait(`() => document.querySelector('div.filter-panel') !== null`)
+		fpage.MustWait(`() => document.querySelector('div.filter-panel') !== null`)
 
 		// 应用所有筛选条件
 		for _, filter := range allInternalFilters {
 			selector := fmt.Sprintf(`div.filter-panel div.filters:nth-child(%d) div.tags:nth-child(%d)`,
 				filter.FiltersIndex, filter.TagsIndex)
-			option := page.MustElement(selector)
+			option := fpage.MustElement(selector)
 			option.MustClick()
 		}
 
 		// 等待页面更新
-		page.MustWaitStable()
+		fpage.MustWaitStable()
 		// 重新等待 __INITIAL_STATE__ 更新
-		page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
+		fpage.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
 	}
 
 	result := page.MustEval(`() => {

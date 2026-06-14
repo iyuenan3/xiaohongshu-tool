@@ -163,11 +163,11 @@ export default function App() {
 
       <div className="tab-body">
         <div className={`tab-pane tab-pane--console ${tab === 'console' ? '' : 'tab-pane--hidden'}`}>
-          <ConsolePane goOk={goStatus?.ok === true} onOpenSettings={() => setSettingsOpen(true)} />
+          <ConsolePane goOk={goStatus?.ok === true} onOpenSettings={() => setSettingsOpen(true)} onShowHelp={() => setTab('help')} />
         </div>
 
         <div className={`tab-pane tab-pane--operating ${tab === 'operating' ? '' : 'tab-pane--hidden'}`}>
-          <OperatingPanel />
+          <OperatingPanel onShowHelp={() => setTab('help')} />
         </div>
 
         <div className={`tab-pane tab-pane--assets ${tab === 'assets' ? '' : 'tab-pane--hidden'}`}>

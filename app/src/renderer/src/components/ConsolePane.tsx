@@ -7,9 +7,10 @@ import ChatPanel, { type ChatPanelHandle } from './ChatPanel';
 interface Props {
   goOk: boolean;
   onOpenSettings: () => void;
+  onShowHelp: () => void;
 }
 
-export default function ConsolePane({ goOk, onOpenSettings }: Props) {
+export default function ConsolePane({ goOk, onOpenSettings, onShowHelp }: Props) {
   const [convId, setConvId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationMeta[]>([]);
   const chatRef = useRef<ChatPanelHandle>(null);
@@ -95,7 +96,7 @@ export default function ConsolePane({ goOk, onOpenSettings }: Props) {
           <CommandPalette onPick={handleCommandPick} />
         </div>
         <div className="console-left__workflows">
-          <WorkflowList />
+          <WorkflowList onShowHelp={onShowHelp} />
         </div>
         <div className="console-left__sessions">
           <ConversationList

@@ -82,6 +82,31 @@ export default function HelpPanel({ devMode }: Props) {
           </p>
         </section>
 
+        <section className="help-callout">
+          <h4>🎛 工作流 · 定时自动跑 <small>(控制台左侧)</small></h4>
+          <ul>
+            <li>模板: 定时点赞 / 定时评论 / 关键词互动 / 养号浏览 / 数据采集</li>
+            <li>设好周期 (每天 / 每周 / 一次) 与时间, 到点自动执行</li>
+            <li>运行中可在底部状态条或工作流列表点 ⏹ 停止</li>
+          </ul>
+          <p className="help-eg">
+            💡 在「控制台」左侧「🎛 工作流」点「+ 新建」→ 选模板 → 设时间 → 启用。
+          </p>
+        </section>
+
+        <section className="help-callout">
+          <h4>🤖 自主运营 · AI 编排一周计划 <small>(顶部「自主运营」tab)</small></h4>
+          <ul>
+            <li>填账号画像 (方向 / 人设 / 发布上限 / 禁忌 / 素材范围)</li>
+            <li>AI 生成 3 / 7 / 14 天计划: 何时刷垂类、互动、发笔记</li>
+            <li>激活后互动 / 浏览自动跑; 发布笔记 AI 拟好进「待审发布」, 你确认才发</li>
+            <li>可开「每周一自动生成下一期计划」; 运营报告看趋势 + AI 解读</li>
+          </ul>
+          <p className="help-eg">
+            💡 顶部「自主运营」→ 填画像 → 生成计划 → 激活。发布永远人工确认。
+          </p>
+        </section>
+
         <section className="help-callout help-callout--warn">
           <h4>🛡️ 安全护栏</h4>
           <ul>

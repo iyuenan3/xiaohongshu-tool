@@ -31,6 +31,7 @@ const SYSTEM_PROMPT_BASE = `你是小红书内容创作与运营助手, 通过 1
 5. 一次只调一个工具, 等结果后再继续
 6. 对话用中文, 简洁不啰嗦
 7. 写评论/回复 (post_comment / reply_comment) 务必短而真: 默认 ≤15 字、口语、只挑一个最有感觉的点说; 不堆卖点 / 不排比长句 / 不面面俱到 / 不凹"什么时候上架"这类客套, emoji ≤1 (多数时候不用)。学真人随口一句 (像「我猫看了想冲😹」「这个多少钱啊」「配色绝了」), 别写又长又全、热情过头的 AI 腔。
+8. 汇总/回答时只能基于「本轮最近一次工具返回」的数据。⚠️ 严禁把更早轮次 / 历史消息里出现过的旧列表 (尤其是之前搜索过的关键词结果) 当成本次结果复述。例如用户要「首页推荐」时, 只用最近一次 list_feeds 的返回, 绝不把上一次 search_feeds 的搜索结果说成首页推荐。历史里被折叠 (标注「历史工具结果已折叠」) 的内容不可引用, 需要数据就重新调工具。
 
 工具选择提示:
 - 用户问"现在/最近 X 是什么" / "查一下 Y" / 不确定的事实 / 创作素材时, 优先用 web_search 搜全网 (免费, 国内直连)
@@ -117,9 +118,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
       }
     : { role: 'user', content: opts.userInput };
 
+  // 大工具结果 (尤其 list_feeds/search_feeds 的几十 KB feed JSON) 会污染 LLM 上下文:
+  // 模型常把旧搜索结果当成"首页推荐"复述 (反馈 B-A/B-C)。两道防线:
+  // ① 这里折叠跨消息的往轮历史 (foldOldToolResult);
+  // ② 每轮 LLM 调用前再就地折叠"本 turn 内更早的"大结果 (foldStaleToolResultsInPlace), 只留最近一条全文。
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
-    ...opts.history.map(toOpenAIMessage),
+    ...opts.history.map(foldOldToolResult),
     userMessageForLLM,
   ];
 
@@ -137,6 +142,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
 
     let assistantText = '';
     const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] = [];
+
+    // turn 内防污染: 同一条用户消息可能触发多轮工具链 (如先 search_feeds 再 list_feeds),
+    // 两份大 feed JSON 会并存于本地 messages 致模型混淆。每轮调 LLM 前就地折叠"非最近一条"的大结果。
+    foldStaleToolResultsInPlace(messages);
 
     rlog.info('agent', `round ${round} start: messages=${messages.length}`);
 
@@ -224,7 +233,18 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
     });
 
     if (toolCalls.length === 0) {
-      rlog.info('agent', `done at round ${round}, final reply preview="${assistantText.slice(0, 200)}"`);
+      // 空回复兜底: 模型在超长上下文下偶发吐空 completion (无文字也无工具), 之前直接静默 done,
+      // 用户看到"任务中断没下文" (反馈 B-B)。这里补一句可操作提示, 别让对话无声结束。
+      if (!assistantText.trim()) {
+        rlog.warn('agent', `done at round ${round} with EMPTY reply (likely long context)`);
+        const fallback = '（这次没能生成回复，可能是对话太长。请重试一次，或新建对话再试。）';
+        onEvent({ type: 'text_delta', text: fallback });
+        // 写进刚 push 的那条 assistant content, 让重载会话后仍能看到提示 (否则存的是空气泡)
+        const last = newHistory[newHistory.length - 1];
+        if (last && last.role === 'assistant') last.content = fallback;
+      } else {
+        rlog.info('agent', `done at round ${round}, final reply preview="${assistantText.slice(0, 200)}"`);
+      }
       onEvent({ type: 'done' });
       return newHistory;
     }
@@ -316,6 +336,40 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
   rlog.warn('agent', `max rounds (${MAX_ROUNDS}) reached, terminating`);
   onEvent({ type: 'error', error: `超过最大对话轮数 (${MAX_ROUNDS}), 已终止` });
   return newHistory;
+}
+
+// 大工具结果折叠阈值 (字符). feed 列表 JSON 常 40KB+, 远超此值; check_login 等小结果保留全文。
+const HISTORY_TOOL_RESULT_CAP = 1200;
+
+// 把过大的 tool 结果内容折叠成"占位 + 短头部" (保留 tool_call_id 链路时结构仍合法)。
+function foldToolContent(content: string): string {
+  return (
+    content.slice(0, 300) +
+    `\n…[工具结果已折叠 (原 ${content.length} 字)。这是更早的旧数据, 不要复述; 需要最新数据请重新调用对应工具]`
+  );
+}
+
+// ① 折叠"往轮"(跨消息历史) 里过大的 tool 结果, 防旧 feed/搜索列表污染上下文。
+function foldOldToolResult(m: ChatMessage): OpenAI.Chat.Completions.ChatCompletionMessageParam {
+  if (m.role === 'tool' && typeof m.content === 'string' && m.content.length > HISTORY_TOOL_RESULT_CAP) {
+    return { role: 'tool', tool_call_id: m.tool_call_id, content: foldToolContent(m.content) };
+  }
+  return toOpenAIMessage(m);
+}
+
+// ② 就地折叠 messages 里"非最近一条"的大 tool 结果, 只保留最近一条全文 (覆盖同一 turn 内多轮场景)。
+// 只改发给 LLM 的本地副本; newHistory 始终存全文, 不破坏持久化与配对。已折叠的 (<阈值) 不会被重复处理。
+function foldStaleToolResultsInPlace(messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]): void {
+  let keptLatest = false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'tool' || typeof m.content !== 'string' || m.content.length <= HISTORY_TOOL_RESULT_CAP) continue;
+    if (!keptLatest) {
+      keptLatest = true; // 最近一条大结果保留全文
+      continue;
+    }
+    messages[i] = { role: 'tool', tool_call_id: m.tool_call_id, content: foldToolContent(m.content) };
+  }
 }
 
 function toOpenAIMessage(m: ChatMessage): OpenAI.Chat.Completions.ChatCompletionMessageParam {

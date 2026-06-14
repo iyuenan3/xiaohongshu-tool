@@ -1,6 +1,6 @@
 {
   "name": "xhs-app",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "private": true,
   "description": "xhsPilot - 小红书自运营系统",
   "main": "./out/main/index.js",

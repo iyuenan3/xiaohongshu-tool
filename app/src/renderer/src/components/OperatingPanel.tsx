@@ -38,7 +38,7 @@ const TYPE_META: Record<string, { emoji: string; label: string }> = {
   publish: { emoji: '✍️', label: '发布' },
 };
 
-export default function OperatingPanel() {
+export default function OperatingPanel({ onShowHelp }: { onShowHelp?: () => void }) {
   const [id, setId] = useState<number | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [status, setStatus] = useState<'draft' | 'active' | 'paused'>('draft');
@@ -175,8 +175,14 @@ export default function OperatingPanel() {
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 760, margin: '0 auto', overflowY: 'auto', height: '100%' }}>
-      <h2 style={{ marginTop: 0 }}>自主运营 · 账号画像</h2>
+    // 滚动交给 .tab-pane--operating (PANE 自滚), 这里不再自带 overflow/height; 底部留 64px 防最后一行贴边
+    <div style={{ padding: '24px 24px 64px', maxWidth: 760, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <h2 style={{ marginTop: 0, marginBottom: 0 }}>自主运营 · 账号画像</h2>
+        {onShowHelp && (
+          <button onClick={onShowHelp} style={helpLinkStyle} title="查看自主运营 / 工作流使用说明">? 帮助</button>
+        )}
+      </div>
       <p style={{ color: 'var(--ink-mute)', fontSize: 13, lineHeight: 1.6 }}>
         告诉 xhsPilot 你的账号方向、人设和限定，之后 AI 会据此规划「何时刷垂类、何时发笔记、如何互动」。
         互动（刷 / 点赞 / 评论）全自动执行；发布笔记 AI 拟好后进待审队列，你确认才发。
@@ -238,7 +244,7 @@ export default function OperatingPanel() {
               <option value={14}>14 天</option>
             </select>
             <button onClick={generate} disabled={generating || !id} style={btnStyle} title={!id ? '请先保存画像' : ''}>
-              {generating ? 'AI 规划中…（约 10-30s）' : actions.length ? '重新生成计划' : '生成计划'}
+              {generating ? 'AI 规划中…（约 1-4 分钟，周期越长越久）' : actions.length ? '重新生成计划' : '生成计划'}
             </button>
           </div>
         </div>
@@ -343,6 +349,10 @@ const inputStyle: CSSProperties = {
 const btnStyle: CSSProperties = {
   padding: '8px 20px', fontSize: 14, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
   border: 'none', background: 'var(--accent)', color: '#fff',
+};
+const helpLinkStyle: CSSProperties = {
+  padding: '4px 12px', fontSize: 12, borderRadius: 11, cursor: 'pointer', whiteSpace: 'nowrap',
+  border: '1px solid var(--rule)', background: 'var(--surface)', color: 'var(--ink-soft)', flexShrink: 0,
 };
 const rowStyle: CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',

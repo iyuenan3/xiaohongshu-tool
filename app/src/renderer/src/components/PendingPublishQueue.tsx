@@ -29,6 +29,14 @@ export default function PendingPublishQueue() {
   };
   useEffect(() => {
     refresh();
+    // 后台 planned_publish 到点拟稿写入新待审后, 自动刷新拉取 (否则第二条永不出现, 用户误判"失败")
+    const off = window.api.workflow.onRunFinished((e) => {
+      if (e.status === 'success' || e.status === 'partial') {
+        setMsg(null); // 清掉上次 approve/reject 的旧提示, 避免与刷新后的新列表状态并存矛盾
+        refresh();
+      }
+    });
+    return () => { off?.(); };
   }, []);
 
   const approve = async (id: number) => {
@@ -57,14 +65,20 @@ export default function PendingPublishQueue() {
     void window.api.operating.updatePending(id, patch);
   };
 
-  if (list.length === 0) return null; // 无待审则不渲染
-
+  // 注意: 不要在空列表时 return null, 否则第一篇审核通过后整个窗口连标题一起消失,
+  // 用户以为"审核窗口没了"。改为常驻 + 空态占位 (告诉用户入口还在、AI 到点会再拟稿)。
   return (
     <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
-      <h3 style={{ margin: 0 }}>待审发布 ({list.length})</h3>
-      <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 6 }}>
-        AI 按运营计划拟好的笔记。你可以改标题 / 正文，确认后才会真正发布到小红书（发布需人工确认）。
-      </p>
+      <h3 style={{ margin: 0 }}>待审发布{list.length > 0 ? ` (${list.length})` : ''}</h3>
+      {list.length === 0 ? (
+        <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 6 }}>
+          暂无待审发布。AI 按运营计划到点拟好笔记后，会自动出现在这里等你确认（发布始终需人工确认）。
+        </p>
+      ) : (
+        <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 6 }}>
+          AI 按运营计划拟好的笔记。你可以改标题 / 正文，确认后才会真正发布到小红书（发布需人工确认）。
+        </p>
+      )}
       {msg && (
         <p style={{ fontSize: 13, color: msg.startsWith('✓') ? 'var(--green)' : 'var(--accent)' }}>{msg}</p>
       )}
