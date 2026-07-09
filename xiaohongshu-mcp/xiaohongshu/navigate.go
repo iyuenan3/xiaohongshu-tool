@@ -36,12 +36,14 @@ func (n *NavigateAction) ToExplorePage(ctx context.Context) error {
 }
 
 func (n *NavigateAction) ToProfilePage(ctx context.Context) error {
-	page := n.page.Context(ctx).Timeout(60 * time.Second)
-
-	// First navigate to explore page
+	// First navigate to explore page (自带 60s 预算)
 	if err := n.ToExplorePage(ctx); err != nil {
 		return err
 	}
+
+	// 60s 预算从这里起表, 只管本函数自己的步骤; 若在 ToExplorePage 之前创建,
+	// 发现页导航会先吃掉预算, 降级期个人主页加载 (实测可达 74s) 只剩 ~40s 必超时
+	page := n.page.Context(ctx).Timeout(60 * time.Second)
 
 	if err := page.WaitStable(time.Second); err != nil {
 		return fmt.Errorf("等待发现页稳定失败: %w", err)
