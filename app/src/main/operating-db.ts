@@ -271,7 +271,8 @@ export interface NotePerf {
 
 // 近期计划的 publish 选题 (主题+标题) + 近期拟稿标题, 供 Planner buildContext 注入「强制避开」段。
 // 计划不分状态 (draft/superseded 也算: LLM 复刻的对象是它上次的输出, 不管有没有被激活)。
-export function getRecentPublishTopics(maxPlans = 3, maxItems = 15): string[] {
+// maxItems 20: 图片驱动重写会让「计划 spec 标题」和「实际拟稿标题」各占一槽, 15 槽被双份占满会挤掉更早的已发内容
+export function getRecentPublishTopics(maxPlans = 3, maxItems = 20): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (title?: string | null, theme?: string | null) => {

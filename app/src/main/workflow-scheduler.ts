@@ -31,7 +31,7 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-class LlmTimeoutError extends Error { constructor() { super('LLM timeout (30s)'); } }
+class LlmTimeoutError extends Error { constructor(timeoutMs = 30 * 1000) { super(`LLM timeout (${Math.round(timeoutMs / 1000)}s)`); } }
 class InsufficientQuotaError extends Error { constructor() { super('LLM quota exhausted (429)'); } }
 class RateLimitError extends Error {
   constructor(public action: RateAction, public reason: string) { super(`RateLimiter abort: ${action} - ${reason}`); }
@@ -502,12 +502,17 @@ export class WorkflowScheduler {
     if (s.type === 'once') return base;
     // 防同周期双跑: 负向 jitter 让本次提前于 base 执行 (如 base 09:00 抖到 08:55 跑), 跑完重算时
     // base 仍在未来 → 同一天再排一次 (真机日志: auto_plan_gen 每周双跑、daily 采集器同晚两跑)。
-    // 距上次执行不足半个周期的 base 视为已被本次消费, 顺延一个周期。
+    // 距上次执行不足「2×jitter+10min」的 base 视为已被本次消费, 顺延一个周期。阈值用 jitter 窗口
+    // 而非半周期: 半周期会把「下午手动 runNow 过一次」的当晚正点调度也误跳掉。
     const periodDays = s.type === 'daily' ? 1 : s.type === 'weekly' ? 7 : 0;
-    if (periodDays && wf.last_fire_at && base - wf.last_fire_at < (periodDays * 24 * 60 * 60 * 1000) / 2) {
-      const d = new Date(base);
-      d.setDate(d.getDate() + periodDays);
-      base = d.getTime();
+    if (periodDays && wf.last_fire_at) {
+      const jitterMs = (s.jitter_min ?? 10) * 60 * 1000;
+      const consumedWindowMs = Math.min((periodDays * 24 * 60 * 60 * 1000) / 2, 2 * jitterMs + 10 * 60 * 1000);
+      if (base - wf.last_fire_at < consumedWindowMs) {
+        const d = new Date(base);
+        d.setDate(d.getDate() + periodDays);
+        base = d.getTime();
+      }
     }
     const jitterMin = s.jitter_min ?? 10;
     const jitterMs = jitterMin * 60 * 1000;
@@ -624,7 +629,7 @@ async function callLLMOnce(llm: LlmConfig, system: string, user: string, maxToke
     return content;
   } catch (e) {
     if (signal?.aborted) throw new Error('已手动停止');
-    if (e instanceof Error && e.name === 'AbortError') throw new LlmTimeoutError();
+    if (e instanceof Error && e.name === 'AbortError') throw new LlmTimeoutError(timeoutMs);
     throw e;
   } finally {
     clearTimeout(timeout);

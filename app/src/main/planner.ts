@@ -160,7 +160,7 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
   const recentTopics = getRecentPublishTopics();
   if (recentTopics.length) {
     L.push('\n# 近期已规划/已发布的选题 (强制避开: 新计划的 publish 主题/标题/角度不得与这些雷同或近似)');
-    for (const t of recentTopics.slice(0, 15)) L.push(`- ${t}`);
+    for (const t of recentTopics.slice(0, 20)) L.push(`- ${t}`);
   }
 
   L.push(`\n# 可用素材 (共 ${assets.length} 张; 发布选图只能用这些，按标签匹配${assets.length > 30 ? '; 以下为随机抽样 30 张, 每期不同' : ''})`);

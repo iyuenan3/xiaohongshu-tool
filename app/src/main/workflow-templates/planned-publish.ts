@@ -4,7 +4,7 @@
 // 设计见 AIREADME/DESIGN-autonomous-operation.md §7。
 
 import { listAssets, shuffleArray, type MediaAsset } from '../assets';
-import { insertPending, getRecentlyUsedAssetIds, getActiveProfile } from '../operating-db';
+import { insertPending, getRecentlyUsedAssetIds, getActiveProfile, getAction, completeActionAndMaybePlan } from '../operating-db';
 import { findTaboo, activeTaboo } from '../content-guard';
 import { extractFirstJsonObject } from '../planner';
 import { isAutoPilotEnabled, autoPublishWindowMs, autoPublishWindowHours } from '../auto-pilot';
@@ -12,6 +12,26 @@ import type { Template, ExecHelpers, ExecResult } from './index';
 
 // 选图排除「近 N 天已用过」的素材, 实现轮换 (用户反馈: 素材固定不换新)
 const RECENT_USED_DAYS = 14;
+
+// 镜像 Go pkg/xhsutil/title.go CalcTitleLength 的口径: 按 UTF-16 单元, 非 ASCII 计 2 字节、ASCII 计 1,
+// 结果 ceil(字节/2)。emoji = 2 单元 = 4 字节 = 2 字。TS 侧截断必须用同一口径, 否则「码点 ≤20 但
+// Go 判 >20」的标题会确定性发布失败, 全自动路径白烧 3 次重试 (深度 review 确证)。
+function xhsTitleLen(s: string): number {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) bytes += s.charCodeAt(i) > 127 ? 2 : 1;
+  return Math.ceil(bytes / 2);
+}
+
+// 按码点逐个累加 (不劈 emoji 代理对), 到 xhsTitleLen 上限为止
+function truncateByXhsLen(s: string, maxLen: number): string {
+  if (xhsTitleLen(s) <= maxLen) return s;
+  let out = '';
+  for (const ch of s) {
+    if (xhsTitleLen(out + ch) > maxLen) break;
+    out += ch;
+  }
+  return out;
+}
 
 function parseTags(v: unknown): string[] {
   return String(v ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean);
@@ -118,7 +138,12 @@ export const plannedPublish: Template = {
     const theme = String(params.theme ?? '').trim();
     const planActionId = Number(params.plan_action_id) || null;
 
-    if (!title) return { status: 'partial', summary: '⚠️ 标题为空, 跳过待审' };
+    if (!title) {
+      // 空标题不拟稿 = 该发布行动永远不会有 approve/reject 回写 → 必须在这里标终态,
+      // 否则 plan_action 永卡 scheduled → plan 永 active → P3 每周自动激活被顶死 (深度 review 确证, v0.9.6 存量洞)
+      if (planActionId) completeActionAndMaybePlan(planActionId, 'skipped');
+      return { status: 'partial', summary: '⚠️ 标题为空, 跳过待审' };
+    }
 
     const picked = pickPublishAssets(assetTags, 6);
     const images = picked.map((a) => a.id);
@@ -153,10 +178,19 @@ export const plannedPublish: Template = {
       helpers.log({ step: 'image_draft', result: { skipped: '实选图片均无标签描述, 保留计划初稿 (建议素材库补分析)' } });
     }
 
-    // 小红书硬限: 标题 20 字 / 正文 1000 字。超限真发会被 Go 端拦, 全自动路径会白烧 3 次重试才转人工 (review MED)。
-    // 按码点截断 ([...str]), 不用 slice: slice 按 UTF-16 单元会把 emoji 劈成半个代理对。
-    if (title.length > 20) title = [...title].slice(0, 20).join('');
+    // 小红书硬限: 标题 20 字 (按 Go CalcTitleLength 口径) / 正文 1000 字。超限真发会被 Go 端拦,
+    // 全自动路径会白烧 3 次重试才转人工 (review MED)。
+    title = truncateByXhsLen(title, 20);
     if (content.length > 950) content = [...content].slice(0, 950).join('');
+
+    // 计划被 supersede 的竞态窗口 (90s LLM 调用把窗口从微秒放大到分钟级): 用户在本次拟稿进行中激活了
+    // 新计划 → 本行动已被标 skipped、旧待审稿已作废 → 此时再落库会产出「作废方向 + 已武装自动发」的孤儿稿。
+    if (planActionId) {
+      const action = getAction(planActionId);
+      if (action && (action.status === 'skipped' || action.status === 'done')) {
+        return { status: 'partial', summary: '⚠️ 所属计划已被替换/完结, 本次拟稿作废' };
+      }
+    }
 
     // E3 内容护栏: 拟稿即标记禁忌词命中 (用户审核可见; 批准时 publish-gate 会硬拦)
     const tabooHits = findTaboo(`${title}\n${content}`, activeTaboo());

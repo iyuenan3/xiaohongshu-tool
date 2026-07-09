@@ -4,7 +4,7 @@
 // 与本模块幂等共存 (双方分析前都查 analyzed, 已分析即跳过)。
 // prompt 与 renderer src/renderer/src/ai/assetAnalyzer.ts 保持一致。
 
-import { net } from 'electron';
+import { net, Notification } from 'electron';
 import { promises as fs } from 'fs';
 import log from 'electron-log/main';
 import { licenseManager } from './license';
@@ -40,12 +40,24 @@ export function backfillUnanalyzedAssets(): void {
   const pending = listAssets().filter((a) => a.analyzed !== 1).map((a) => a.id);
   if (!pending.length) return;
   log.info(`[asset-analyze] backfill ${pending.length} unanalyzed asset(s)`);
+  // 大批量补扫 (如老用户升级带 69 张未分析) 会持续消耗 AI 额度, 弹通知让用户知情 (不阻塞, 照跑)
+  if (pending.length >= 10) {
+    try {
+      if (Notification.isSupported()) {
+        new Notification({
+          title: 'xhsPilot · 素材自动分析',
+          body: `正在后台为 ${pending.length} 张素材打标签写描述 (AI 从此认得它们)，预计几分钟，会消耗少量 AI 额度`,
+        }).show();
+      }
+    } catch { /* 通知失败不影响分析 */ }
+  }
   queueAssetAnalyze(pending);
 }
 
 async function drain(): Promise<void> {
   if (draining) return;
   draining = true;
+  let consecFails = 0;
   try {
     while (queue.length) {
       // LLM 不可用 (未激活/额度) → 停止消化但保留队列, 下次触发 (再导入/重启补扫) 重试
@@ -58,9 +70,15 @@ async function drain(): Promise<void> {
       queued.delete(id);
       try {
         await analyzeOne(id, llm.base_url, llm.api_key, llm.model);
+        consecFails = 0;
       } catch (e) {
-        // 单张失败跳过不重试 (模型不支持 vision / 图坏), 用户仍可手动「补分析」
+        // 单张失败跳过不重试 (图坏/偶发), 用户仍可手动「补分析」
         log.warn(`[asset-analyze] analyze ${id} failed: ${e instanceof Error ? e.message : String(e)}`);
+        // 连败熔断: 3 连败多为系统性原因 (模型不支持 vision / 额度尽), 剩下的全跑只会白烧调用
+        if (++consecFails >= 3) {
+          log.warn(`[asset-analyze] ${consecFails} consecutive failures, stop auto-analyze (${queue.length} left in queue for next trigger)`);
+          return;
+        }
       }
       await new Promise((r) => setTimeout(r, GAP_MS));
     }

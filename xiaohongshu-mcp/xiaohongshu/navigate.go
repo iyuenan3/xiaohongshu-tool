@@ -2,8 +2,11 @@ package xiaohongshu
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 type NavigateAction struct {
@@ -14,32 +17,49 @@ func NewNavigate(page *rod.Page) *NavigateAction {
 	return &NavigateAction{page: page}
 }
 
+// 注意: Context(ctx) 会替换掉调用方已设的 Timeout, 故这里自带 60s 上限;
+// Must* 在超时/取消时 panic, 全部改 error 返回 (同 user_profile.go S1 修复)。
 func (n *NavigateAction) ToExplorePage(ctx context.Context) error {
-	page := n.page.Context(ctx)
+	page := n.page.Context(ctx).Timeout(60 * time.Second)
 
-	page.MustNavigate("https://www.xiaohongshu.com/explore").
-		MustWaitLoad().
-		MustElement(`div#app`)
+	if err := page.Navigate("https://www.xiaohongshu.com/explore"); err != nil {
+		return fmt.Errorf("导航发现页失败: %w", err)
+	}
+	if err := page.WaitLoad(); err != nil {
+		return fmt.Errorf("等待发现页加载失败: %w", err)
+	}
+	if _, err := page.Timeout(10 * time.Second).Element(`div#app`); err != nil {
+		return fmt.Errorf("发现页未就绪 (div#app 未出现): %w", err)
+	}
 
 	return nil
 }
 
 func (n *NavigateAction) ToProfilePage(ctx context.Context) error {
-	page := n.page.Context(ctx)
+	page := n.page.Context(ctx).Timeout(60 * time.Second)
 
 	// First navigate to explore page
 	if err := n.ToExplorePage(ctx); err != nil {
 		return err
 	}
 
-	page.MustWaitStable()
+	if err := page.WaitStable(time.Second); err != nil {
+		return fmt.Errorf("等待发现页稳定失败: %w", err)
+	}
 
 	// Find and click the "我" channel link in sidebar
-	profileLink := page.MustElement(`div.main-container li.user.side-bar-component a.link-wrapper span.channel`)
-	profileLink.MustClick()
+	profileLink, err := page.Timeout(10 * time.Second).Element(`div.main-container li.user.side-bar-component a.link-wrapper span.channel`)
+	if err != nil {
+		return fmt.Errorf("侧边栏「我」入口未找到: %w", err)
+	}
+	if err := profileLink.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return fmt.Errorf("点击「我」入口失败: %w", err)
+	}
 
 	// Wait for navigation to complete
-	page.MustWaitLoad()
+	if err := page.WaitLoad(); err != nil {
+		return fmt.Errorf("等待个人主页加载失败: %w", err)
+	}
 
 	return nil
 }
