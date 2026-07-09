@@ -166,6 +166,22 @@ export function getAssetPath(id: string): string | null {
   return row?.storage_path ?? null;
 }
 
+export function getAsset(id: string): MediaAsset | null {
+  const row = getDb().prepare(`SELECT * FROM media_assets WHERE id = ?`).get(id) as MediaAsset | undefined;
+  return row ?? null;
+}
+
+// Fisher-Yates 洗牌 (返回新数组)。素材选择/采样用: listAssets 排序是确定性的 (last_used_at DESC),
+// 不洗牌会导致同标签永远选同一批图 (用户反馈: 素材固定)。
+export function shuffleArray<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export function touchUsed(ids: string[]): void {
   if (ids.length === 0) return;
   const now = Date.now();

@@ -20,20 +20,28 @@ func NewUserProfileAction(page *rod.Page) *UserProfileAction {
 
 // UserProfile 获取用户基本信息及帖子
 func (u *UserProfileAction) UserProfile(ctx context.Context, userID, xsecToken string) (*UserProfileResponse, error) {
-	page := u.page.Context(ctx)
+	// Context(ctx) 会覆盖构造时的 60s 超时 → 页面卡死时会一直等到上层 240s 取消,
+	// 且 Must* 在取消时 panic (真机日志: user_profile panic + 响应 4m0s)。补回超时 + 全部改 error 返回。
+	page := u.page.Context(ctx).Timeout(90 * time.Second)
 
 	searchURL := makeUserProfileURL(userID, xsecToken)
-	page.MustNavigate(searchURL)
-	page.MustWaitStable()
+	if err := page.Navigate(searchURL); err != nil {
+		return nil, fmt.Errorf("导航用户主页失败: %w", err)
+	}
+	if err := page.WaitStable(time.Second); err != nil {
+		return nil, fmt.Errorf("等待用户主页稳定失败: %w", err)
+	}
 
 	return u.extractUserProfileData(page)
 }
 
 // extractUserProfileData 从页面中提取用户资料数据的通用方法
 func (u *UserProfileAction) extractUserProfileData(page *rod.Page) (*UserProfileResponse, error) {
-	page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
+	if err := page.Wait(rod.Eval(`() => window.__INITIAL_STATE__ !== undefined`)); err != nil {
+		return nil, fmt.Errorf("等待 __INITIAL_STATE__ 失败: %w", err)
+	}
 
-	userDataResult := page.MustEval(`() => {
+	userDataObj, err := page.Eval(`() => {
 		if (window.__INITIAL_STATE__ &&
 		    window.__INITIAL_STATE__.user &&
 		    window.__INITIAL_STATE__.user.userPageData) {
@@ -44,14 +52,18 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page) (*UserProfile
 			}
 		}
 		return "";
-	}`).String()
+	}`)
+	if err != nil {
+		return nil, fmt.Errorf("读取 userPageData 失败: %w", err)
+	}
+	userDataResult := userDataObj.Value.Str()
 
 	if userDataResult == "" {
 		return nil, fmt.Errorf("user.userPageData.value not found in __INITIAL_STATE__")
 	}
 
 	// 2. 获取用户帖子：window.__INITIAL_STATE__.user.notes.value
-	notesResult := page.MustEval(`() => {
+	notesObj, err := page.Eval(`() => {
 		if (window.__INITIAL_STATE__ &&
 		    window.__INITIAL_STATE__.user &&
 		    window.__INITIAL_STATE__.user.notes) {
@@ -63,7 +75,11 @@ func (u *UserProfileAction) extractUserProfileData(page *rod.Page) (*UserProfile
 			}
 		}
 		return "";
-	}`).String()
+	}`)
+	if err != nil {
+		return nil, fmt.Errorf("读取 notes 失败: %w", err)
+	}
+	notesResult := notesObj.Value.Str()
 
 	if notesResult == "" {
 		return nil, fmt.Errorf("user.notes.value not found in __INITIAL_STATE__")
@@ -105,7 +121,8 @@ func makeUserProfileURL(userID, xsecToken string) string {
 }
 
 func (u *UserProfileAction) GetMyProfileViaSidebar(ctx context.Context) (*UserProfileResponse, error) {
-	page := u.page.Context(ctx)
+	// 同 UserProfile: 补回被 Context(ctx) 覆盖掉的超时, 避免慢页面拖满上层 240s
+	page := u.page.Context(ctx).Timeout(90 * time.Second)
 
 	// 创建导航动作
 	navigate := NewNavigate(page)
@@ -116,7 +133,9 @@ func (u *UserProfileAction) GetMyProfileViaSidebar(ctx context.Context) (*UserPr
 	}
 
 	// 等待页面加载完成并获取 __INITIAL_STATE__
-	page.MustWaitStable()
+	if err := page.WaitStable(time.Second); err != nil {
+		return nil, fmt.Errorf("等待个人主页稳定失败: %w", err)
+	}
 
 	return u.extractUserProfileData(page)
 }

@@ -12,6 +12,7 @@ import { initDb, closeDb } from './db';
 import { licenseManager } from './license';
 import { initUpdater, stopUpdater } from './updater';
 import { getAssetPath } from './assets';
+import { backfillUnanalyzedAssets } from './asset-analyze';
 import { logEnvironment } from './env';
 import { createXhsWindow, toggleXhsWindow, hideXhsWindow, isXhsVisible, destroyXhsWindow, onVisibilityChanged } from './xhs-window';
 import { installCertPinning } from './cert-pinning';
@@ -177,6 +178,7 @@ async function bootstrap(): Promise<void> {
       .catch((err) => {
         log.error(`[main] post-activation Go start failed: ${err.message}`);
       });
+    setTimeout(backfillUnanalyzedAssets, 60 * 1000); // 激活后补扫未分析素材 (延迟避开启动高峰)
   });
 
   // license 任何状态变化 (activate / heartbeat-revoked / clear) push 给 renderer
@@ -197,6 +199,7 @@ async function bootstrap(): Promise<void> {
       .catch((err) => {
         log.error(`[main] Go bootstrap failed: ${err.message}`);
       });
+    setTimeout(backfillUnanalyzedAssets, 60 * 1000); // 启动补扫未分析素材 (老素材/上次没扫完的)
   } else {
     log.info(`[main] license not active (${lic.status}); UI 将显示激活页, Go + xhs window 暂不启动`);
   }

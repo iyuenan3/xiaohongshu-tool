@@ -4,7 +4,7 @@
 
 import log from 'electron-log/main';
 import type { GoSubprocess } from './go-subprocess';
-import { getAssetPath } from './assets';
+import { getAssetPath, touchUsed } from './assets';
 import { checkRate, logRate } from './rate';
 import {
   getPending, updatePendingStatus, setPublishedFeedId,
@@ -94,6 +94,7 @@ export async function approvePublish(
 
   logRate('publish');
   updatePendingStatus(pendingId, 'published');
+  touchUsed(imageIds); // 记录素材已用 (自动发布链路此前从不更新 last_used_at, 素材轮换的依据之一)
   if (p.plan_action_id) completeActionAndMaybePlan(p.plan_action_id); // 计划: 发布行动完结 + 计划完结判定
   log.info(`[publish-gate] pending ${pendingId} published`);
   await backfillPublishedFeedId(pendingId, p.title, goProc); // P2/A1: best-effort 回写 feed_id

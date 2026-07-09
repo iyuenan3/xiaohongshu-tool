@@ -6,14 +6,16 @@ import log from 'electron-log/main';
 import { licenseManager, type LlmConfig } from './license';
 import {
   getActiveProfile, getLatestSnapshot, getLatestNotePerformance, getSnapshotTrend, createPlan, insertActions,
+  getRecentPublishTopics,
   type OperatingProfile, type ProfileConstraints, type PlanActionType,
 } from './operating-db';
-import { listAssets, type MediaAsset } from './assets';
+import { listAssets, shuffleArray, type MediaAsset } from './assets';
 
 // 超时/输出量按计划周期 (horizon) 缩放: 14 天计划行动条目翻倍、输出 token 大幅上升,
 // 固定 90s + 3000 token 对 14 天几乎必撞超时 (见反馈日志 14d 6 次全卡 90.1s abort)。
+// base 60→90s: v0.9.6 真机日志 7d(144s) 仍偶发压线 abort, 放宽到 174s。
 const PLANNER_TIMEOUT_MIN_MS = 90 * 1000;
-const PLANNER_TIMEOUT_BASE_MS = 60 * 1000;
+const PLANNER_TIMEOUT_BASE_MS = 90 * 1000;
 const PLANNER_TIMEOUT_PER_DAY_MS = 12 * 1000;
 function plannerTimeoutFor(horizonDays: number): number {
   return Math.max(PLANNER_TIMEOUT_MIN_MS, PLANNER_TIMEOUT_BASE_MS + horizonDays * PLANNER_TIMEOUT_PER_DAY_MS);
@@ -29,7 +31,7 @@ const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内�
 ## 行动类型（只用这三种）
 - browse：刷垂直内容（养号 + 找灵感 + 喂算法）。spec: { "keyword": 关键词, "count": 刷几篇(建议 8-20) }
 - interact：给垂类内容点赞评论（涨权重 + 露出）。spec: { "keyword": 关键词, "like": 点赞数(≤5), "comment": 评论数(≤3,可为0只点赞) }
-- publish：发布笔记。spec: { "theme": 主题, "asset_tags": 用哪类素材标签(从可用素材里选), "title": 标题(18-22字,情绪词+关键词,口语), "content": 正文(300-500字), "note_tags": 笔记话题标签数组(3-6个) }
+- publish：发布笔记。spec: { "theme": 主题, "asset_tags": 用哪类素材标签(从可用素材里选), "title": 标题(16-20字,绝不超20字,情绪词+关键词,口语), "content": 正文(300-500字), "note_tags": 笔记话题标签数组(3-6个) }
 
 ## 运营方法论（务必遵守）
 1. 内容配比：约 70% 垂类深耕 + 20% 蹭趋势 + 10% 强转化，不要每条都硬推。
@@ -38,6 +40,7 @@ const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内�
 4. 爆款笔记结构：正文 = 痛点共鸣 → 自然引入 → 真实体验细节 → 降低期望的总结（适当提缺点更可信）。标题情绪词+关键词、口语化。
 5. 真实感：基于真实体验，不夸大、不堆卖点、少 emoji。绝不碰画像里的禁忌。
 6. 互动会全自动执行，发布会经用户审核，所以发布内容要完整可用（标题/正文/标签都拟好）。
+7. 选题差异化：publish 的主题、标题、切入角度绝不与「近期已规划/已发布的选题」雷同或近似。同类素材必须换场景、换叙事角度、换钩子，每期做出新意。
 
 ## 频率红线（绝不超过）
 - 发布：不超过画像的每周上限
@@ -152,8 +155,18 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
     L.push('请在 rationale 里点明本期据哪些表现做了什么调整 (如「上轮治愈系数据好，本周加配比」)。');
   }
 
-  L.push('\n# 可用素材 (发布选图只能用这些，按标签匹配)');
+  // 去重上下文 (用户反馈: 第二周计划与第一周几乎重复): 把近期计划的 publish 选题 + 待审/已发拟稿标题
+  // 喂给 LLM 并强制避开。没有这段, 每周 auto_plan_gen 的输入完全相同, LLM 必然复刻同一套选题。
+  const recentTopics = getRecentPublishTopics();
+  if (recentTopics.length) {
+    L.push('\n# 近期已规划/已发布的选题 (强制避开: 新计划的 publish 主题/标题/角度不得与这些雷同或近似)');
+    for (const t of recentTopics.slice(0, 15)) L.push(`- ${t}`);
+  }
+
+  L.push(`\n# 可用素材 (共 ${assets.length} 张; 发布选图只能用这些，按标签匹配${assets.length > 30 ? '; 以下为随机抽样 30 张, 每期不同' : ''})`);
   if (assets.length) {
+    const unanalyzed = assets.filter((a) => a.analyzed !== 1).length;
+    if (unanalyzed) L.push(`(其中 ${unanalyzed} 张尚未分析、无标签: 选 asset_tags 时只用已有标签, 不要自造标签)`);
     for (const a of assets.slice(0, 30)) {
       const tags = safeJsonArr(a.tags).join(',');
       L.push(`- [${tags || '无标签'}] ${a.description || a.filename}`);
@@ -177,10 +190,14 @@ function safeJsonArr(s: string | null | undefined): string[] {
   }
 }
 
+// 素材采样 (用户反馈: 素材固定选不到新的): listAssets 恒按 last_used_at DESC, 直接 slice 前 30
+// 会让排序靠后的素材永远进不了 Planner 视野。改为已分析优先 + 组内随机洗牌, 每期看到不同子集。
 function pickAssets(tags: string[]): MediaAsset[] {
   const all = listAssets();
-  if (!tags.length) return all;
-  return all.filter((a) => safeJsonArr(a.tags).some((t) => tags.includes(t)));
+  const filtered = tags.length ? all.filter((a) => safeJsonArr(a.tags).some((t) => tags.includes(t))) : all;
+  const analyzed = shuffleArray(filtered.filter((a) => a.analyzed === 1));
+  const rest = shuffleArray(filtered.filter((a) => a.analyzed !== 1));
+  return [...analyzed, ...rest];
 }
 
 function parsePlannerOutput(raw: string): PlannerOutput | null {
@@ -206,7 +223,8 @@ function parsePlannerOutput(raw: string): PlannerOutput | null {
 }
 
 // 从第一个 { 起做括号配平扫描 (跳过字符串内的括号), 返回第一个配平完整的 JSON 对象子串.
-function extractFirstJsonObject(txt: string): string | null {
+// planned_publish 图片驱动文案的 LLM 输出解析也复用 (export)。
+export function extractFirstJsonObject(txt: string): string | null {
   const start = txt.indexOf('{');
   if (start < 0) return null;
   let depth = 0;

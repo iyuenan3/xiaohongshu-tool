@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	myerrors "github.com/xpzouying/xiaohongshu-mcp/errors"
@@ -43,22 +44,34 @@ func newInteractAction(page *rod.Page) *interactAction {
 	return &interactAction{page: page}
 }
 
-func (a *interactAction) preparePage(ctx context.Context, actionType interactActionType, feedID, xsecToken string) *rod.Page {
+// preparePage 打开笔记详情页。Must* 在超时/取消时会 panic (真机日志: 页面降级期连环 panic 500),
+// 全部改 error 返回, 让上层干净失败。
+func (a *interactAction) preparePage(ctx context.Context, actionType interactActionType, feedID, xsecToken string) (*rod.Page, error) {
 	page := a.page.Context(ctx).Timeout(60 * time.Second)
 	url := makeFeedDetailURL(feedID, xsecToken)
 	logrus.Infof("Opening feed detail page for %s: %s", actionType, url)
 
-	page.MustNavigate(url)
-	page.MustWaitDOMStable()
+	if err := page.Navigate(url); err != nil {
+		return nil, errors.Wrapf(err, "导航笔记详情页失败 (%s)", actionType)
+	}
+	if err := page.WaitDOMStable(time.Second, 0); err != nil {
+		return nil, errors.Wrapf(err, "等待笔记详情页稳定失败 (%s)", actionType)
+	}
 	time.Sleep(1 * time.Second)
 
-	return page
+	return page, nil
 }
 
-func (a *interactAction) performClick(page *rod.Page, selector string) {
+func (a *interactAction) performClick(page *rod.Page, selector string) error {
 	// 限定找按钮最多 10s, 避免选择器失配时死等到 page 的 60s 超时
-	element := page.Timeout(10 * time.Second).MustElement(selector)
-	element.MustClick()
+	element, err := page.Timeout(10 * time.Second).Element(selector)
+	if err != nil {
+		return errors.Wrapf(err, "找不到按钮 %s", selector)
+	}
+	if err := element.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		return errors.Wrapf(err, "点击按钮 %s 失败", selector)
+	}
+	return nil
 }
 
 // LikeAction 负责处理点赞相关交互
@@ -86,12 +99,15 @@ func (a *LikeAction) perform(ctx context.Context, feedID, xsecToken string, targ
 		actionType = actionUnlike
 	}
 
-	page := a.preparePage(ctx, actionType, feedID, xsecToken)
+	page, err := a.preparePage(ctx, actionType, feedID, xsecToken)
+	if err != nil {
+		return err
+	}
 
 	liked, _, err := a.getInteractState(page, feedID)
 	if err != nil {
 		// 详情页没加载到目标笔记 (序号失效/笔记已删/id 不对): 立即失败,
-		// 不再硬点 —— 否则后续 MustElement 找不到点赞按钮会死等到超时。
+		// 不再硬点 —— 否则后续找不到点赞按钮会死等到超时。
 		return errors.Wrapf(err, "笔记详情未加载, 无法%s (feed=%s)", actionType, feedID)
 	}
 
@@ -108,7 +124,9 @@ func (a *LikeAction) perform(ctx context.Context, feedID, xsecToken string, targ
 }
 
 func (a *LikeAction) toggleLike(page *rod.Page, feedID string, targetLiked bool, actionType interactActionType) error {
-	a.performClick(page, SelectorLikeButton)
+	if err := a.performClick(page, SelectorLikeButton); err != nil {
+		return errors.Wrapf(err, "%s失败 (feed=%s)", actionType, feedID)
+	}
 	time.Sleep(3 * time.Second)
 
 	liked, _, err := a.getInteractState(page, feedID)
@@ -122,7 +140,10 @@ func (a *LikeAction) toggleLike(page *rod.Page, feedID string, targetLiked bool,
 	}
 
 	logrus.Warnf("feed %s %s可能未成功，状态未变化，尝试再次点击", feedID, actionType)
-	a.performClick(page, SelectorLikeButton)
+	if err := a.performClick(page, SelectorLikeButton); err != nil {
+		logrus.Warnf("第二次点击%s失败: %v", actionType, err)
+		return nil
+	}
 	time.Sleep(2 * time.Second)
 
 	liked, _, err = a.getInteractState(page, feedID)
@@ -163,7 +184,10 @@ func (a *FavoriteAction) perform(ctx context.Context, feedID, xsecToken string, 
 		actionType = actionUnfavorite
 	}
 
-	page := a.preparePage(ctx, actionType, feedID, xsecToken)
+	page, err := a.preparePage(ctx, actionType, feedID, xsecToken)
+	if err != nil {
+		return err
+	}
 
 	_, collected, err := a.getInteractState(page, feedID)
 	if err != nil {
@@ -184,7 +208,9 @@ func (a *FavoriteAction) perform(ctx context.Context, feedID, xsecToken string, 
 }
 
 func (a *FavoriteAction) toggleFavorite(page *rod.Page, feedID string, targetCollected bool, actionType interactActionType) error {
-	a.performClick(page, SelectorCollectButton)
+	if err := a.performClick(page, SelectorCollectButton); err != nil {
+		return errors.Wrapf(err, "%s失败 (feed=%s)", actionType, feedID)
+	}
 	time.Sleep(3 * time.Second)
 
 	_, collected, err := a.getInteractState(page, feedID)
@@ -198,7 +224,10 @@ func (a *FavoriteAction) toggleFavorite(page *rod.Page, feedID string, targetCol
 	}
 
 	logrus.Warnf("feed %s %s可能未成功，状态未变化，尝试再次点击", feedID, actionType)
-	a.performClick(page, SelectorCollectButton)
+	if err := a.performClick(page, SelectorCollectButton); err != nil {
+		logrus.Warnf("第二次点击%s失败: %v", actionType, err)
+		return nil
+	}
 	time.Sleep(2 * time.Second)
 
 	_, collected, err = a.getInteractState(page, feedID)
@@ -217,14 +246,18 @@ func (a *FavoriteAction) toggleFavorite(page *rod.Page, feedID string, targetCol
 // getInteractState 从 __INITIAL_STATE__ 读取笔记的点赞/收藏状态
 func (a *interactAction) getInteractState(page *rod.Page, feedID string) (liked bool, collected bool, err error) {
 
-	result := page.MustEval(`() => {
+	obj, err := page.Eval(`() => {
 		if (window.__INITIAL_STATE__ &&
 		    window.__INITIAL_STATE__.note &&
 		    window.__INITIAL_STATE__.note.noteDetailMap) {
 			return JSON.stringify(window.__INITIAL_STATE__.note.noteDetailMap);
 		}
 		return "";
-	}`).String()
+	}`)
+	if err != nil {
+		return false, false, errors.Wrap(err, "读取 noteDetailMap 失败")
+	}
+	result := obj.Value.Str()
 	if result == "" {
 		return false, false, myerrors.ErrNoFeedDetail
 	}

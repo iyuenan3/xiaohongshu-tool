@@ -21,7 +21,13 @@ export const autoPlanGen: Template = {
   async execute(params: Record<string, unknown>, helpers: ExecHelpers): Promise<ExecResult> {
     const horizon = Math.min(Math.max(Number(params.horizon_days ?? 7), 3), 14);
     helpers.log({ step: 'start', result: { horizon } });
-    const r = await generatePlan(horizon);
+    // 失败重试 1 次 (LLM 偶发超时/5xx): 周任务失败即等一周, 没有 active 计划全自动会整周空转
+    let r = await generatePlan(horizon);
+    if (!r.ok) {
+      helpers.log({ step: 'generate', error: `${r.error} (30s 后重试)` });
+      await helpers.sleep(30 * 1000);
+      r = await generatePlan(horizon);
+    }
     if (!r.ok) {
       helpers.log({ step: 'generate', error: r.error });
       return { status: 'partial', summary: `🗓 自动生成计划失败: ${r.error}` };

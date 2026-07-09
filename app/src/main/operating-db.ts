@@ -267,6 +267,62 @@ export interface NotePerf {
   taken_at: number;
 }
 
+// ============ 去重上下文 (用户反馈: 每周计划选题几乎重复) ============
+
+// 近期计划的 publish 选题 (主题+标题) + 近期拟稿标题, 供 Planner buildContext 注入「强制避开」段。
+// 计划不分状态 (draft/superseded 也算: LLM 复刻的对象是它上次的输出, 不管有没有被激活)。
+export function getRecentPublishTopics(maxPlans = 3, maxItems = 15): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (title?: string | null, theme?: string | null) => {
+    const t = (title || '').trim();
+    const th = (theme || '').trim();
+    if (!t && !th) return;
+    const line = t ? `「${t}」${th ? ` (主题: ${th})` : ''}` : `(主题: ${th})`;
+    if (seen.has(line)) return;
+    seen.add(line);
+    out.push(line);
+  };
+  const plans = getDb()
+    .prepare(`SELECT id FROM operating_plan ORDER BY generated_at DESC LIMIT ?`)
+    .all(maxPlans) as Array<{ id: number }>;
+  for (const p of plans) {
+    const actions = getDb()
+      .prepare(`SELECT spec FROM plan_action WHERE plan_id = ? AND type = 'publish'`)
+      .all(p.id) as Array<{ spec: string }>;
+    for (const a of actions) {
+      try {
+        const spec = JSON.parse(a.spec) as { title?: string; theme?: string };
+        push(spec.title, spec.theme);
+      } catch { /* spec 坏了跳过 */ }
+    }
+  }
+  const drafts = getDb()
+    .prepare(`SELECT title FROM pending_publish ORDER BY created_at DESC LIMIT 20`)
+    .all() as Array<{ title: string | null }>;
+  for (const d of drafts) push(d.title);
+  return out.slice(0, maxItems);
+}
+
+// 近 N 天拟稿/发布用过的素材 id (排除 rejected/expired: 被否决的稿子素材视为没用过)。
+// planned_publish 选图时先排除这些, 实现素材轮换 (用户反馈: 素材相对固定选不到新的)。
+export function getRecentlyUsedAssetIds(days = 14): string[] {
+  const since = Date.now() - days * 24 * 60 * 60 * 1000;
+  const rows = getDb()
+    .prepare(
+      `SELECT images FROM pending_publish
+       WHERE created_at >= ? AND status IN ('pending','publishing','approved','published')`,
+    )
+    .all(since) as Array<{ images: string | null }>;
+  const ids = new Set<string>();
+  for (const r of rows) {
+    try {
+      for (const id of JSON.parse(r.images || '[]') as string[]) ids.add(id);
+    } catch { /* ignore */ }
+  }
+  return [...ids];
+}
+
 // 最近一次采集批次里, 按点赞降序的前 N 条笔记 (note_metrics_snapshot 同批 taken_at 相同).
 export function getLatestNotePerformance(limit = 8): NotePerf[] {
   const latest = getDb().prepare(`SELECT MAX(taken_at) AS m FROM note_snapshots`).get() as { m: number | null };

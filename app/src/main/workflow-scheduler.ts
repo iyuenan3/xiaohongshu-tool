@@ -467,11 +467,11 @@ export class WorkflowScheduler {
         if (rateAction) logRate(rateAction);
         return result;
       },
-      callLLM: async ({ system, user, max_tokens = 80 }) => {
+      callLLM: async ({ system, user, max_tokens = 80, timeout_ms }) => {
         if (signal.aborted) throw new Error('已手动停止');
         const llm = await licenseManager.getActiveLlm();
         if (!llm) throw new Error('LLM not configured (license inactive or BYOK empty)');
-        return await callLLMWithRetry(llm, system, user, max_tokens, signal); // signal: 停止时掐断 LLM, 避免评论生成时停止要等 ~60s
+        return await callLLMWithRetry(llm, system, user, max_tokens, signal, timeout_ms); // signal: 停止时掐断 LLM, 避免评论生成时停止要等 ~60s
       },
       // 可中断 sleep: 手动停止时立即 reject。模板循环里 callTool/callLLM 调用前已检查 signal 抛错、
       // execute 会在模板返回后复查 ac.signal.aborted 改判 aborted; sleep reject 主要让"停留等待中"的取消即时生效。
@@ -497,9 +497,18 @@ export class WorkflowScheduler {
 
   computeNextFireTime(wf: Workflow): number {
     const s = this.parseSchedule(wf);
-    const base = computeBaseFireTime(s);
+    let base = computeBaseFireTime(s);
     // once: 一次性精确时刻, 不加抖动. 抖动会把接近当前的时刻推到过去 → scheduleNext 误判 missed → 行动静默不执行.
     if (s.type === 'once') return base;
+    // 防同周期双跑: 负向 jitter 让本次提前于 base 执行 (如 base 09:00 抖到 08:55 跑), 跑完重算时
+    // base 仍在未来 → 同一天再排一次 (真机日志: auto_plan_gen 每周双跑、daily 采集器同晚两跑)。
+    // 距上次执行不足半个周期的 base 视为已被本次消费, 顺延一个周期。
+    const periodDays = s.type === 'daily' ? 1 : s.type === 'weekly' ? 7 : 0;
+    if (periodDays && wf.last_fire_at && base - wf.last_fire_at < (periodDays * 24 * 60 * 60 * 1000) / 2) {
+      const d = new Date(base);
+      d.setDate(d.getDate() + periodDays);
+      base = d.getTime();
+    }
     const jitterMin = s.jitter_min ?? 10;
     const jitterMs = jitterMin * 60 * 1000;
     const jitter = (Math.random() * 2 - 1) * jitterMs;
@@ -558,13 +567,13 @@ export class WorkflowScheduler {
 
 // ============ LLM 单次 completion (timeout + retry) ============
 
-async function callLLMWithRetry(llm: LlmConfig, system: string, user: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
+async function callLLMWithRetry(llm: LlmConfig, system: string, user: string, maxTokens: number, signal?: AbortSignal, timeoutMs?: number): Promise<string> {
   const MAX_RETRY = 1;
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
     if (signal?.aborted) throw new Error('已手动停止');
     try {
-      return await callLLMOnce(llm, system, user, maxTokens, signal);
+      return await callLLMOnce(llm, system, user, maxTokens, signal, timeoutMs);
     } catch (e) {
       lastErr = e as Error;
       const msg = lastErr.message.toLowerCase();
@@ -582,9 +591,9 @@ async function callLLMWithRetry(llm: LlmConfig, system: string, user: string, ma
   throw lastErr!;
 }
 
-async function callLLMOnce(llm: LlmConfig, system: string, user: string, maxTokens: number, signal?: AbortSignal): Promise<string> {
+async function callLLMOnce(llm: LlmConfig, system: string, user: string, maxTokens: number, signal?: AbortSignal, timeoutMs = 30 * 1000): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30 * 1000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const onExt = () => controller.abort();
   if (signal) {
     if (signal.aborted) controller.abort();

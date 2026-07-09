@@ -25,7 +25,8 @@ export interface ParamSchema {
 
 export interface ExecHelpers {
   callTool(tool: string, args: Record<string, unknown>): Promise<unknown>;
-  callLLM(input: { system: string; user: string; max_tokens?: number }): Promise<string>;
+  // timeout_ms 默认 30s (评论等短生成); planned_publish 图片驱动文案要生成整篇笔记, 传 90s
+  callLLM(input: { system: string; user: string; max_tokens?: number; timeout_ms?: number }): Promise<string>;
   sleep(ms: number): Promise<void>;
   rand(min: number, max: number): number;
   log(entry: { step?: string; result?: unknown; error?: string }): void;

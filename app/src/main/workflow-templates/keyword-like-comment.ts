@@ -63,6 +63,7 @@ export const keywordLikeComment: Template = {
     }
 
     let liked = 0, commented = 0;
+    let consecFails = 0; // 断路器: 连续点赞失败即停 (页面降级/风控期逐条死磕会连环超时, 还可能污染浏览器会话)
     const skips: string[] = [];
 
     for (let i = 0; i < feeds.length; i++) {
@@ -71,11 +72,18 @@ export const keywordLikeComment: Template = {
       try {
         await helpers.callTool('like_feed', { feed_id: feed.id, xsec_token: feed.xsecToken });
         liked++;
+        consecFails = 0;
         helpers.log({ step: 'like_feed', result: { idx, feed_id: feed.id } });
       } catch (e) {
         const msg = (e as Error).message;
         helpers.log({ step: 'like_feed', error: msg });
         skips.push(`第 ${idx} 条点赞失败: ${msg.slice(0, 50)}`);
+        consecFails++;
+        if (consecFails >= 2) {
+          skips.push('连续失败, 提前停止本次互动 (稍后自动恢复)');
+          helpers.log({ step: 'circuit_break', result: { at: idx, consecFails } });
+          break;
+        }
         continue;
       }
       await helpers.sleep(helpers.rand(30000, 90000));

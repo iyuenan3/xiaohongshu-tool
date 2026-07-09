@@ -14,6 +14,7 @@ import {
   pickAndImport, importFromUrl, listAssets, deleteAsset, getAssetPath, touchUsed,
   setAssetTags, searchAssets,
 } from './assets';
+import { queueAssetAnalyze } from './asset-analyze';
 import { searchWeb } from './web-search';
 import type { WorkflowScheduler } from './workflow-scheduler';
 import {
@@ -273,9 +274,17 @@ export function registerIpcHandlers(
   ipcMain.handle('updater:check', () => checkForUpdatesNow());
   ipcMain.handle('updater:versionInfo', () => fetchVersionInfo());
 
-  // 媒体素材库
-  ipcMain.handle('assets:pick', () => pickAndImport());
-  ipcMain.handle('assets:importUrl', (_, url: string) => importFromUrl(url));
+  // 媒体素材库 (导入成功即入队自动分析: 打 tag 写描述, Planner/选图才认得它们)
+  ipcMain.handle('assets:pick', async () => {
+    const recs = await pickAndImport();
+    if (recs.length) queueAssetAnalyze(recs.map((r) => r.id));
+    return recs;
+  });
+  ipcMain.handle('assets:importUrl', async (_, url: string) => {
+    const rec = await importFromUrl(url);
+    queueAssetAnalyze([rec.id]);
+    return rec;
+  });
   ipcMain.handle('assets:list', () => listAssets());
   ipcMain.handle('assets:delete', (_, id: string) => deleteAsset(id));
   ipcMain.handle('assets:getPath', (_, id: string) => getAssetPath(id));
