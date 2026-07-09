@@ -79,8 +79,11 @@ async function runCheck(opts: { manual: boolean }): Promise<{
     return { ok: false, current, message: msg };
   }
 
-  if (!resp.ok || !resp.latest_version) {
-    log.warn('[updater] /version invalid response');
+  // bj /version (doubleL-license) 契约只返 { latest_version, min_version, support_contact, release_notes }, 无 `ok` 字段
+  // (旧 Cloudflare Worker 才返 ok)。此前用 `!resp.ok` 判有效性 → resp.ok 恒 undefined → 每次都误判 invalid,
+  // 老客户端自迁 bj 起从收不到升级提示。有效性只看 latest_version 是否存在。
+  if (!resp.latest_version) {
+    log.warn('[updater] /version invalid response (缺 latest_version)');
     if (opts.manual) await alertError('检查更新失败: 服务端响应异常');
     return { ok: false, current, message: 'invalid response' };
   }
