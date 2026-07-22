@@ -157,18 +157,25 @@ export class GoSubprocess {
     log.info(`[go] CDP attach OK`);
   }
 
-  async callApi<T = unknown>(method: string, path: string, body?: unknown, externalSignal?: AbortSignal): Promise<T> {
+  async callApi<T = unknown>(
+    method: string,
+    path: string,
+    body?: unknown,
+    externalSignal?: AbortSignal,
+    timeoutMs = 240_000,
+  ): Promise<T> {
     // GET/HEAD 不允许 body. body 为空对象 / null / undefined 时也不发 body.
     const hasBody =
       method !== 'GET' &&
       method !== 'HEAD' &&
       body != null &&
       !(typeof body === 'object' && Object.keys(body as object).length === 0);
-    // 兜底超时: 发布/互动正常 <100s, 最坏(多图慢网)~200s。240s 后 abort,
+    // 兜底超时: 发布/互动正常 <100s, 最坏(多图慢网)~200s。默认 240s 后 abort,
     // 避免 Go 端卡死时 renderer 靠 undici 默认行为干等 ~5 分钟后才 fetch failed。
+    // timeoutMs: 多图整组发布 (最多 18 张, 逐张串行上传) 按图数放大, 240s 对 18 图不足 (review #3)。
     // externalSignal: 工作流"手动停止"时由 scheduler 传入, 掐断在途请求。
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 240_000);
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
     const onExt = () => ac.abort();
     if (externalSignal) {
       if (externalSignal.aborted) ac.abort();
@@ -187,7 +194,7 @@ export class GoSubprocess {
         throw new Error('已手动停止');
       }
       if (ac.signal.aborted) {
-        throw new Error(`API ${method} ${path} 超时(240s)，操作可能未完成，请稍后重试`);
+        throw new Error(`API ${method} ${path} 超时(${Math.round(timeoutMs / 1000)}s)，操作可能未完成，请稍后重试`);
       }
       throw e;
     } finally {

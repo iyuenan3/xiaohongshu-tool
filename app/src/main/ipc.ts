@@ -13,6 +13,8 @@ import { checkForUpdatesNow, fetchVersionInfo } from './updater';
 import {
   pickAndImport, importFromUrl, listAssets, deleteAsset, getAssetPath, touchUsed,
   setAssetTags, searchAssets,
+  listGroups, createGroup, renameGroup, deleteGroup, addAssetsToGroup, removeAssetsFromGroup,
+  listAssetsByGroup,
 } from './assets';
 import { queueAssetAnalyze } from './asset-analyze';
 import { searchWeb } from './web-search';
@@ -297,6 +299,27 @@ export function registerIpcHandlers(
     return { ok: true };
   });
   ipcMain.handle('assets:search', (_, query: string, limit?: number) => searchAssets(query, limit));
+
+  // 素材分组 (用户反馈 0719: 多份素材自定义分组; 一图多组)
+  ipcMain.handle('assets:groups:list', () => listGroups());
+  ipcMain.handle('assets:groups:members', (_, groupId: number) => listAssetsByGroup(groupId));
+  ipcMain.handle('assets:groups:create', (_, name: string) => createGroup(name));
+  ipcMain.handle('assets:groups:rename', (_, id: number, name: string) => {
+    renameGroup(id, name);
+    return { ok: true };
+  });
+  ipcMain.handle('assets:groups:delete', (_, id: number) => {
+    deleteGroup(id);
+    return { ok: true };
+  });
+  ipcMain.handle('assets:groups:add', (_, groupId: number, assetIds: string[]) => {
+    addAssetsToGroup(groupId, assetIds);
+    return { ok: true };
+  });
+  ipcMain.handle('assets:groups:remove', (_, groupId: number, assetIds: string[]) => {
+    removeAssetsFromGroup(groupId, assetIds);
+    return { ok: true };
+  });
 
   // 联网搜索 (隐藏 BrowserWindow + 搜狗 DOM 抓取)
   ipcMain.handle('web:search', (_, query: string, n?: number) => searchWeb(query, n));

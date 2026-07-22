@@ -72,6 +72,7 @@ interface PublishSpec {
   title?: string;
   content?: string;
   asset_tags?: string[];
+  asset_group?: string; // 用户反馈 0719: 指定素材分组则整组发布 (优先于 asset_tags)
   note_tags?: string[];
 }
 
@@ -204,11 +205,15 @@ export function activatePlan(planId: number, scheduler: WorkflowScheduler): Acti
         template_id: 'planned_publish',
         name: `[运营] 发布「${spec.theme || spec.title || '笔记'}」`,
         params: {
-          title: spec.title ?? '',
-          content: spec.content ?? '',
-          asset_tags: (spec.asset_tags ?? []).join(','),
-          note_tags: (spec.note_tags ?? []).join(','),
-          theme: spec.theme ?? '',
+          // 全部经 String()/Array.isArray 守卫: parsePlannerOutput 不校验 spec 内字段类型,
+          // LLM 若把 asset_group 输出成数组/数字, 裸 .trim()/.join 会抛 TypeError → 整个 activatePlan 崩、
+          // 计划永卡 pending 每次重试同点再抛 (review #2 死锁)。
+          title: String(spec.title ?? ''),
+          content: String(spec.content ?? ''),
+          asset_tags: (Array.isArray(spec.asset_tags) ? spec.asset_tags : []).join(','),
+          asset_group: String(spec.asset_group ?? '').trim(),
+          note_tags: (Array.isArray(spec.note_tags) ? spec.note_tags : []).join(','),
+          theme: String(spec.theme ?? ''),
           plan_action_id: a.id,
         },
         schedule: { type: 'once', at: fireAt, jitter_min: 5, tz },

@@ -891,6 +891,54 @@ body {
 }
 .asset-library__delsel:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .asset-library__delsel:disabled { opacity: 0.45; cursor: not-allowed; }
+.asset-library__addgroup {
+  font: inherit; font-size: 12.5px; padding: 5px 8px;
+  border: 1px solid var(--rule); border-radius: 4px;
+  background: var(--surface); color: var(--ink-soft); cursor: pointer;
+}
+/* 素材分组条 */
+.asset-library__groups {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px;
+}
+.asset-group-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  font: inherit; font-size: 12.5px; padding: 4px 10px;
+  border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--surface); color: var(--ink-soft); cursor: pointer;
+}
+.asset-group-chip__name { font: inherit; border: none; background: none; color: inherit; cursor: pointer; padding: 0; }
+.asset-group-chip__op { font: inherit; border: none; background: none; cursor: pointer; padding: 0 2px; opacity: 0.7; }
+.asset-group-chip__op:hover { opacity: 1; }
+.asset-group-chip--active { border-color: var(--accent); color: var(--accent); background: var(--paper-2); }
+.asset-group-chip--add { border-style: dashed; color: var(--ink-mute); }
+.asset-group-chip:hover:not(:disabled) { border-color: var(--accent); }
+.asset-group-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 分组取名模态 (替代 Electron 不支持的 window.prompt) */
+.asset-group-modal {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center;
+}
+.asset-group-modal__box {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 18px 20px; min-width: 280px; box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+}
+.asset-group-modal__title { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 12px; }
+.asset-group-modal__input {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 13px;
+  padding: 7px 10px; border: 1px solid var(--rule); border-radius: 5px;
+  background: var(--paper); color: var(--ink);
+}
+.asset-group-modal__input:focus { outline: none; border-color: var(--accent); }
+.asset-group-modal__hint { font-size: 12px; color: var(--ink-mute); margin-top: 8px; }
+.asset-group-modal__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.asset-group-modal__actions button {
+  font: inherit; font-size: 12.5px; padding: 6px 16px;
+  border: 1px solid var(--rule); border-radius: 5px;
+  background: var(--surface); color: var(--ink-soft); cursor: pointer;
+}
+.asset-group-modal__actions button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.asset-group-modal__actions button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .asset-card__tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; }
 .asset-tag {
   font-size: 10px; padding: 1px 6px;

@@ -202,7 +202,120 @@ export async function deleteAsset(id: string): Promise<void> {
   } catch (e) {
     log.warn(`[assets] unlink failed (${row.storage_path}):`, e);
   }
+  // 先清 junction 再删本体: FK 未开, 不清会留悬空 group_item → 选组发图时命中已删素材 → 发布失败 (坑防线)
+  getDb().prepare(`DELETE FROM asset_group_item WHERE asset_id = ?`).run(id);
   getDb().prepare(`DELETE FROM media_assets WHERE id = ?`).run(id);
+}
+
+// ============ 素材分组 (用户反馈 0719: 多份素材自定义分组; 一图多组 junction) ============
+
+export interface AssetGroup {
+  id: number;
+  name: string;
+  created_at: number;
+  count: number; // 组内素材数
+}
+
+export function listGroups(): AssetGroup[] {
+  return getDb()
+    .prepare(
+      `SELECT g.id, g.name, g.created_at, COUNT(i.asset_id) AS count
+       FROM asset_group g
+       LEFT JOIN asset_group_item i ON i.group_id = g.id
+       GROUP BY g.id
+       ORDER BY g.created_at DESC`,
+    )
+    .all() as AssetGroup[];
+}
+
+export function createGroup(name: string): AssetGroup {
+  const nm = name.trim();
+  if (!nm) throw new Error('分组名不能为空');
+  const info = getDb()
+    .prepare(`INSERT INTO asset_group (name, created_at) VALUES (?, ?)`)
+    .run(nm, Date.now());
+  return { id: Number(info.lastInsertRowid), name: nm, created_at: Date.now(), count: 0 };
+}
+
+export function renameGroup(id: number, name: string): void {
+  const nm = name.trim();
+  if (!nm) throw new Error('分组名不能为空');
+  getDb().prepare(`UPDATE asset_group SET name = ? WHERE id = ?`).run(nm, id);
+}
+
+export function deleteGroup(id: number): void {
+  // 只删组与成员关系, 不删素材本体。两条 DELETE 包进事务 (与 add/remove 一致), 防崩溃遗留孤儿 junction/空组
+  const txn = getDb().transaction((gid: number) => {
+    getDb().prepare(`DELETE FROM asset_group_item WHERE group_id = ?`).run(gid);
+    getDb().prepare(`DELETE FROM asset_group WHERE id = ?`).run(gid);
+  });
+  txn(id);
+}
+
+export function addAssetsToGroup(groupId: number, assetIds: string[]): void {
+  if (!assetIds.length) return;
+  const stmt = getDb().prepare(
+    `INSERT OR IGNORE INTO asset_group_item (group_id, asset_id) VALUES (?, ?)`,
+  );
+  const txn = getDb().transaction((ids: string[]) => {
+    for (const aid of ids) stmt.run(groupId, aid);
+  });
+  txn(assetIds);
+}
+
+export function removeAssetsFromGroup(groupId: number, assetIds: string[]): void {
+  if (!assetIds.length) return;
+  const stmt = getDb().prepare(
+    `DELETE FROM asset_group_item WHERE group_id = ? AND asset_id = ?`,
+  );
+  const txn = getDb().transaction((ids: string[]) => {
+    for (const aid of ids) stmt.run(groupId, aid);
+  });
+  txn(assetIds);
+}
+
+// 组内素材 (按 last_used_at DESC, 与 listAssets 一致)。选组发图 / UI 过滤共用。
+export function listAssetsByGroup(groupId: number): MediaAsset[] {
+  return getDb()
+    .prepare(
+      `SELECT a.* FROM media_assets a
+       JOIN asset_group_item i ON i.asset_id = a.id
+       WHERE i.group_id = ?
+       ORDER BY a.last_used_at DESC`,
+    )
+    .all(groupId) as MediaAsset[];
+}
+
+// 按组名解析组内素材 (Planner 输出组名, planned_publish 据名取图)。名称唯一性不强制, 取最近创建的一个。
+export function listAssetsByGroupName(name: string): MediaAsset[] {
+  const nm = name.trim();
+  if (!nm) return [];
+  const g = getDb()
+    .prepare(`SELECT id FROM asset_group WHERE name = ? ORDER BY created_at DESC LIMIT 1`)
+    .get(nm) as { id: number } | undefined;
+  return g ? listAssetsByGroup(g.id) : [];
+}
+
+// 分组概览 (供 Planner buildContext: 组名 + 张数 + 代表性标签样本, 让 LLM 知道有哪些组可整组发)。
+// 只列非空组: 空组喂给 Planner 可能被误选 → 回退散图弱匹配甚至无图 (review #7)。
+export function groupsOverview(maxTagsPerGroup = 6): Array<{ name: string; count: number; tags: string[] }> {
+  const out: Array<{ name: string; count: number; tags: string[] }> = [];
+  for (const g of listGroups()) {
+    if (g.count === 0) continue;
+    const members = listAssetsByGroup(g.id);
+    const tagSet = new Set<string>();
+    for (const a of members) {
+      try {
+        for (const t of JSON.parse(a.tags || '[]') as string[]) {
+          if (t) tagSet.add(t);
+          if (tagSet.size >= maxTagsPerGroup) break;
+        }
+      } catch { /* ignore */ }
+      if (tagSet.size >= maxTagsPerGroup) break;
+    }
+    out.push({ name: g.name, count: g.count, tags: [...tagSet] });
+  }
+  return out;
 }
 
 /** 标记一张图为已分析 (写入 LLM 给出的 tag 列表 + 描述). */

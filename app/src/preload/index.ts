@@ -96,6 +96,13 @@ interface MediaAsset {
   analyzed: number;      // 0/1
 }
 
+interface AssetGroup {
+  id: number;
+  name: string;
+  created_at: number;
+  count: number;
+}
+
 // 自主运营 (M1+)
 export interface ProfileConstraintsP {
   pub_per_week: number;
@@ -252,6 +259,20 @@ const api = {
       ipcRenderer.invoke('assets:setTags', id, tags, description) as Promise<{ ok: boolean }>,
     search: (query: string, limit?: number) =>
       ipcRenderer.invoke('assets:search', query, limit) as Promise<MediaAsset[]>,
+    // 素材分组 (用户反馈 0719)
+    groups: {
+      list: () => ipcRenderer.invoke('assets:groups:list') as Promise<AssetGroup[]>,
+      members: (groupId: number) =>
+        ipcRenderer.invoke('assets:groups:members', groupId) as Promise<MediaAsset[]>,
+      create: (name: string) => ipcRenderer.invoke('assets:groups:create', name) as Promise<AssetGroup>,
+      rename: (id: number, name: string) =>
+        ipcRenderer.invoke('assets:groups:rename', id, name) as Promise<{ ok: boolean }>,
+      delete: (id: number) => ipcRenderer.invoke('assets:groups:delete', id) as Promise<{ ok: boolean }>,
+      add: (groupId: number, assetIds: string[]) =>
+        ipcRenderer.invoke('assets:groups:add', groupId, assetIds) as Promise<{ ok: boolean }>,
+      remove: (groupId: number, assetIds: string[]) =>
+        ipcRenderer.invoke('assets:groups:remove', groupId, assetIds) as Promise<{ ok: boolean }>,
+    },
   },
 
   // 联网搜索 (搜狗 HTML)

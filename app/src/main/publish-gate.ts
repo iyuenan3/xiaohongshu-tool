@@ -75,19 +75,24 @@ export async function approvePublish(
     return { ok: false, error: '该笔记已被处理或正在发布', reason: 'claimed' };
   }
 
+  // 发布超时按图数放大: Go 逐张串行上传 + 每张 waitForUploadComplete 最多 60s。240s 固定值按 ≤6 图估,
+  // 18 图整组慢网轻松破 240s → 假超时 + 用户据「结果未知」手动重发 = 重复发布 (review #3)。
+  // 斜率 40s/图 贴合单图上限, 宁可给足时间: 超时=转人工虽安全, 但假超时会诱发用户手动重发 → 重复发布。
+  const publishTimeoutMs = Math.max(240_000, 60_000 + imagePaths.length * 40_000);
   try {
     await goProc.callApi('POST', '/api/v1/publish', {
       title: p.title,
       content: p.content ?? '',
       images: imagePaths,
       tags: JSON.parse(p.tags || '[]') as string[],
-    });
+    }, undefined, publishTimeoutMs);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     log.warn(`[publish-gate] approve publish ${pendingId} failed: ${msg}`);
     // 超时 = 结果未知 (可能已发出): 不能盲目重试 (会重复发) → 标 timeout, 退回 pending 交上层终止+提醒人工核对。
     // 其它 = 明确失败 (HTTP 错/Go 拒): 退回 pending, 交上层有界重试。
-    const isTimeout = msg.includes('超时(240s)') || msg.includes('操作可能未完成');
+    // 「操作可能未完成」是 callApi 超时错误的稳定 marker (不含具体秒数, 缩放超时后仍匹配)。
+    const isTimeout = msg.includes('操作可能未完成');
     revertPublishingToPending(pendingId);
     return { ok: false, error: `发布失败: ${msg.slice(0, 100)}`, reason: isTimeout ? 'timeout' : 'publish_failed' };
   }

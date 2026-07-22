@@ -16,6 +16,13 @@ interface MediaAsset {
   analyzed: number;
 }
 
+interface AssetGroup {
+  id: number;
+  name: string;
+  created_at: number;
+  count: number;
+}
+
 function formatSize(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
@@ -60,13 +67,30 @@ export default function AssetLibrary({ active }: Props) {
   const [analyzeProgress, setAnalyzeProgress] = useState<{ done: number; total: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [groups, setGroups] = useState<AssetGroup[]>([]);
+  const [activeGroup, setActiveGroup] = useState<number | null>(null); // null=全部
+  const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
 
   const refresh = async () => {
     try {
-      const list = await window.api.assets.list() as unknown as MediaAsset[];
+      const [list, gs] = await Promise.all([
+        window.api.assets.list() as unknown as Promise<MediaAsset[]>,
+        window.api.assets.groups.list() as unknown as Promise<AssetGroup[]>,
+      ]);
       setAssets(list);
+      setGroups(gs);
       // 清理已不存在的选中项 (删除后), 避免幽灵选中
       setSelected((prev) => new Set([...prev].filter((id) => list.some((a) => a.id === id))));
+      // 当前分组仍存在则刷新其成员; 不存在 (被删) 则回到全部
+      if (activeGroup != null) {
+        if (gs.some((g) => g.id === activeGroup)) {
+          const members = await window.api.assets.groups.members(activeGroup) as unknown as MediaAsset[];
+          setMemberIds(new Set(members.map((a) => a.id)));
+        } else {
+          setActiveGroup(null);
+          setMemberIds(new Set());
+        }
+      }
     } catch (e) {
       console.error('[assets] list failed:', e);
     }
@@ -75,6 +99,80 @@ export default function AssetLibrary({ active }: Props) {
   useEffect(() => {
     if (active) refresh();
   }, [active]);
+
+  // 切换分组过滤: 拉取该组成员 id
+  const selectGroup = async (id: number | null) => {
+    setActiveGroup(id);
+    setSelected(new Set());
+    if (id == null) { setMemberIds(new Set()); return; }
+    try {
+      const members = await window.api.assets.groups.members(id) as unknown as MediaAsset[];
+      setMemberIds(new Set(members.map((a) => a.id)));
+    } catch (e) {
+      setErr(`加载分组失败: ${String(e)}`);
+    }
+  };
+
+  // Electron 渲染进程不支持 window.prompt (抛错), 用应用内受控模态取名 (review #5)
+  const [groupDialog, setGroupDialog] = useState<{ mode: 'create' | 'rename'; id?: number; value: string } | null>(null);
+
+  const handleCreateGroup = () => setGroupDialog({ mode: 'create', value: '' });
+  const handleRenameGroup = (g: AssetGroup) => setGroupDialog({ mode: 'rename', id: g.id, value: g.name });
+
+  const submitGroupDialog = async () => {
+    if (!groupDialog) return;
+    const name = groupDialog.value.trim();
+    if (!name) { setGroupDialog(null); return; }
+    try {
+      if (groupDialog.mode === 'create') {
+        const g = await window.api.assets.groups.create(name) as unknown as AssetGroup;
+        // 若已有选中素材, 顺手加入新组
+        if (selected.size > 0) await window.api.assets.groups.add(g.id, [...selected]);
+      } else if (groupDialog.id != null) {
+        await window.api.assets.groups.rename(groupDialog.id, name);
+      }
+      setGroupDialog(null);
+      await refresh();
+    } catch (e) {
+      setErr(`分组操作失败: ${String(e)}`);
+      setGroupDialog(null);
+    }
+  };
+
+  const handleDeleteGroup = async (g: AssetGroup) => {
+    if (!confirm(`删除分组「${g.name}」?(只删分组, 素材本身保留)`)) return;
+    try {
+      await window.api.assets.groups.delete(g.id);
+      if (activeGroup === g.id) { setActiveGroup(null); setMemberIds(new Set()); }
+      await refresh();
+    } catch (e) {
+      setErr(`删除分组失败: ${String(e)}`);
+    }
+  };
+
+  const handleAddSelectedToGroup = async (groupId: number) => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    try {
+      await window.api.assets.groups.add(groupId, ids);
+      await refresh();
+    } catch (e) {
+      setErr(`加入分组失败: ${String(e)}`);
+    }
+  };
+
+  const handleRemoveSelectedFromGroup = async () => {
+    if (activeGroup == null) return;
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    try {
+      await window.api.assets.groups.remove(activeGroup, ids);
+      setSelected(new Set());
+      await refresh();
+    } catch (e) {
+      setErr(`移出分组失败: ${String(e)}`);
+    }
+  };
 
   const handlePick = async () => {
     if (busy) return;
@@ -121,9 +219,12 @@ export default function AssetLibrary({ active }: Props) {
       return next;
     });
 
-  const allSelected = assets.length > 0 && selected.size === assets.length;
+  // 当前视图: 全部 或 某分组成员
+  const displayed = activeGroup == null ? assets : assets.filter((a) => memberIds.has(a.id));
+
+  const allSelected = displayed.length > 0 && displayed.every((a) => selected.has(a.id));
   const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(assets.map((a) => a.id)));
+    setSelected(allSelected ? new Set() : new Set(displayed.map((a) => a.id)));
 
   const handleDeleteSelected = async () => {
     const ids = [...selected];
@@ -188,6 +289,35 @@ export default function AssetLibrary({ active }: Props) {
 
   return (
     <div className="asset-library">
+      {groupDialog && (
+        <div className="asset-group-modal" onClick={() => setGroupDialog(null)}>
+          <div className="asset-group-modal__box" onClick={(e) => e.stopPropagation()}>
+            <div className="asset-group-modal__title">
+              {groupDialog.mode === 'create' ? '新建分组' : '重命名分组'}
+            </div>
+            <input
+              autoFocus
+              className="asset-group-modal__input"
+              value={groupDialog.value}
+              placeholder="分组名称"
+              onChange={(e) => setGroupDialog({ ...groupDialog, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitGroupDialog();
+                if (e.key === 'Escape') setGroupDialog(null);
+              }}
+            />
+            {groupDialog.mode === 'create' && selected.size > 0 && (
+              <div className="asset-group-modal__hint">将把已选 {selected.size} 张素材加入该组</div>
+            )}
+            <div className="asset-group-modal__actions">
+              <button onClick={() => setGroupDialog(null)}>取消</button>
+              <button className="primary" onClick={submitGroupDialog} disabled={!groupDialog.value.trim()}>
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="asset-library__head">
         <div>
           <h2>素材库</h2>
@@ -232,13 +362,60 @@ export default function AssetLibrary({ active }: Props) {
         )}
       </section>
 
-      {assets.length > 0 && (
+      {(groups.length > 0 || assets.length > 0) && (
+        <section className="asset-library__groups">
+          <button
+            className={`asset-group-chip${activeGroup == null ? ' asset-group-chip--active' : ''}`}
+            onClick={() => selectGroup(null)}
+            disabled={busy}
+          >
+            全部 ({assets.length})
+          </button>
+          {groups.map((g) => (
+            <span
+              key={g.id}
+              className={`asset-group-chip${activeGroup === g.id ? ' asset-group-chip--active' : ''}`}
+            >
+              <button className="asset-group-chip__name" onClick={() => selectGroup(g.id)} disabled={busy}>
+                {g.name} ({g.count})
+              </button>
+              {activeGroup === g.id && (
+                <>
+                  <button className="asset-group-chip__op" title="重命名" onClick={() => handleRenameGroup(g)} disabled={busy}>✎</button>
+                  <button className="asset-group-chip__op" title="删除分组" onClick={() => handleDeleteGroup(g)} disabled={busy}>🗑</button>
+                </>
+              )}
+            </span>
+          ))}
+          <button className="asset-group-chip asset-group-chip--add" onClick={handleCreateGroup} disabled={busy}>
+            + 新建分组
+          </button>
+        </section>
+      )}
+
+      {displayed.length > 0 && (
         <div className="asset-library__select">
           <label className="asset-library__selall">
             <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={busy} />
-            全选
+            全选{activeGroup != null ? '本组' : ''}
           </label>
           {selected.size > 0 && <span className="asset-library__selcount">已选 {selected.size} 张</span>}
+          {selected.size > 0 && groups.length > 0 && (
+            <select
+              className="asset-library__addgroup"
+              value=""
+              disabled={busy}
+              onChange={(e) => { const gid = Number(e.target.value); if (gid) handleAddSelectedToGroup(gid); e.target.value = ''; }}
+            >
+              <option value="">＋ 加入分组…</option>
+              {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
+          {activeGroup != null && selected.size > 0 && (
+            <button className="asset-library__delsel" onClick={handleRemoveSelectedFromGroup} disabled={busy}>
+              移出本组 ({selected.size})
+            </button>
+          )}
           <button
             className="asset-library__delsel"
             onClick={handleDeleteSelected}
@@ -255,9 +432,13 @@ export default function AssetLibrary({ active }: Props) {
         <div className="asset-library__empty">
           还没有素材。点击「+ 上传图片」从本地选, 或粘贴 URL 导入。
         </div>
+      ) : displayed.length === 0 ? (
+        <div className="asset-library__empty">
+          该分组还没有素材。切到「全部」勾选素材后, 用「＋ 加入分组」把它们加进来。
+        </div>
       ) : (
         <div className="asset-grid">
-          {assets.map((a) => {
+          {displayed.map((a) => {
             const tags = parseTags(a.tags);
             return (
               <div key={a.id} className={`asset-card${selected.has(a.id) ? ' asset-card--selected' : ''}`}>

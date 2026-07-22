@@ -3,7 +3,7 @@
 // → 把标题/正文写进 pending_publish 待审队列, 用户在「自主运营」确认/编辑后才真发 (分级自主度: 发布要人在环)。
 // 设计见 AIREADME/DESIGN-autonomous-operation.md §7。
 
-import { listAssets, shuffleArray, type MediaAsset } from '../assets';
+import { listAssets, listAssetsByGroupName, shuffleArray, type MediaAsset } from '../assets';
 import { insertPending, getRecentlyUsedAssetIds, getActiveProfile, getAction, completeActionAndMaybePlan } from '../operating-db';
 import { findTaboo, activeTaboo } from '../content-guard';
 import { extractFirstJsonObject } from '../planner';
@@ -12,6 +12,10 @@ import type { Template, ExecHelpers, ExecResult } from './index';
 
 // 选图排除「近 N 天已用过」的素材, 实现轮换 (用户反馈: 素材固定不换新)
 const RECENT_USED_DAYS = 14;
+// 散图 (非分组) 每篇最多选几张 (用户反馈 0719 #3): 默认 3, 抽成命名常量以便后续按画像/用户调。
+const LOOSE_IMG_LIMIT = 3;
+// 分组整组发布封顶: 小红书图文笔记图片上限 18。分组是用户手动策展的集合, 整组发、豁免近 14 天轮换排除。
+const GROUP_IMG_LIMIT = 18;
 
 // 镜像 Go pkg/xhsutil/title.go CalcTitleLength 的口径: 按 UTF-16 单元, 非 ASCII 计 2 字节、ASCII 计 1,
 // 结果 ceil(字节/2)。emoji = 2 单元 = 4 字节 = 2 字。TS 侧截断必须用同一口径, 否则「码点 ≤20 但
@@ -40,36 +44,61 @@ function parseTags(v: unknown): string[] {
 function safeTags(a: MediaAsset): string[] {
   try {
     const t = JSON.parse(a.tags || '[]');
-    return Array.isArray(t) ? (t as string[]) : [];
+    // 去空串: 分析模型偶尔输出 '' 标签, 空串会让 theme 兜底 `theme.includes('')` 恒 true → 拉入无关图 (review #1)
+    return Array.isArray(t) ? (t as string[]).filter((x) => typeof x === 'string' && x.trim()) : [];
   } catch {
     return [];
   }
 }
 
-// 按标签从素材库挑图 (空标签=全库)。三重反「固定选图」:
-//   1. 排除近 14 天拟稿/发布用过的 (不足 limit 再回填已用的)
-//   2. 已分析 (有标签描述, 图片驱动文案可用) 优先
-//   3. 组内 Fisher-Yates 洗牌 (listAssets 排序确定性, 不洗牌同标签永远同一批)
-function pickPublishAssets(tags: string[], limit: number): MediaAsset[] {
-  const all = listAssets();
-  const matched = tags.length ? all.filter((a) => safeTags(a).some((t) => tags.includes(t))) : all;
-  if (!matched.length) return [];
-  const used = new Set(getRecentlyUsedAssetIds(RECENT_USED_DAYS));
-  const byPreference = (arr: MediaAsset[]): MediaAsset[] => [
+// 已分析优先 + 组内 Fisher-Yates 洗牌 (listAssets 排序确定性, 不洗牌同批永远选同一批 → 用户反馈素材固定)
+function byPreference(arr: MediaAsset[]): MediaAsset[] {
+  return [
     ...shuffleArray(arr.filter((a) => a.analyzed === 1)),
     ...shuffleArray(arr.filter((a) => a.analyzed !== 1)),
   ];
-  const fresh = matched.filter((a) => !used.has(a.id));
-  const stale = matched.filter((a) => used.has(a.id));
-  return [...byPreference(fresh), ...byPreference(stale)].slice(0, limit);
 }
 
-// 图片驱动文案: 文案必须从实选图片长出来, 而不是 Planner 几天前对着标签文字想象出来的
-const IMAGE_DRAFT_SYSTEM = `你是小红书博主, 根据【实际配图】写一篇图文相符的笔记。
-要求:
-- 文案必须紧扣配图内容, 以图片描述为事实依据, 不编造图里看不到的具体细节 (物体/颜色/场景)
+// 选图。分组 vs 散图两条路 (用户反馈 0719 #1/#3):
+//   - 指定了有效分组 → 组内全量 (封顶 18)、豁免近 14 天轮换排除 (策展集合就是要整组反复用)
+//   - 散图 (无分组) → 至多 LOOSE_IMG_LIMIT(3) 张:
+//       · 有 asset_tags: 按标签匹配
+//       · 无 asset_tags: 用 theme 关键词兜底匹配 (绝不回退全库随机, 否则硬贴 theme 到无关图 = 图文不符 #2)
+//       · 三重反固定: 排除近 14 天已用 (不足再回填) + 已分析优先 + 洗牌
+function pickPublishAssets(opts: { groupName: string; tags: string[]; theme: string }): MediaAsset[] {
+  const { groupName, tags, theme } = opts;
+  if (groupName) {
+    const members = listAssetsByGroupName(groupName);
+    // 分组是策展集合: 保持确定性顺序 (封面稳定), 不洗牌 (洗牌对固定成员集无反固定收益, 反而每期换封面)
+    if (members.length) return members.slice(0, GROUP_IMG_LIMIT);
+    // 组不存在/为空 → 落回散图逻辑 (不因组名写错就发空图)
+  }
+  const all = listAssets();
+  let matched: MediaAsset[];
+  if (tags.length) {
+    matched = all.filter((a) => safeTags(a).some((t) => tags.includes(t)));
+  } else if (theme) {
+    // theme 关键词兜底: 素材任一非空标签是 theme 子串或反之即视为相关, 保证图与选题一致 (t && 防空串恒真)
+    matched = all.filter((a) => safeTags(a).some((t) => t && (theme.includes(t) || t.includes(theme))));
+  } else {
+    matched = []; // 无任何选题线索 → 不猜、不随机 (保留初稿、等用户补图)
+  }
+  if (!matched.length) return [];
+  const used = new Set(getRecentlyUsedAssetIds(RECENT_USED_DAYS));
+  const fresh = matched.filter((a) => !used.has(a.id));
+  const stale = matched.filter((a) => used.has(a.id));
+  return [...byPreference(fresh), ...byPreference(stale)].slice(0, LOOSE_IMG_LIMIT);
+}
+
+// 图片驱动文案: 文案必须从实选图片长出来, 而不是 Planner 几天前对着标签文字想象出来的。
+// 用户反馈 0719: ①勿把图片描述照抄进正文/逐图罗列 (AI 感重) ②正文要短 ③实发别脱离计划选题。
+const IMAGE_DRAFT_SYSTEM = `你是真实的小红书博主, 围绕【本篇选题】写一篇口语化短笔记, 配图只是你手边真实拍到的素材。
+硬性要求:
+- 选题优先: 正文必须紧扣【本篇选题】(计划拟定的方向), 不得跑题; 配图用来填充该选题下的真实细节, 不是反过来让图带偏选题
+- 绝不照抄/复述配图描述的原句, 那些描述只是给你了解画面用的参考
+- 绝不逐张点评图片, 不出现「第一张/图1/这张图/如图」之类罗列式写法; 围绕一个核心主题写成连贯自然的短文, 不必每张素材都在正文提到
 - 标题 16-20 字 (绝不超过 20 字, 平台硬限), 情绪词+关键词, 口语化
-- 正文 300-500 字: 痛点共鸣 → 自然引入 → 真实体验细节 → 降低期望的总结, 真实不夸大, 少 emoji
+- 正文 80-150 字, 宁短勿长, 够表达即可 (小红书短帖风格): 一句话钩子 → 一两个真实细节/感受 → 一句收尾, 真实不夸大, 少 emoji
 - 严格 JSON 输出: {"title": "...", "content": "..."}, 不要 markdown 代码块, 不要其他文字`;
 
 interface ImageDraft {
@@ -90,16 +119,16 @@ function buildImageDraftPrompt(
   }
   const taboo = activeTaboo();
   if (taboo.length) L.push(`# 禁忌 (绝不出现)\n${taboo.join('、')}`);
-  L.push(`# 本篇主题 (计划拟定的方向, 供参考)\n${theme || refTitle || '(未指定, 以图片内容为准)'}`);
+  L.push(`# 本篇选题 (必须围绕它写, 不可偏离)\n${theme || refTitle || '(未指定, 以配图内容为准)'}`);
   if (refTitle || refContent) {
-    L.push(`# 初稿 (几天前按标签想象写的, 仅参考选题方向, 细节以实际配图为准)\n标题: ${refTitle}\n正文: ${refContent.slice(0, 300)}`);
+    L.push(`# 计划初稿 (几天前按标签想象写的, 仅供理解选题方向, 具体措辞你重写)\n标题: ${refTitle}\n正文: ${refContent.slice(0, 200)}`);
   }
-  L.push('# 实际配图 (按顺序, 文案必须与这些图片相符)');
+  L.push('# 配图参考 (仅用于让你了解要展示什么画面; 融会贯通地写, 不要逐图对应、不要照抄下面的描述)');
   picked.forEach((a, i) => {
     const tags = safeTags(a).join(',');
     L.push(`图${i + 1}: [${tags || '无标签'}] ${a.description || a.filename}`);
   });
-  L.push('请据以上信息输出 JSON。');
+  L.push('请围绕【本篇选题】输出 JSON, 正文 80-150 字、连贯口语、不逐图罗列。');
   return L.join('\n\n');
 }
 
@@ -125,7 +154,8 @@ export const plannedPublish: Template = {
   paramsSchema: {
     title: { type: 'string', default: '', label: '标题' },
     content: { type: 'string', default: '', label: '正文' },
-    asset_tags: { type: 'string', default: '', label: '素材标签 (选图)' },
+    asset_tags: { type: 'string', default: '', label: '素材标签 (散图选图, ≤3张)' },
+    asset_group: { type: 'string', default: '', label: '素材分组 (整组发布, 优先于标签)' },
     note_tags: { type: 'string', default: '', label: '笔记话题标签' },
     theme: { type: 'string', default: '', label: '主题 (AI 理由)' },
     plan_action_id: { type: 'int', default: 0, label: '行动项 id' },
@@ -134,6 +164,7 @@ export const plannedPublish: Template = {
     let title = String(params.title ?? '').trim();
     let content = String(params.content ?? '').trim();
     const assetTags = parseTags(params.asset_tags);
+    const assetGroup = String(params.asset_group ?? '').trim();
     const noteTags = parseTags(params.note_tags);
     const theme = String(params.theme ?? '').trim();
     const planActionId = Number(params.plan_action_id) || null;
@@ -145,8 +176,11 @@ export const plannedPublish: Template = {
       return { status: 'partial', summary: '⚠️ 标题为空, 跳过待审' };
     }
 
-    const picked = pickPublishAssets(assetTags, 6);
+    const picked = pickPublishAssets({ groupName: assetGroup, tags: assetTags, theme });
     const images = picked.map((a) => a.id);
+    // review #6: 显式指定了分组但组已空 (如成员被逐一删除) → pickPublishAssets 已静默回退散图。
+    // auto-pilot 下不该把「整组发」意图悄悄换成几张散图自动发出 → 该稿强制转人工 (下方不武装 auto_publish_at)。
+    const groupRequestedButEmpty = !!assetGroup && listAssetsByGroupName(assetGroup).length === 0;
 
     // 图片驱动文案: 选到的图里至少 1 张有描述/标签才重写 (全无标签时重写只会更瞎编, 保留初稿)
     let rewritten = false;
@@ -194,10 +228,11 @@ export const plannedPublish: Template = {
 
     // E3 内容护栏: 拟稿即标记禁忌词命中 (用户审核可见; 批准时 publish-gate 会硬拦)
     const tabooHits = findTaboo(`${title}\n${content}`, activeTaboo());
-    const reason = theme;
+    const reason = groupRequestedButEmpty ? `⚠️ 指定分组「${assetGroup}」已空，已回退散图，请人工确认配图 ｜ ${theme}` : theme;
     // P3 全自动「审核窗口自动发」: 开关开时给拟稿标 auto_publish_at=now+窗口, 窗口内未否决则 scheduler 扫描过护栏自动发。
+    // groupRequestedButEmpty: 组已空回退散图, 强制转人工 (不武装自动发)。
     const autoPilot = isAutoPilotEnabled();
-    const autoPublishAt = autoPilot ? Date.now() + autoPublishWindowMs() : null;
+    const autoPublishAt = autoPilot && !groupRequestedButEmpty ? Date.now() + autoPublishWindowMs() : null;
     insertPending({
       plan_action_id: planActionId,
       title,

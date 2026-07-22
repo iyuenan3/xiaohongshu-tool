@@ -59,6 +59,21 @@ export function initDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_media_assets_last_used ON media_assets(last_used_at DESC);
 
+    -- 素材自定义分组 (用户反馈 0719): 手动把多张素材归成一组, 发布时可整组使用 (无 3 张散图上限)。
+    -- 与 AI 语义 tags 是两个独立维度: tags 是自动语义标签, group 是用户手动策展的集合。一图可属多组 (junction)。
+    CREATE TABLE IF NOT EXISTS asset_group (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS asset_group_item (
+      group_id INTEGER NOT NULL,
+      asset_id TEXT NOT NULL,
+      PRIMARY KEY (group_id, asset_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_asset_group_item_group ON asset_group_item(group_id);
+    CREATE INDEX IF NOT EXISTS idx_asset_group_item_asset ON asset_group_item(asset_id);
+
     CREATE TABLE IF NOT EXISTS workflows (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       template_id  TEXT NOT NULL,
