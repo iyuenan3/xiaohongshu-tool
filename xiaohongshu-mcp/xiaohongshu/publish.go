@@ -38,13 +38,29 @@ const (
 
 // navigateToPublishPage 导航到发布页, 失败重试 3 次。
 // attach 模式复用的页可能正停在 www.xiaohongshu.com, 跨子域导航首次易 ERR_ABORTED, 重试通常成功。
-func navigateToPublishPage(pp *rod.Page) error {
+func waitContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func navigateToPublishPage(ctx context.Context, pp *rod.Page) error {
 	var lastErr error
 	for i := 0; i < 3; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := pp.Navigate(urlOfPublic); err != nil {
 			lastErr = err
 			logrus.Warnf("导航到发布页失败(第%d次): %v, 重试", i+1, err)
-			time.Sleep(time.Second)
+			if err := waitContext(ctx, time.Second); err != nil {
+				return err
+			}
 			continue
 		}
 		return nil
@@ -52,33 +68,45 @@ func navigateToPublishPage(pp *rod.Page) error {
 	return errors.Wrap(lastErr, "导航到发布页面失败(已重试3次)")
 }
 
-func NewPublishImageAction(page *rod.Page) (*PublishAction, error) {
+func NewPublishImageAction(ctx context.Context, page *rod.Page) (*PublishAction, error) {
 
-	pp := page.Timeout(300 * time.Second)
+	pp := page.Context(ctx).Timeout(300 * time.Second)
 
 	// 使用更稳健的导航和等待策略
-	if err := navigateToPublishPage(pp); err != nil {
+	if err := navigateToPublishPage(ctx, pp); err != nil {
 		return nil, err
 	}
 
 	// 等待页面加载，使用 WaitLoad 代替 WaitIdle（更宽松）
 	if err := pp.WaitLoad(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		logrus.Warnf("等待页面加载出现问题: %v，继续尝试", err)
 	}
-	time.Sleep(2 * time.Second)
+	if err := waitContext(ctx, 2*time.Second); err != nil {
+		return nil, err
+	}
 
 	// 等待页面稳定
 	if err := pp.WaitDOMStable(time.Second, 0.1); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		logrus.Warnf("等待 DOM 稳定出现问题: %v，继续尝试", err)
 	}
-	time.Sleep(1 * time.Second)
+	if err := waitContext(ctx, time.Second); err != nil {
+		return nil, err
+	}
 
-	if err := mustClickPublishTab(pp, "上传图文"); err != nil {
+	if err := mustClickPublishTab(ctx, pp, "上传图文"); err != nil {
 		logrus.Errorf("点击上传图文 TAB 失败: %v", err)
 		return nil, err
 	}
 
-	time.Sleep(1 * time.Second)
+	if err := waitContext(ctx, time.Second); err != nil {
+		return nil, err
+	}
 
 	return &PublishAction{
 		page: pp,
@@ -132,7 +160,7 @@ func clickEmptyPosition(page *rod.Page) {
 	page.Mouse.MustMoveTo(float64(x), float64(y)).MustClick(proto.InputMouseButtonLeft)
 }
 
-func mustClickPublishTab(page *rod.Page, tabname string) error {
+func mustClickPublishTab(ctx context.Context, page *rod.Page, tabname string) error {
 	// upload-content 是发布页路标元素: 页面正确加载才出现。
 	// 独立 20s 超时——attach 选中的页若非发布页(跨子域导航失败/停在搜索页等),
 	// 20s 内快速失败, 不再死等到外层 300s(曾致发布卡满 5 分钟后 fetch failed)。
@@ -146,28 +174,39 @@ func mustClickPublishTab(page *rod.Page, tabname string) error {
 
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		tab, blocked, err := getTabElement(page, tabname)
 		if err != nil {
 			logrus.Warnf("获取发布 TAB 元素失败: %v", err)
-			time.Sleep(200 * time.Millisecond)
+			if err := waitContext(ctx, 200*time.Millisecond); err != nil {
+				return err
+			}
 			continue
 		}
 
 		if tab == nil {
-			time.Sleep(200 * time.Millisecond)
+			if err := waitContext(ctx, 200*time.Millisecond); err != nil {
+				return err
+			}
 			continue
 		}
 
 		if blocked {
 			logrus.Info("发布 TAB 被遮挡，尝试移除遮挡")
 			removePopCover(page)
-			time.Sleep(200 * time.Millisecond)
+			if err := waitContext(ctx, 200*time.Millisecond); err != nil {
+				return err
+			}
 			continue
 		}
 
 		if err := tab.Click(proto.InputMouseButtonLeft, 1); err != nil {
 			logrus.Warnf("点击发布 TAB 失败: %v", err)
-			time.Sleep(200 * time.Millisecond)
+			if err := waitContext(ctx, 200*time.Millisecond); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -257,26 +296,33 @@ func uploadImages(page *rod.Page, imagesPaths []string) error {
 		slog.Info("图片已提交上传", "index", i+1, "path", path)
 
 		// 等待当前图片上传完成（预览元素数量达到 i+1），最多等 60 秒
-		if err := waitForUploadComplete(page, i+1); err != nil {
+		if err := waitForUploadComplete(page.GetContext(), page, i+1); err != nil {
 			return errors.Wrapf(err, "第%d张图片上传超时", i+1)
 		}
-		time.Sleep(1 * time.Second)
+		if err := waitContext(page.GetContext(), time.Second); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 // waitForUploadComplete 等待第 expectedCount 张图片上传完成，最多等 60 秒
-func waitForUploadComplete(page *rod.Page, expectedCount int) error {
+func waitForUploadComplete(ctx context.Context, page *rod.Page, expectedCount int) error {
 	maxWaitTime := 60 * time.Second
 	checkInterval := 500 * time.Millisecond
 	start := time.Now()
 	lastLogCount := expectedCount - 1
 
 	for time.Since(start) < maxWaitTime {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		uploadedImages, err := page.Elements(".img-preview-area .pr")
 		if err != nil {
-			time.Sleep(checkInterval)
+			if err := waitContext(ctx, checkInterval); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -291,7 +337,9 @@ func waitForUploadComplete(page *rod.Page, expectedCount int) error {
 			return nil
 		}
 
-		time.Sleep(checkInterval)
+		if err := waitContext(ctx, checkInterval); err != nil {
+			return err
+		}
 	}
 
 	return errors.Errorf("第%d张图片上传超时(60s)，请检查网络连接和图片大小", expectedCount)
@@ -395,6 +443,7 @@ func clickPublishButton(page *rod.Page) error {
 
 // waitForPublishButtonClickable 等待新版 xhs-publish-btn 或旧版 button.bg-red 可点击。
 func waitForPublishButtonClickable(page *rod.Page, maxWait time.Duration) (*publishButton, error) {
+	ctx := page.GetContext()
 	interval := 1 * time.Second
 	start := time.Now()
 	var lastDisabledReason string
@@ -402,10 +451,15 @@ func waitForPublishButtonClickable(page *rod.Page, maxWait time.Duration) (*publ
 	slog.Info("开始等待发布按钮可点击")
 
 	for time.Since(start) < maxWait {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		btn, disabledReason, err := findPublishButton(page)
 		if err != nil {
 			slog.Warn("查找发布按钮失败，继续等待", "error", err)
-			time.Sleep(interval)
+			if err := waitContext(ctx, interval); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		if btn != nil && disabledReason == "" {
@@ -414,7 +468,9 @@ func waitForPublishButtonClickable(page *rod.Page, maxWait time.Duration) (*publ
 		if disabledReason != "" {
 			lastDisabledReason = disabledReason
 		}
-		time.Sleep(interval)
+		if err := waitContext(ctx, interval); err != nil {
+			return nil, err
+		}
 	}
 
 	if lastDisabledReason != "" {

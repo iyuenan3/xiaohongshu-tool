@@ -20,7 +20,7 @@ func TestPublish(t *testing.T) {
 	page := b.NewPage()
 	defer page.Close()
 
-	action, err := NewPublishImageAction(page)
+	action, err := NewPublishImageAction(context.Background(), page)
 	require.NoError(t, err)
 
 	err = action.Publish(context.Background(), PublishImageContent{

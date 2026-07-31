@@ -26,14 +26,17 @@ import {
 import { listTemplateMetas } from './workflow-templates';
 import {
   getActiveProfile, createProfile, updateProfile, getProfile, listProfiles, setProfileStatus,
-  getLatestPlan, listActions, listPending, updatePendingContent, clearAllAutoPublishAt,
+  getLatestPlan, listActions, listReviewablePending, updatePendingContent, clearAllAutoPublishAt,
   getSnapshotTrend, getLatestNotePerformance,
   type SaveProfileInput, type ProfileStatus,
 } from './operating-db';
 import { generatePlan, generateReportInsight } from './planner';
 import { activatePlan } from './plan-instantiate';
-import { approvePublish, rejectPending } from './publish-gate';
-import { isAutoPilotEnabled, setAutoPilotEnabled, autoPublishWindowHours, setAutoPublishWindowHours } from './auto-pilot';
+import { approvePublish, rejectPending, resolveUnknownPublish } from './publish-gate';
+import {
+  isAutoPilotEnabled, setAutoPilotEnabled, autoPublishWindowHours,
+  setAutoPublishWindowHours, autoPublishWindowMs,
+} from './auto-pilot';
 
 interface BrowserActions {
   openXhsWindow: () => void;
@@ -157,12 +160,16 @@ export function registerIpcHandlers(
   }));
   ipcMain.handle('operating:report-insight', () => generateReportInsight());
   // 自主运营: 发布待审闸门 (M4)
-  ipcMain.handle('operating:list-pending', () => listPending('pending'));
+  ipcMain.handle('operating:list-pending', () => listReviewablePending());
   ipcMain.handle('operating:approve-publish', (_e, id: number) => approvePublish(id, goProc));
   ipcMain.handle('operating:reject-pending', (_e, id: number) => rejectPending(id));
+  ipcMain.handle(
+    'operating:resolve-publish-unknown',
+    (_e, id: number, outcome: 'published' | 'not_published') => resolveUnknownPublish(id, outcome),
+  );
   ipcMain.handle('operating:update-pending', (_e, id: number, patch: { title?: string; content?: string; images?: string[]; tags?: string[] }) => {
-    updatePendingContent(id, patch);
-    return { ok: true };
+    const ok = updatePendingContent(id, patch, Date.now() + autoPublishWindowMs());
+    return { ok, error: ok ? undefined : '待审记录状态已变化，请刷新' };
   });
 
   // 对话历史 (SQLite)

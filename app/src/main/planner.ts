@@ -31,8 +31,8 @@ const PLANNER_SYSTEM = `你是一位小红书资深运营操盘手，精通内�
 ## 行动类型（只用这三种）
 - browse：刷垂直内容（养号 + 找灵感 + 喂算法）。spec: { "keyword": 关键词, "count": 刷几篇(建议 8-20) }
 - interact：给垂类内容点赞评论（涨权重 + 露出）。spec: { "keyword": 关键词, "like": 点赞数(≤5), "comment": 评论数(≤3,可为0只点赞) }
-- publish：发布笔记。spec: { "theme": 主题, "asset_group": 素材分组名(可选,若某个分组正好契合本篇选题就整组发,填组名;不用分组就留空), "asset_tags": 散图用哪类素材标签(从可用素材里选,不填分组时用,散图每篇最多3张), "title": 标题(16-20字,绝不超20字,情绪词+关键词,口语), "content": 正文(80-150字,宁短勿长,连贯口语不逐图罗列), "note_tags": 笔记话题标签数组(3-6个) }
-  · 选图二选一: 有合适分组优先填 asset_group(整组发、无3张上限); 否则填 asset_tags(散图、每篇≤3张)。两者都填时以 asset_group 为准。
+- publish：发布笔记。spec: { "theme": 主题, "asset_group": 素材分组名(可选,若某个分组正好契合本篇选题就整组发,填组名;不用分组就留空), "asset_tags": 散图用哪类素材标签(从可用素材里选,不填分组时用,散图默认每篇1张), "title": 标题(16-20字,绝不超20字,情绪词+关键词,口语), "content": 正文(80-150字,宁短勿长,连贯口语不逐图罗列), "note_tags": 笔记话题标签数组(3-6个) }
+  · 选图二选一: 有合适分组优先填 asset_group(整组发、不受散图默认限制); 否则填 asset_tags(散图、默认每篇1张)。两者都填时以 asset_group 为准。
 
 ## 运营方法论（务必遵守）
 1. 内容配比：约 70% 垂类深耕 + 20% 蹭趋势 + 10% 强转化，不要每条都硬推。
@@ -164,10 +164,10 @@ function buildContext(profile: OperatingProfile, horizonDays: number): string {
     for (const t of recentTopics.slice(0, 20)) L.push(`- ${t}`);
   }
 
-  // 素材分组 (用户手动策展的集合): publish 可整组发布 (asset_group=组名), 无 3 张上限、适合成套/连续场景笔记
+  // 素材分组 (用户手动策展的集合): publish 可整组发布 (asset_group=组名), 不受散图默认 1 张限制、适合成套/连续场景笔记
   const groups = groupsOverview();
   if (groups.length) {
-    L.push('\n# 可用素材分组 (整组发布: 在 publish spec 填 "asset_group":"组名" 即用整组图; 不填分组则按 asset_tags 选散图, 每篇≤3张)');
+    L.push('\n# 可用素材分组 (整组发布: 在 publish spec 填 "asset_group":"组名" 即用整组图; 不填分组则按 asset_tags 选散图, 默认每篇1张)');
     for (const g of groups) {
       L.push(`- 「${g.name}」(${g.count} 张)${g.tags.length ? ` 含标签: ${g.tags.join('、')}` : ''}`);
     }

@@ -6,7 +6,9 @@
 package browser
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -19,9 +21,10 @@ import (
 
 // Browser 浏览器实例,可能由 launcher 启动 或 attach 到外部 Chromium。
 type Browser struct {
-	rodBrowser *rod.Browser
-	launcher   *launcher.Launcher // attach 模式下为 nil
-	attached   bool               // 是否 attach 模式
+	rodBrowser    *rod.Browser
+	launcher      *launcher.Launcher // attach 模式下为 nil
+	attached      bool               // 是否 attach 模式
+	operationGate chan struct{}      // attach 模式单页操作所有权，容量 1
 }
 
 // innerConfig 本地包装的浏览器配置
@@ -58,10 +61,13 @@ func newAttached(cfg *innerConfig) (*Browser, error) {
 	// attach 模式下不主动设置 cookies (Electron 已自行管理)
 	// 也不接管 UA (Electron 设置)
 
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
 	return &Browser{
-		rodBrowser: rb,
-		launcher:   nil,
-		attached:   true,
+		rodBrowser:    rb,
+		launcher:      nil,
+		attached:      true,
+		operationGate: gate,
 	}, nil
 }
 
@@ -122,37 +128,78 @@ func newLaunched(cfg *innerConfig) (*Browser, error) {
 //	  3. 第一个 page (兜底, 调用方会 navigate)
 //	找不到任何 page 时返回 nil, 调用方必须检查。
 func (b *Browser) NewPage() *rod.Page {
-	if b.attached {
-		return b.selectAttachedPage()
+	page, err := b.NewPageContext(context.Background())
+	if err != nil {
+		panic(err)
 	}
-	return stealth.MustPage(b.rodBrowser)
+	return page
 }
 
-func (b *Browser) selectAttachedPage() *rod.Page {
+// NewPageContext 创建或选择页面，并让选页阶段本身也服从调用方取消。
+// 业务请求必须优先用本方法，避免 HTTP 客户端超时后仍卡在 Pages/Info。
+func (b *Browser) NewPageContext(ctx context.Context) (*rod.Page, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if b.attached {
+		return b.selectAttachedPage(ctx)
+	}
+	page, err := stealth.Page(b.rodBrowser.Context(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return page.Context(ctx), nil
+}
+
+// AcquireOperation 获取浏览器页面的独占操作权。
+// attach 模式只有一个用户可见页面，所有 API/MCP 操作必须串行；launcher 模式各自建页，无需串行。
+func (b *Browser) AcquireOperation(ctx context.Context) (func(), error) {
+	if !b.attached {
+		return func() {}, nil
+	}
+	if b.operationGate == nil {
+		return nil, fmt.Errorf("attach browser operation gate not initialized")
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-b.operationGate:
+		var once sync.Once
+		return func() {
+			once.Do(func() { b.operationGate <- struct{}{} })
+		}, nil
+	}
+}
+
+func (b *Browser) selectAttachedPage(ctx context.Context) (*rod.Page, error) {
+	rb := b.rodBrowser.Context(ctx)
 	// 1. 先用 rod.Pages() 找 (仅 type=page)
-	pages, err := b.rodBrowser.Pages()
+	pages, err := rb.Pages()
 	if err == nil {
 		for _, p := range pages {
-			if info, err := p.Info(); err == nil && strings.Contains(info.URL, "xiaohongshu.com") {
+			if info, err := p.Context(ctx).Info(); err == nil && strings.Contains(info.URL, "xiaohongshu.com") {
 				logrus.Debugf("attach: selected xhs page (type=page): %s", info.URL)
-				return p
+				return p.Context(ctx), nil
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// 2. fallback: 用底层 Target.getTargets 查所有 target (含 webview / iframe)
 	// Electron <webview> guest page 的 type 是 "webview", 默认 Pages() 不返回
-	targetsResp, terr := proto.TargetGetTargets{}.Call(b.rodBrowser)
+	targetsResp, terr := proto.TargetGetTargets{}.Call(rb)
 	if terr == nil {
 		for _, t := range targetsResp.TargetInfos {
 			if !strings.Contains(t.URL, "xiaohongshu.com") {
 				continue
 			}
 			// 用 PageFromTarget 把 TargetInfo 转 rod.Page
-			page, perr := b.rodBrowser.PageFromTarget(t.TargetID)
+			page, perr := rb.PageFromTarget(t.TargetID)
 			if perr == nil && page != nil {
 				logrus.Infof("attach: selected xhs target (type=%s): %s", t.Type, t.URL)
-				return page
+				return page.Context(ctx), nil
 			}
 			logrus.Warnf("attach: PageFromTarget failed for %s: %v", t.URL, perr)
 		}
@@ -161,7 +208,7 @@ func (b *Browser) selectAttachedPage() *rod.Page {
 	// 3. 还没找到, 列已知 page + target URLs 帮助 debug
 	urls := make([]string, 0)
 	for _, p := range pages {
-		if info, err := p.Info(); err == nil {
+		if info, err := p.Context(ctx).Info(); err == nil {
 			urls = append(urls, "page:"+info.URL)
 		}
 	}
@@ -171,7 +218,7 @@ func (b *Browser) selectAttachedPage() *rod.Page {
 		}
 	}
 	logrus.Warnf("attach: no xhs page/target found, available=%v", urls)
-	panic("XHS_WINDOW_NOT_OPEN: 没有找到小红书浏览器窗口, 请在 UI 中点击「打开/聚焦 小红书窗口」")
+	return nil, fmt.Errorf("XHS_WINDOW_NOT_OPEN: 没有找到小红书浏览器窗口, 请在 UI 中点击「打开/聚焦 小红书窗口」")
 }
 
 // Pages 返回所有当前打开的 page (用于 attach 模式下定位 Electron 主窗口)。

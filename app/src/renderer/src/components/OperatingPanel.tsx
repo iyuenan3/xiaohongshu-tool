@@ -238,7 +238,7 @@ export default function OperatingPanel({ onShowHelp }: { onShowHelp?: () => void
         <input value={form.taboo} onChange={(e) => upd('taboo', e.target.value)} placeholder="硬广, 夸大功效, 敏感话题" style={inputStyle} />
       </Field>
 
-      <Field label="素材标签范围" hint="逗号分隔，限定 AI 选图的素材标签（空 = 全部）">
+      <Field label="素材标签范围" hint="逗号分隔，限定 AI 选图的素材标签（空 = 全部）；散图默认 1 张，素材分组按整组">
         <input value={form.asset_tags} onChange={(e) => upd('asset_tags', e.target.value)} placeholder="樱花, 果园, 猫" style={inputStyle} />
       </Field>
 
@@ -331,7 +331,7 @@ export default function OperatingPanel({ onShowHelp }: { onShowHelp?: () => void
           {autoPilot && <span style={{ fontSize: 12, color: 'var(--accent)', marginLeft: 8 }}>· 已开启</span>}
         </h3>
         <p style={{ color: 'var(--ink-mute)', fontSize: 12, marginTop: 6, lineHeight: 1.6 }}>
-          开启后 AI 计划自动激活，拟好的笔记在审核窗口内你<b>未否决</b>则自动发布（仍过禁忌词 / 配图 / 频率护栏）。
+          开启后 AI 计划自动激活，拟好的笔记在审核窗口内你<b>未否决</b>则自动发布（仍过禁忌词 / 配图 / 频率护栏）。发布超时会转为待核对，核对前不会重试。
           默认关闭，发布到唯一账号不可逆，风险自负；随时关闭即停。
         </p>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, cursor: 'pointer' }}>

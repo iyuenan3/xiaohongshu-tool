@@ -86,7 +86,7 @@ export class WorkflowScheduler {
     log.info('[workflow] scheduler init');
     // P3: 恢复上次崩溃留下的卡死 publishing 行 (转人工, 结果未知不自动重发)
     const recovered = recoverStuckPublishing();
-    if (recovered) log.warn(`[workflow] recovered ${recovered} stuck 'publishing' pending → manual`);
+    if (recovered) log.warn(`[workflow] recovered ${recovered} stuck 'publishing' pending -> unknown`);
     const enabled = listEnabledWorkflows();
     log.info(`[workflow] loading ${enabled.length} enabled workflow(s)`);
     for (const wf of enabled) {
@@ -153,10 +153,10 @@ export class WorkflowScheduler {
             log.info(`[workflow] auto-publish ${p.id} skipped (${r.reason})`);
             break;
           case 'timeout':
-            // 结果未知 (可能已发出) → 绝不自动重试 (防重复发到唯一账号), 转人工 + 提醒核对
+            // 结果未知 (可能已发出) → 绝不自动重试 (防重复发到唯一账号), 转待核对 + 提醒核对
             clearAutoPublishAt(p.id);
-            log.warn(`[workflow] auto-publish ${p.id} timeout, → manual (result unknown)`);
-            this.notify('xhsPilot · 自动发布结果未知', `「${title}」发布超时, 可能已发出。已转人工, 请去小红书核对避免重复发布`);
+            log.warn(`[workflow] auto-publish ${p.id} timeout -> unknown`);
+            this.notify('xhsPilot · 自动发布结果未知', `「${title}」发布超时, 可能已发出。已转待核对, 请去小红书确认结果以避免重复发布`);
             this.push('operating:pending-changed', {});
             break;
           case 'publish_failed': {

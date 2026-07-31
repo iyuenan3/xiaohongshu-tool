@@ -180,7 +180,7 @@ export function initDb(): Database.Database {
       tags           TEXT,                         -- JSON: 标签
       ai_reason      TEXT,                         -- AI 为何这样写
       schedule_at    INTEGER,                      -- 计划发布时间
-      status         TEXT NOT NULL DEFAULT 'pending', -- pending/approved/rejected/expired/published
+      status         TEXT NOT NULL DEFAULT 'pending', -- pending/publishing/unknown/approved/rejected/expired/published
       created_at     INTEGER NOT NULL,
       decided_at     INTEGER,
       published_feed_id TEXT,            -- P2/A1: 真发后回写的小红书笔记 id (用于关联表现)

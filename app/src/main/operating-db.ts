@@ -58,7 +58,7 @@ export interface PlanAction {
 
 // ============ 待审发布 (pending_publish) — M4 用 ============
 
-export type PendingStatus = 'pending' | 'publishing' | 'approved' | 'rejected' | 'expired' | 'published';
+export type PendingStatus = 'pending' | 'publishing' | 'unknown' | 'approved' | 'rejected' | 'expired' | 'published';
 
 export interface PendingPublish {
   id: number;
@@ -398,6 +398,28 @@ export function revertPublishingToPending(id: number): void {
   getDb().prepare(`UPDATE pending_publish SET status = 'pending' WHERE id = ? AND status = 'publishing'`).run(id);
 }
 
+// 发布请求超时或进程中断时，真实结果未知。保持独立状态，禁止直接再次发布，必须由用户核对后决断。
+export function markPublishingUnknown(id: number): boolean {
+  const r = getDb()
+    .prepare(`UPDATE pending_publish SET status = 'unknown', auto_publish_at = NULL WHERE id = ? AND status = 'publishing'`)
+    .run(id);
+  return r.changes === 1;
+}
+
+export function resolveUnknownToPending(id: number): boolean {
+  const r = getDb()
+    .prepare(`UPDATE pending_publish SET status = 'pending', decided_at = NULL WHERE id = ? AND status = 'unknown'`)
+    .run(id);
+  return r.changes === 1;
+}
+
+export function resolveUnknownToPublished(id: number): boolean {
+  const r = getDb()
+    .prepare(`UPDATE pending_publish SET status = 'published', decided_at = ? WHERE id = ? AND status = 'unknown'`)
+    .run(Date.now(), id);
+  return r.changes === 1;
+}
+
 // P3: 条件拒绝 (否决) — 仅当仍为 pending 才置 rejected。若已 publishing (真发在途) 则 changes=0,
 // 不覆盖发布结果 (在途发布物理不可撤; 之后会落 published)。返回是否真否决到。
 export function rejectPendingIfPending(id: number): boolean {
@@ -407,12 +429,11 @@ export function rejectPendingIfPending(id: number): boolean {
   return r.changes === 1;
 }
 
-// P3: 启动恢复 — 进程在 claim 后、发布结果落库前崩溃会留下卡死的 'publishing' 行
-// (listPending/listDue 都不选 → UI 看不到 + 永不再发)。启动时退回 pending + 清 auto_publish_at:
-// 结果未知 (可能已发出), 故转纯人工让用户核对, 绝不自动重发 (防重复)。返回恢复条数。
+// P3: 启动恢复。进程在 claim 后、发布结果落库前崩溃会留下卡死的 publishing 行。
+// 结果未知，启动时转 unknown 并清 auto_publish_at，由用户核对后决断，绝不直接开放重发。
 export function recoverStuckPublishing(): number {
   const r = getDb()
-    .prepare(`UPDATE pending_publish SET status = 'pending', auto_publish_at = NULL WHERE status = 'publishing'`)
+    .prepare(`UPDATE pending_publish SET status = 'unknown', auto_publish_at = NULL WHERE status = 'publishing'`)
     .run();
   return r.changes;
 }
@@ -431,6 +452,12 @@ export function getPending(id: number): PendingPublish | null {
 
 export function listPending(status: PendingStatus = 'pending'): PendingPublish[] {
   return getDb().prepare(`SELECT * FROM pending_publish WHERE status = ? ORDER BY created_at DESC`).all(status) as PendingPublish[];
+}
+
+export function listReviewablePending(): PendingPublish[] {
+  return getDb()
+    .prepare(`SELECT * FROM pending_publish WHERE status IN ('unknown', 'pending') ORDER BY CASE status WHEN 'unknown' THEN 0 ELSE 1 END, created_at DESC`)
+    .all() as PendingPublish[];
 }
 
 // 某行动关联的、仍待审 (pending) 的发布稿 — supersede 旧计划时用来作废其稿子。
@@ -452,14 +479,22 @@ export function setPublishedFeedId(id: number, feedId: string): void {
 export function updatePendingContent(
   id: number,
   patch: { title?: string; content?: string; images?: string[]; tags?: string[] },
-): void {
+  resetAutoPublishAt?: number,
+): boolean {
   const fields: string[] = [];
   const args: unknown[] = [];
   if (patch.title !== undefined) { fields.push('title = ?'); args.push(patch.title); }
   if (patch.content !== undefined) { fields.push('content = ?'); args.push(patch.content); }
   if (patch.images !== undefined) { fields.push('images = ?'); args.push(JSON.stringify(patch.images)); }
   if (patch.tags !== undefined) { fields.push('tags = ?'); args.push(JSON.stringify(patch.tags)); }
-  if (!fields.length) return;
+  if (!fields.length) return false;
+  if (resetAutoPublishAt !== undefined) {
+    fields.push('auto_publish_at = CASE WHEN auto_publish_at IS NULL THEN NULL ELSE ? END');
+    args.push(resetAutoPublishAt);
+  }
   args.push(id);
-  getDb().prepare(`UPDATE pending_publish SET ${fields.join(', ')} WHERE id = ?`).run(...args);
+  const r = getDb()
+    .prepare(`UPDATE pending_publish SET ${fields.join(', ')} WHERE id = ? AND status = 'pending'`)
+    .run(...args);
+  return r.changes === 1;
 }

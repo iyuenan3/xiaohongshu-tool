@@ -12,8 +12,8 @@ import type { Template, ExecHelpers, ExecResult } from './index';
 
 // 选图排除「近 N 天已用过」的素材, 实现轮换 (用户反馈: 素材固定不换新)
 const RECENT_USED_DAYS = 14;
-// 散图 (非分组) 每篇最多选几张 (用户反馈 0719 #3): 默认 3, 抽成命名常量以便后续按画像/用户调。
-const LOOSE_IMG_LIMIT = 3;
+// 散图 (非分组) 默认只选 1 张，减少 AI 无意拼图。用户明确策展的分组仍按整组发布。
+const LOOSE_IMG_LIMIT = 1;
 // 分组整组发布封顶: 小红书图文笔记图片上限 18。分组是用户手动策展的集合, 整组发、豁免近 14 天轮换排除。
 const GROUP_IMG_LIMIT = 18;
 
@@ -61,7 +61,7 @@ function byPreference(arr: MediaAsset[]): MediaAsset[] {
 
 // 选图。分组 vs 散图两条路 (用户反馈 0719 #1/#3):
 //   - 指定了有效分组 → 组内全量 (封顶 18)、豁免近 14 天轮换排除 (策展集合就是要整组反复用)
-//   - 散图 (无分组) → 至多 LOOSE_IMG_LIMIT(3) 张:
+//   - 散图 (无分组) → 默认 LOOSE_IMG_LIMIT(1) 张:
 //       · 有 asset_tags: 按标签匹配
 //       · 无 asset_tags: 用 theme 关键词兜底匹配 (绝不回退全库随机, 否则硬贴 theme 到无关图 = 图文不符 #2)
 //       · 三重反固定: 排除近 14 天已用 (不足再回填) + 已分析优先 + 洗牌
@@ -154,7 +154,7 @@ export const plannedPublish: Template = {
   paramsSchema: {
     title: { type: 'string', default: '', label: '标题' },
     content: { type: 'string', default: '', label: '正文' },
-    asset_tags: { type: 'string', default: '', label: '素材标签 (散图选图, ≤3张)' },
+    asset_tags: { type: 'string', default: '', label: '素材标签 (散图默认1张)' },
     asset_group: { type: 'string', default: '', label: '素材分组 (整组发布, 优先于标签)' },
     note_tags: { type: 'string', default: '', label: '笔记话题标签' },
     theme: { type: 'string', default: '', label: '主题 (AI 理由)' },

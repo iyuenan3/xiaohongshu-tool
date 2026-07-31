@@ -152,11 +152,12 @@ export interface PendingPublishP {
   tags: string | null;     // JSON
   ai_reason: string | null;
   schedule_at: number | null;
-  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'published';
+  status: 'pending' | 'publishing' | 'unknown' | 'approved' | 'rejected' | 'expired' | 'published';
   created_at: number;
   decided_at: number | null;
   published_feed_id?: string | null;
   auto_publish_at?: number | null; // P3: 非 null = 全自动审核窗口到点时刻
+  auto_publish_attempts?: number;
 }
 
 const api = {
@@ -341,8 +342,10 @@ const api = {
     listPending: () => ipcRenderer.invoke('operating:list-pending') as Promise<PendingPublishP[]>,
     approvePublish: (id: number) => ipcRenderer.invoke('operating:approve-publish', id) as Promise<{ ok: boolean; error?: string }>,
     rejectPending: (id: number) => ipcRenderer.invoke('operating:reject-pending', id) as Promise<{ ok: boolean; reason?: 'publishing' }>,
+    resolvePublishUnknown: (id: number, outcome: 'published' | 'not_published') =>
+      ipcRenderer.invoke('operating:resolve-publish-unknown', id, outcome) as Promise<{ ok: boolean; error?: string }>,
     updatePending: (id: number, patch: { title?: string; content?: string; images?: string[]; tags?: string[] }) =>
-      ipcRenderer.invoke('operating:update-pending', id, patch) as Promise<{ ok: boolean }>,
+      ipcRenderer.invoke('operating:update-pending', id, patch) as Promise<{ ok: boolean; error?: string }>,
     // P3: 待审队列被后台改动 (自动发/转人工) 时推送, 供 UI 刷新
     onPendingChanged: (cb: () => void) => onPush('operating:pending-changed', cb),
   },

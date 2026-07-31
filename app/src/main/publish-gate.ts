@@ -9,6 +9,7 @@ import { checkRate, logRate } from './rate';
 import {
   getPending, updatePendingStatus, setPublishedFeedId,
   claimPendingForPublish, revertPublishingToPending, rejectPendingIfPending,
+  markPublishingUnknown, resolveUnknownToPending, resolveUnknownToPublished,
   completeActionAndMaybePlan,
 } from './operating-db';
 import { findTaboo, activeTaboo } from './content-guard';
@@ -89,12 +90,16 @@ export async function approvePublish(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     log.warn(`[publish-gate] approve publish ${pendingId} failed: ${msg}`);
-    // 超时 = 结果未知 (可能已发出): 不能盲目重试 (会重复发) → 标 timeout, 退回 pending 交上层终止+提醒人工核对。
+    // 超时 = 结果未知 (可能已发出): 不能盲目重试，转 unknown 后必须由用户核对结果。
     // 其它 = 明确失败 (HTTP 错/Go 拒): 退回 pending, 交上层有界重试。
     // 「操作可能未完成」是 callApi 超时错误的稳定 marker (不含具体秒数, 缩放超时后仍匹配)。
     const isTimeout = msg.includes('操作可能未完成');
+    if (isTimeout) {
+      markPublishingUnknown(pendingId);
+      return { ok: false, error: `发布结果未知: ${msg.slice(0, 100)}`, reason: 'timeout' };
+    }
     revertPublishingToPending(pendingId);
-    return { ok: false, error: `发布失败: ${msg.slice(0, 100)}`, reason: isTimeout ? 'timeout' : 'publish_failed' };
+    return { ok: false, error: `发布失败: ${msg.slice(0, 100)}`, reason: 'publish_failed' };
   }
 
   logRate('publish');
@@ -116,5 +121,38 @@ export function rejectPending(pendingId: number): { ok: boolean; reason?: 'publi
   }
   if (p?.plan_action_id) completeActionAndMaybePlan(p.plan_action_id); // 拒绝 = 该发布行动终态, 标完结防计划永久 active
   log.info(`[publish-gate] pending ${pendingId} rejected`);
+  return { ok: true };
+}
+
+export type UnknownPublishOutcome = 'published' | 'not_published';
+
+// 用户已到小红书核对超时结果后，显式完成 unknown 状态决断。
+// not_published 才重新开放确认发布；published 直接完结行动并记入频率与素材使用。
+export function resolveUnknownPublish(
+  pendingId: number,
+  outcome: UnknownPublishOutcome,
+): { ok: boolean; error?: string } {
+  if (outcome !== 'published' && outcome !== 'not_published') {
+    return { ok: false, error: '无效的核对结果' };
+  }
+  const p = getPending(pendingId);
+  if (!p || p.status !== 'unknown') return { ok: false, error: '该记录已不处于待核对状态' };
+
+  if (outcome === 'not_published') {
+    if (!resolveUnknownToPending(pendingId)) return { ok: false, error: '状态已变化，请刷新后重试' };
+    log.info(`[publish-gate] pending ${pendingId} unknown resolved as not published`);
+    return { ok: true };
+  }
+
+  if (!resolveUnknownToPublished(pendingId)) return { ok: false, error: '状态已变化，请刷新后重试' };
+  let imageIds: string[] = [];
+  try {
+    const parsed = JSON.parse(p.images || '[]') as unknown;
+    if (Array.isArray(parsed) && parsed.every((id) => typeof id === 'string')) imageIds = parsed;
+  } catch { /* ignore invalid legacy data */ }
+  logRate('publish');
+  if (imageIds.length) touchUsed(imageIds);
+  if (p.plan_action_id) completeActionAndMaybePlan(p.plan_action_id);
+  log.info(`[publish-gate] pending ${pendingId} unknown resolved as published`);
   return { ok: true };
 }
