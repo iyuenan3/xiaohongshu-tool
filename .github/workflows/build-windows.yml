@@ -90,7 +90,7 @@ jobs:
         working-directory: app
         shell: pwsh
         run: |
-          Get-ChildItem release -Recurse -Include *.exe,*.yml,*.blockmap | Format-Table Name,Length,LastWriteTime
+          Get-ChildItem release -Recurse -Include xhspilot-Setup-*.exe | Format-Table Name,Length,LastWriteTime
 
       - name: Upload .exe artifact
         if: ${{ github.event.inputs.upload_artifact != 'false' }}
@@ -100,8 +100,6 @@ jobs:
           name: xhs-app-windows-x64
           path: |
             app/release/*/xhspilot-Setup-*.exe
-            app/release/*/latest.yml
-            app/release/*/xhspilot-Setup-*.exe.blockmap
           retention-days: 14
 
       - name: Create / Update GitHub Release
@@ -111,7 +109,5 @@ jobs:
           tag_name: ${{ inputs.release_tag }}
           files: |
             app/release/*/xhspilot-Setup-*.exe
-            app/release/*/latest.yml
-            app/release/*/xhspilot-Setup-*.exe.blockmap
           draft: false
-          body: "Windows / macOS 安装包。auto-update 通过 latest.yml / latest-mac.yml 工作。"
+          body: "Windows / macOS 安装包。客户端通过版本服务检查更新，发现新版本后提示联系客服获取安装包。"

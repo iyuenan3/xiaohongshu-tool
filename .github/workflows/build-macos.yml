@@ -72,7 +72,7 @@ jobs:
 
       - name: List artifacts
         working-directory: app
-        run: ls -lh release/*/*.dmg release/*/*.zip release/*/*.yml 2>&1
+        run: ls -lh release/*/*.dmg release/*/*.zip
 
       - name: Upload artifacts
         continue-on-error: true   # CI 临时 artifact 撞存储配额也不阻断下面的 Create Release (Release 直传 DMG、不占 artifact quota)
@@ -82,8 +82,6 @@ jobs:
           path: |
             app/release/*/*.dmg
             app/release/*/*.zip
-            app/release/*/latest-mac.yml
-            app/release/*/*.blockmap
           retention-days: 14
 
       - name: Create / Update GitHub Release
@@ -94,7 +92,5 @@ jobs:
           files: |
             app/release/*/*.dmg
             app/release/*/*.zip
-            app/release/*/latest-mac.yml
-            app/release/*/*.blockmap
           draft: false
-          body: "Windows / macOS 安装包。auto-update 通过 latest.yml / latest-mac.yml 工作。"
+          body: "Windows / macOS 安装包。客户端通过版本服务检查更新，发现新版本后提示联系客服获取安装包。"
