@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { saveDevBYOK, setDevMode, type BYOKConfig } from '../ai/byok';
+import { saveDevBYOK, setDevMode, testDevBYOK, type BYOKConfig } from '../ai/byok';
 
 interface Props {
   onClose: () => void;
@@ -29,6 +29,7 @@ export default function Settings({ onClose }: Props) {
   const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [byokCfg, setByokCfg] = useState<BYOKConfig>({ baseURL: '', apiKey: '', model: '' });
   const [byokSaving, setByokSaving] = useState(false);
+  const [byokTesting, setByokTesting] = useState(false);
 
   // 配额
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
@@ -123,16 +124,41 @@ export default function Settings({ onClose }: Props) {
     return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  // BYOK 保存 (dev 模式可见)
+  const normalizedByok = (): BYOKConfig => ({
+    baseURL: byokCfg.baseURL.trim().replace(/\/+$/, ''),
+    apiKey: byokCfg.apiKey.trim(),
+    model: byokCfg.model.trim(),
+  });
+
+  // BYOK 测试 / 保存 (dev 模式可见). 保存前强制验证 tools 能力，避免无效配置落盘后靠聊天试错。
+  const testByok = async () => {
+    setByokTesting(true);
+    try {
+      const result = await testDevBYOK(normalizedByok());
+      setLogMsg(`${result.ok ? '✓' : '×'} ${result.message}`);
+    } catch (e) {
+      setLogMsg(`× 连接测试失败: ${String(e)}`);
+    }
+    setByokTesting(false);
+  };
+
   const saveByok = async () => {
     setByokSaving(true);
     try {
-      await saveDevBYOK(byokCfg);
-      setLogMsg('✓ BYOK 已保存, 下次 chat 调用生效');
+      const normalized = normalizedByok();
+      const result = await testDevBYOK(normalized);
+      if (!result.ok) {
+        setLogMsg(`× ${result.message} 配置未保存。`);
+        return;
+      }
+      await saveDevBYOK(normalized);
+      setByokCfg(normalized);
+      setLogMsg('✓ 连接和工具调用验证通过，BYOK 已保存并立即生效。');
     } catch (e) {
       setLogMsg(`× BYOK 保存失败: ${String(e)}`);
+    } finally {
+      setByokSaving(false);
     }
-    setByokSaving(false);
   };
 
   const exitDevMode = async () => {
@@ -140,7 +166,7 @@ export default function Settings({ onClose }: Props) {
     await setDevMode(false);
   };
 
-  const byokValid = !!(byokCfg.apiKey && byokCfg.baseURL && byokCfg.model);
+  const byokValid = !!(byokCfg.apiKey.trim() && byokCfg.baseURL.trim() && byokCfg.model.trim());
   const devMode = license?.dev_mode === true;
   const llmModeLabel = devMode ? '开发者模式 · BYOK' : '中转模式 (默认)';
 
@@ -232,7 +258,8 @@ export default function Settings({ onClose }: Props) {
               </h3>
               <p className="hint" style={{ marginTop: 0, marginBottom: 12, borderTop: 'none', paddingTop: 0 }}>
                 兼容 OpenAI 格式 (火山方舟 / DeepSeek / Kimi / 通义 / OpenAI / Ollama 等).
-                <br />填后软件 LLM 调用切到此配置 (中转 LLM 仍保留, 关闭 dev 模式即恢复).
+                <br />Base URL 填到版本路径即可，不要包含 /chat/completions。保存前会验证鉴权、模型和 tools 能力。
+                <br />保存后软件 LLM 调用切到此配置 (中转 LLM 仍保留, 关闭 dev 模式即恢复).
               </p>
 
               <label>
@@ -265,8 +292,11 @@ export default function Settings({ onClose }: Props) {
               </label>
 
               <div className="settings-actions">
-                <button className="primary" onClick={saveByok} disabled={!byokValid || byokSaving}>
-                  {byokSaving ? '保存中...' : '保存 BYOK'}
+                <button onClick={testByok} disabled={!byokValid || byokTesting || byokSaving}>
+                  {byokTesting ? '测试中...' : '测试连接'}
+                </button>
+                <button className="primary" onClick={saveByok} disabled={!byokValid || byokSaving || byokTesting}>
+                  {byokSaving ? '验证中...' : '测试并保存'}
                 </button>
                 <button onClick={exitDevMode}>退出开发者模式</button>
               </div>

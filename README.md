@@ -66,6 +66,10 @@ npm run build:go
 npm run typecheck
 ```
 
+### BYOK 兼容性
+
+开发者模式支持 OpenAI 兼容接口。Base URL 填版本根路径，例如 `https://example.com/v1`，不要包含 `/chat/completions`。设置页会在保存前用最小 tools 请求验证鉴权、模型和工具调用能力，失败配置不会写入本地。
+
 ## 构建安装包
 
 ```bash

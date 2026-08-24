@@ -9,6 +9,7 @@ import {
 } from './conv';
 import { checkRate, logRate, type RateAction } from './rate';
 import { licenseManager } from './license';
+import { testLlmConnection } from './llm-test';
 import { checkForUpdatesNow, fetchVersionInfo } from './updater';
 import {
   pickAndImport, importFromUrl, listAssets, deleteAsset, getAssetPath, touchUsed,
@@ -218,6 +219,11 @@ export function registerIpcHandlers(
   ipcMain.handle('llm:getActive', () => licenseManager.getActiveLlm());
   ipcMain.handle('llm:getQuota', () => licenseManager.fetchQuota());
   ipcMain.handle('llm:setDevMode', (_, enabled: boolean) => licenseManager.setDevMode(enabled));
+  ipcMain.handle(
+    'llm:testByok',
+    (_, byok: { base_url: string; api_key: string; model: string }) =>
+      testLlmConnection(byok),
+  );
   ipcMain.handle(
     'llm:setByok',
     (_, byok: { base_url: string; api_key: string; model: string }) =>

@@ -245,6 +245,10 @@ const api = {
       next_reset_at: number;
     } | null>,
     setDevMode: (enabled: boolean) => ipcRenderer.invoke('llm:setDevMode', enabled) as Promise<void>,
+    testByok: (byok: LlmConfigP) => ipcRenderer.invoke('llm:testByok', byok) as Promise<{
+      ok: boolean;
+      message: string;
+    }>,
     setByok: (byok: LlmConfigP) => ipcRenderer.invoke('llm:setByok', byok) as Promise<void>,
   },
 

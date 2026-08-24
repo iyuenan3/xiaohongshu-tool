@@ -17,6 +17,10 @@ import (
 // 120s 对桌面交互偏长 (失败要等 2 分钟), 降到 60s; 带筛选的 DOM 链再单独用更短的 searchFilterTimeout.
 const searchOpTimeout = 60 * time.Second
 
+// 搜索页是持续请求的 SPA，WaitStable 会把长连接也算进稳定条件，真实环境会整段耗尽 60s。
+// 改为两次有界尝试，只等待业务所需的 search.feeds 状态。
+const searchAttemptTimeout = 28 * time.Second
+
 // searchFilterTimeout 筛选面板 DOM 操作 (hover/等面板/点选项) 单独的较短超时.
 // 筛选面板偶发不出现时, 这段会一路 MustXxx 死等到 searchOpTimeout 才 panic (反馈日志见 120s 卡死);
 // 单独 cap 20s 让带筛选的搜索快速失败, 而不是拖垮整次交互.
@@ -192,10 +196,32 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 
 	searchURL := makeSearchURL(keyword)
 	logrus.Infof("search.Search: navigating to %s", searchURL)
-	page.MustNavigate(searchURL)
-	page.MustWaitStable()
-
-	page.MustWait(`() => window.__INITIAL_STATE__ !== undefined`)
+	var readyErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		attemptPage := page.Timeout(searchAttemptTimeout)
+		if err := attemptPage.Navigate(searchURL); err != nil {
+			readyErr = fmt.Errorf("导航搜索页失败: %w", err)
+		} else {
+			readyErr = attemptPage.Wait(rod.Eval(`() => {
+				const feeds = window.__INITIAL_STATE__?.search?.feeds;
+				return !!feeds && (feeds.value !== undefined || feeds._value !== undefined);
+			}`))
+			if readyErr != nil {
+				readyErr = fmt.Errorf("等待搜索结果状态失败: %w", readyErr)
+			}
+		}
+		attemptPage.CancelTimeout()
+		if readyErr == nil {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		logrus.Warnf("search.Search attempt %d/2 failed: %v", attempt, readyErr)
+	}
+	if readyErr != nil {
+		return nil, readyErr
+	}
 	logrus.Infof("search.Search: page loaded, url=%s", currentPageURL(page))
 
 	// 如果有筛选条件，则应用筛选
@@ -247,7 +273,7 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 		}
 	}
 
-	result := page.MustEval(`() => {
+	evalResult, err := page.Eval(`() => {
 		if (window.__INITIAL_STATE__ &&
 		    window.__INITIAL_STATE__.search &&
 		    window.__INITIAL_STATE__.search.feeds) {
@@ -258,7 +284,11 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 			}
 		}
 		return "";
-	}`).String()
+	}`)
+	if err != nil {
+		return nil, fmt.Errorf("读取搜索结果失败: %w", err)
+	}
+	result := evalResult.Value.String()
 
 	if result == "" {
 		return nil, errors.ErrNoFeeds
@@ -268,7 +298,7 @@ func (s *SearchAction) Search(ctx context.Context, keyword string, filters ...Fi
 		return nil, fmt.Errorf("failed to unmarshal feeds: %w", err)
 	}
 
-	return feeds, nil
+	return filterActionableFeeds(feeds), nil
 }
 
 // currentPageURL 安全取页面 URL, 失败返 "(unknown)"

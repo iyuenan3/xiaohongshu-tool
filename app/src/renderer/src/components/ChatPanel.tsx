@@ -42,6 +42,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
   const [currentTool, setCurrentTool] = useState<string>('');
   const [llmCfg, setLlmCfg] = useState<BYOKConfig | null>(null);
   const [licenseStatus, setLicenseStatus] = useState<'unactivated' | 'active' | 'suspended' | 'expired' | 'revoked' | 'mismatch' | 'error'>('unactivated');
+  const [isByokMode, setIsByokMode] = useState(false);
   const byokOk = llmCfg !== null;
 
   // v0.6 D6: ChatPanel 锁死 (3 个触发场景, 优先级 revoked > suspended > 配置缺失)
@@ -83,12 +84,14 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
       if (!alive) return;
       setLlmCfg(c);
       setLicenseStatus(s.status);
+      setIsByokMode(s.dev_mode === true);
     };
     refresh();
     // 监听 license 变化 (heartbeat / suspend / resume / revoke / dev 切换) → 重新 load
     const unsub = window.api.license.onChanged?.((s) => {
       if (!alive) return;
       setLicenseStatus(s.status);
+      setIsByokMode(s.dev_mode === true);
       loadActiveLLM().then((c) => { if (alive) setLlmCfg(c); });
     });
     return () => {
@@ -274,6 +277,7 @@ const ChatPanel = forwardRef<ChatPanelHandle, Props>(function ChatPanel(
     try {
       const newHistory = await runAgent({
         cfg,
+        isByokMode,
         history,
         userInput: promptForLLM,
         userImageDataUrls: imageDataUrls,

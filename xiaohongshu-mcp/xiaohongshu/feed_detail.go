@@ -27,6 +27,8 @@ const (
 	largeScrollTrigger     = 5 // 停滞多少次后触发大滚动
 	buttonClickInterval    = 3 // 每隔多少次尝试点击一次按钮
 	finalSprintPushCount   = 15
+	feedDetailOpTimeout    = 3 * time.Minute
+	feedDetailNavTimeout   = 45 * time.Second
 )
 
 // 延迟时间配置（毫秒）
@@ -76,8 +78,27 @@ func (f *FeedDetailAction) GetFeedDetail(ctx context.Context, feedID, xsecToken 
 	return f.GetFeedDetailWithConfig(ctx, feedID, xsecToken, loadAllComments, config)
 }
 
-func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID, xsecToken string, loadAllComments bool, config CommentLoadConfig) (*FeedDetailResponse, error) {
-	page := f.page.Context(ctx).Timeout(10 * time.Minute)
+func (f *FeedDetailAction) GetFeedDetailWithConfig(
+	ctx context.Context,
+	feedID, xsecToken string,
+	loadAllComments bool,
+	config CommentLoadConfig,
+) (result *FeedDetailResponse, err error) {
+	if !IsActionableFeedID(feedID) {
+		return nil, fmt.Errorf("无效的普通笔记 ID: %s", feedID)
+	}
+
+	// 兜住评论加载等存量 Must*，让超时/取消变成普通 error，不再由 Gin Recovery 打整段 panic 栈。
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result = nil
+			err = fmt.Errorf("获取笔记详情失败: %v", recovered)
+			logrus.Warnf("feed detail recovered: %v, feed=%s", recovered, feedID)
+		}
+	}()
+
+	// Electron 上游请求 240s 会取消。内部必须更早结束并归还 attach page 所有权。
+	page := f.page.Context(ctx).Timeout(feedDetailOpTimeout)
 	url := makeFeedDetailURL(feedID, xsecToken)
 
 	logrus.Infof("打开 feed 详情页: %s", url)
@@ -85,13 +106,21 @@ func (f *FeedDetailAction) GetFeedDetailWithConfig(ctx context.Context, feedID, 
 		config.ClickMoreReplies, config.MaxRepliesThreshold, config.MaxCommentItems, config.ScrollSpeed)
 
 	// 使用retry-go处理页面导航和DOM稳定等待
-	err := retry.Do(
+	err = retry.Do(
 		func() error {
-			page.MustNavigate(url)
-			page.MustWaitDOMStable()
+			attemptPage := page.Timeout(feedDetailNavTimeout)
+			defer attemptPage.CancelTimeout()
+			if err := attemptPage.Navigate(url); err != nil {
+				return fmt.Errorf("导航笔记详情页失败: %w", err)
+			}
+			if err := attemptPage.WaitDOMStable(time.Second, 0); err != nil {
+				return fmt.Errorf("等待笔记详情页稳定失败: %w", err)
+			}
 			return nil
 		},
 		retry.Attempts(3),
+		retry.Context(page.GetContext()),
+		retry.LastErrorOnly(true),
 		retry.Delay(500*time.Millisecond),
 		retry.MaxJitter(1000*time.Millisecond),
 		retry.OnRetry(func(n uint, err error) {

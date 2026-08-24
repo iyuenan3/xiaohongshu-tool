@@ -54,9 +54,19 @@ func resolveFeed(c *gin.Context, seq int, feedID, xsecToken string) (string, str
 				"序号无效或已过期, 请先调用 list_feeds 获取最新列表", seq)
 			return "", "", false
 		}
+		if !xiaohongshu.IsActionableFeedID(id) {
+			respondError(c, http.StatusBadRequest, "INVALID_FEED_ID",
+				"该卡片不是可操作的普通笔记, 请重新获取列表", id)
+			return "", "", false
+		}
 		return id, token, true
 	}
 	if feedID != "" && xsecToken != "" {
+		if !xiaohongshu.IsActionableFeedID(feedID) {
+			respondError(c, http.StatusBadRequest, "INVALID_FEED_ID",
+				"该卡片不是可操作的普通笔记", feedID)
+			return "", "", false
+		}
 		return feedID, xsecToken, true
 	}
 	respondError(c, http.StatusBadRequest, "INVALID_REQUEST",

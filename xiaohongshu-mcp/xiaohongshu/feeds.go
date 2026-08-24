@@ -51,5 +51,5 @@ func (f *FeedsListAction) GetFeedsList(ctx context.Context) ([]Feed, error) {
 		return nil, fmt.Errorf("failed to unmarshal feeds: %w", err)
 	}
 
-	return feeds, nil
+	return filterActionableFeeds(feeds), nil
 }

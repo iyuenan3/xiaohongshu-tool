@@ -74,6 +74,7 @@ export interface ToolCaller {
 
 export interface RunAgentOptions {
   cfg: BYOKConfig;
+  isByokMode?: boolean;
   history: ChatMessage[];
   userInput: string;
   /**
@@ -122,9 +123,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
   // 模型常把旧搜索结果当成"首页推荐"复述 (反馈 B-A/B-C)。两道防线:
   // ① 这里折叠跨消息的往轮历史 (foldOldToolResult);
   // ② 每轮 LLM 调用前再就地折叠"本 turn 内更早的"大结果 (foldStaleToolResultsInPlace), 只留最近一条全文。
+  const sanitizedHistory = sanitizeHistoryForLLM(opts.history);
+  if (sanitizedHistory.length !== opts.history.length) {
+    rlog.warn('agent', `sanitized ${opts.history.length - sanitizedHistory.length} malformed history messages`);
+  }
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
-    ...opts.history.map(foldOldToolResult),
+    ...sanitizedHistory.map(foldOldToolResult),
     userMessageForLLM,
   ];
 
@@ -192,6 +197,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
       let userMsg = String(e);
       if (code === 'insufficient_quota' || status === 429) {
         userMsg = '本月 AI 调用额度已用完, 下月 1 日 00:00 自动重置. 急需使用请联系客服微信 xxx 临时加额.';
+      } else if ((status === 401 || status === 403) && opts.isByokMode) {
+        userMsg = 'BYOK 鉴权失败，请在设置中检查 API Key、Base URL 和 Model，并重新运行“测试连接”。';
       } else if (status === 401 || status === 403) {
         // 可能是 suspend (token disabled) / api_key 真坏 / 网络异常等. heartbeat 一次同步 status
         try {
@@ -206,6 +213,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<ChatMessage[]> {
         } catch {
           userMsg = 'AI 服务连接失败 (401/403), 请稍后重试或联系客服反馈.';
         }
+      } else if (status === 404 && opts.isByokMode) {
+        userMsg = 'BYOK 接口或模型不存在，请检查 Base URL 路径和 Model 是否匹配。';
+      } else if (status === 400 && opts.isByokMode) {
+        userMsg = 'BYOK 请求不兼容，请在设置中重新测试连接；如刚切换服务，可新建对话后重试。';
       }
       onEvent({ type: 'error', error: userMsg });
       return newHistory;
@@ -384,4 +395,54 @@ function toOpenAIMessage(m: ChatMessage): OpenAI.Chat.Completions.ChatCompletion
     return { role: 'tool', tool_call_id: m.tool_call_id, content: m.content };
   }
   return { role: m.role, content: m.content };
+}
+
+// 历史数据库可能来自旧版本或不同 provider。严格兼容端点会拒绝 content 为空且无 tool_calls
+// 的 assistant 消息，也会拒绝找不到前置 tool_call 的孤儿 tool 消息。只清洗发给 LLM 的副本，
+// 不改持久化历史和用户可见内容。
+function sanitizeHistoryForLLM(history: ChatMessage[]): ChatMessage[] {
+  const cleaned: ChatMessage[] = [];
+  const knownToolCallIds = new Set<string>();
+
+  for (const message of history) {
+    if (message.role === 'assistant') {
+      knownToolCallIds.clear();
+      const content = typeof message.content === 'string' ? message.content : '';
+      const toolCalls = Array.isArray(message.tool_calls)
+        ? message.tool_calls.filter((call) => {
+            const rawCall = call as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+            const id = rawCall?.id;
+            const fn = rawCall?.function;
+            return typeof id === 'string' && id.length > 0 &&
+              typeof fn?.name === 'string' && fn.name.length > 0 &&
+              typeof fn.arguments === 'string';
+          })
+        : [];
+      if (!content.trim() && toolCalls.length === 0) continue;
+      for (const call of toolCalls) knownToolCallIds.add(call.id);
+      cleaned.push({
+        role: 'assistant',
+        content,
+        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+      });
+      continue;
+    }
+
+    if (message.role === 'tool') {
+      if (!message.tool_call_id || !knownToolCallIds.has(message.tool_call_id)) continue;
+      cleaned.push({
+        role: 'tool',
+        tool_call_id: message.tool_call_id,
+        content: typeof message.content === 'string' ? message.content : String(message.content ?? ''),
+      });
+      knownToolCallIds.delete(message.tool_call_id);
+      continue;
+    }
+
+    knownToolCallIds.clear();
+    if (typeof message.content !== 'string' || !message.content.trim()) continue;
+    cleaned.push(message);
+  }
+
+  return cleaned;
 }

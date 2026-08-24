@@ -11,14 +11,34 @@ import {
 } from './operating-db';
 import { listAssets, shuffleArray, groupsOverview, type MediaAsset } from './assets';
 
-// 超时/输出量按计划周期 (horizon) 缩放: 14 天计划行动条目翻倍、输出 token 大幅上升,
-// 固定 90s + 3000 token 对 14 天几乎必撞超时 (见反馈日志 14d 6 次全卡 90.1s abort)。
-// base 60→90s: v0.9.6 真机日志 7d(144s) 仍偶发压线 abort, 放宽到 174s。
-const PLANNER_TIMEOUT_MIN_MS = 90 * 1000;
-const PLANNER_TIMEOUT_BASE_MS = 90 * 1000;
-const PLANNER_TIMEOUT_PER_DAY_MS = 12 * 1000;
-function plannerTimeoutFor(horizonDays: number): number {
-  return Math.max(PLANNER_TIMEOUT_MIN_MS, PLANNER_TIMEOUT_BASE_MS + horizonDays * PLANNER_TIMEOUT_PER_DAY_MS);
+// Planner 输出量随周期增长。旧实现 stream:false + 单一墙钟超时，真机 7d 请求出现
+// 173.888s 成功 / 174.027s abort 的确定性断崖。现在改为流式读取：
+// - 首字节仍按周期给足预算，兼容慢模型与会缓冲响应头的网关；
+// - 收到流后只在连续无数据时触发 idle timeout，正常持续产出不会被墙钟误杀；
+// - 同时保留更宽的总预算，防 provider 持续发心跳却永不结束。
+const PLANNER_FIRST_BYTE_MIN_MS = 90 * 1000;
+const PLANNER_FIRST_BYTE_BASE_MS = 90 * 1000;
+const PLANNER_FIRST_BYTE_PER_DAY_MS = 12 * 1000;
+const PLANNER_STREAM_IDLE_MS = 60 * 1000;
+const PLANNER_TOTAL_MIN_MS = 5 * 60 * 1000;
+const PLANNER_TOTAL_AFTER_FIRST_BYTE_MS = 3 * 60 * 1000;
+
+interface PlannerTimeouts {
+  firstByteMs: number;
+  idleMs: number;
+  totalMs: number;
+}
+
+function plannerTimeoutsFor(horizonDays: number): PlannerTimeouts {
+  const firstByteMs = Math.max(
+    PLANNER_FIRST_BYTE_MIN_MS,
+    PLANNER_FIRST_BYTE_BASE_MS + horizonDays * PLANNER_FIRST_BYTE_PER_DAY_MS,
+  );
+  return {
+    firstByteMs,
+    idleMs: PLANNER_STREAM_IDLE_MS,
+    totalMs: Math.max(PLANNER_TOTAL_MIN_MS, firstByteMs + PLANNER_TOTAL_AFTER_FIRST_BYTE_MS),
+  };
 }
 function plannerMaxTokensFor(horizonDays: number): number {
   // 下界 3000 = 原固定值, 保证短周期 (3 天) 不回退致正文截断; 上界 6000; 极端入参也不会出 <3000 的值
@@ -80,19 +100,45 @@ export async function generatePlan(horizonDays = 7): Promise<GeneratePlanResult>
   if (!llm) return { ok: false, error: 'LLM 未配置（激活码状态异常或 BYOK 为空）' };
 
   const userPrompt = buildContext(profile, horizonDays);
-  const timeoutMs = plannerTimeoutFor(horizonDays);
-  log.info(`[planner] generating ${horizonDays}d plan for profile ${profile.id} (timeout ${Math.round(timeoutMs / 1000)}s)`);
+  const timeouts = plannerTimeoutsFor(horizonDays);
+  log.info(
+    `[planner] generating ${horizonDays}d plan for profile ${profile.id} ` +
+    `(first-byte ${Math.round(timeouts.firstByteMs / 1000)}s, idle ${Math.round(timeouts.idleMs / 1000)}s, total ${Math.round(timeouts.totalMs / 1000)}s)`,
+  );
 
   let raw: string;
   try {
-    raw = await callPlannerLLM(llm, PLANNER_SYSTEM, userPrompt, { timeoutMs, maxTokens: plannerMaxTokensFor(horizonDays) });
+    raw = await callPlannerLLM(llm, PLANNER_SYSTEM, userPrompt, {
+      ...timeouts,
+      maxTokens: plannerMaxTokensFor(horizonDays),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     log.warn(`[planner] LLM call failed: ${msg}`);
     if (msg.includes('429')) return { ok: false, error: '本月 AI 额度可能已用尽，请联系客服' };
-    if (e instanceof Error && e.name === 'AbortError') {
+    let isByokMode = false;
+    try {
+      isByokMode = (await licenseManager.getStatus()).dev_mode === true;
+    } catch {
+      // 错误文案降级不应覆盖原始 Planner 失败。
+    }
+    if (isByokMode && /LLM (401|403)/.test(msg)) {
+      return { ok: false, error: 'AI 规划鉴权失败，请在设置中检查 BYOK 并重新测试连接' };
+    }
+    if (isByokMode && (/LLM 404/.test(msg) || /UnsupportedModel|model[_ ]?not[_ ]?found/i.test(msg))) {
+      return { ok: false, error: '当前 BYOK 端点不支持该模型，请检查 Base URL 与 Model 是否匹配' };
+    }
+    if (/LLM 503/.test(msg) || /No available channel|无可用渠道/i.test(msg)) {
+      return { ok: false, error: 'AI 模型通道暂不可用，请稍后重试或更换可用模型' };
+    }
+    if (e instanceof PlannerTimeoutError) {
       const tip = horizonDays >= 14 ? '；14 天计划生成较慢，可改用 7 天周期' : '';
-      return { ok: false, error: `AI 规划超时（${Math.round(timeoutMs / 1000)}s），请重试${tip}` };
+      const stage = e.kind === 'first-byte'
+        ? '等待模型开始响应'
+        : e.kind === 'idle'
+          ? '模型响应中断'
+          : '生成总时长';
+      return { ok: false, error: `AI 规划超时（${stage}），请重试${tip}` };
     }
     return { ok: false, error: `AI 规划失败：${msg.slice(0, 80)}` };
   }
@@ -272,16 +318,50 @@ function dayTimeToTs(day: number, time: string): number {
   return ts < now ? now + 5 * 60 * 1000 : ts;
 }
 
+type PlannerTimeoutKind = 'first-byte' | 'idle' | 'total';
+
+class PlannerTimeoutError extends Error {
+  readonly kind: PlannerTimeoutKind;
+
+  constructor(kind: PlannerTimeoutKind) {
+    super(`Planner ${kind} timeout`);
+    this.name = 'AbortError';
+    this.kind = kind;
+  }
+}
+
+interface PlannerCallOptions {
+  firstByteMs?: number;
+  idleMs?: number;
+  totalMs?: number;
+  maxTokens?: number;
+}
+
 async function callPlannerLLM(
   llm: LlmConfig,
   system: string,
   user: string,
-  opts: { timeoutMs?: number; maxTokens?: number } = {},
+  opts: PlannerCallOptions = {},
 ): Promise<string> {
-  const timeoutMs = opts.timeoutMs ?? PLANNER_TIMEOUT_MIN_MS;
+  const firstByteMs = opts.firstByteMs ?? PLANNER_FIRST_BYTE_MIN_MS;
+  const idleMs = opts.idleMs ?? PLANNER_STREAM_IDLE_MS;
+  const totalMs = opts.totalMs ?? PLANNER_TOTAL_MIN_MS;
   const maxTokens = opts.maxTokens ?? 3000;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutKind: PlannerTimeoutKind | null = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const abortFor = (kind: PlannerTimeoutKind) => {
+    if (timeoutKind !== null) return;
+    timeoutKind = kind;
+    controller.abort();
+  };
+  const firstByteTimer = setTimeout(() => abortFor('first-byte'), firstByteMs);
+  const totalTimer = setTimeout(() => abortFor('total'), totalMs);
+  const resetIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => abortFor('idle'), idleMs);
+  };
+
   try {
     const resp = await net.fetch(`${llm.base_url}/chat/completions`, {
       method: 'POST',
@@ -293,21 +373,92 @@ async function callPlannerLLM(
           { role: 'user', content: user },
         ],
         max_tokens: maxTokens,
-        stream: false,
+        stream: true,
       }),
       signal: controller.signal,
     });
+    clearTimeout(firstByteTimer);
     if (!resp.ok) {
       const t = await resp.text();
       throw new Error(`LLM ${resp.status}: ${t.slice(0, 200)}`);
     }
-    const json = (await resp.json()) as { choices?: { message?: { content?: string } }[] };
-    const content = json.choices?.[0]?.message?.content?.trim() ?? '';
+
+    const contentType = resp.headers.get('content-type') ?? '';
+    if (!contentType.toLowerCase().includes('text/event-stream')) {
+      // 少数 OpenAI 兼容网关会忽略 stream:true 并返回普通 JSON，保留兼容。
+      const data = await resp.json() as { choices?: { message?: { content?: unknown } }[] };
+      const content = extractMessageContent(data.choices?.[0]?.message?.content).trim();
+      if (!content) throw new Error('LLM 返回空内容');
+      return content;
+    }
+
+    if (!resp.body) throw new Error('LLM 流式响应缺少 body');
+    resetIdleTimer();
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    let content = '';
+    let done = false;
+
+    while (!done) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        pending += decoder.decode();
+        done = true;
+      } else {
+        resetIdleTimer();
+        pending += decoder.decode(chunk.value, { stream: true });
+      }
+
+      const lines = pending.split(/\r?\n/);
+      pending = done ? '' : (lines.pop() ?? '');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload) continue;
+        if (payload === '[DONE]') {
+          done = true;
+          break;
+        }
+        try {
+          const event = JSON.parse(payload) as {
+            choices?: { delta?: { content?: unknown }; message?: { content?: unknown } }[];
+          };
+          content += extractMessageContent(
+            event.choices?.[0]?.delta?.content ?? event.choices?.[0]?.message?.content,
+          );
+        } catch (e) {
+          log.debug(`[planner] ignored malformed SSE event: ${String(e)}`);
+        }
+      }
+    }
+
+    content = content.trim();
     if (!content) throw new Error('LLM 返回空内容');
     return content;
+  } catch (e) {
+    if (controller.signal.aborted && timeoutKind) {
+      throw new PlannerTimeoutError(timeoutKind);
+    }
+    throw e;
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(firstByteTimer);
+    clearTimeout(totalTimer);
+    if (idleTimer) clearTimeout(idleTimer);
   }
+}
+
+function extractMessageContent(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return '';
+  return value
+    .map((part) => {
+      if (!part || typeof part !== 'object') return '';
+      const text = (part as { text?: unknown }).text;
+      return typeof text === 'string' ? text : '';
+    })
+    .join('');
 }
 
 // 运营报告 AI 解读 (D): 据趋势 + 笔记表现给一段可执行洞察.

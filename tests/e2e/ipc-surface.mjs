@@ -14,6 +14,7 @@ const expectedSurface = {
   'rate': ['check', 'log'],
   'updater': ['check'],
   'license': ['status', 'getMachineId', 'activate', 'heartbeat', 'clear', 'onChanged'],
+  'llm': ['getActive', 'getQuota', 'setDevMode', 'testByok', 'setByok'],
   'assets': ['pick', 'importUrl', 'list', 'delete', 'getPath', 'touchUsed', 'setTags', 'search'],
   'web': ['search'],
 };
@@ -73,6 +74,20 @@ try {
   } else {
     r.ok(true, `IPC-15b getPageContext 返 null (无活动页) 也允许`);
   }
+
+  // IPC-16: BYOK 校验入口可调，空配置必须本地快速失败且不发网络请求、不落盘。
+  const byokValidation = await evalFn(`async () => {
+    try {
+      return await window.api.llm.testByok({ base_url: '', api_key: '', model: '' });
+    } catch (e) {
+      return { ok: null, message: String(e) };
+    }
+  }`);
+  r.ok(
+    byokValidation?.ok === false && typeof byokValidation?.message === 'string',
+    `IPC-16 llm.testByok 空配置快速失败`,
+    byokValidation,
+  );
 } catch (e) {
   r.ok(false, `运行时异常`, e.message);
 }

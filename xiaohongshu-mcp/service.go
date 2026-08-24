@@ -411,6 +411,9 @@ func (s *XiaohongshuService) GetFeedDetail(ctx context.Context, feedID, xsecToke
 
 // GetFeedDetailWithConfig 使用配置获取Feed详情
 func (s *XiaohongshuService) GetFeedDetailWithConfig(ctx context.Context, feedID, xsecToken string, loadAllComments bool, config xiaohongshu.CommentLoadConfig) (*FeedDetailResponse, error) {
+	if !xiaohongshu.IsActionableFeedID(feedID) {
+		return nil, fmt.Errorf("无效的普通笔记 ID: %s", feedID)
+	}
 	page, cleanup, err := newBrowserPage(ctx)
 	if err != nil {
 		return nil, err

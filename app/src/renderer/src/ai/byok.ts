@@ -46,6 +46,15 @@ export async function saveDevBYOK(cfg: BYOKConfig): Promise<void> {
   });
 }
 
+/** Dev 模式: 不落盘，验证 endpoint / key / model 与 tools 能力。 */
+export async function testDevBYOK(cfg: BYOKConfig): Promise<{ ok: boolean; message: string }> {
+  return window.api.llm.testByok({
+    base_url: cfg.baseURL.trim().replace(/\/+$/, ''),
+    api_key: cfg.apiKey.trim(),
+    model: cfg.model.trim(),
+  });
+}
+
 export async function setDevMode(enabled: boolean): Promise<void> {
   await window.api.llm.setDevMode(enabled);
 }
